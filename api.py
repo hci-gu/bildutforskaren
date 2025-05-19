@@ -8,12 +8,12 @@ from transformers import CLIPProcessor, CLIPModel
 
 # ---- Config ----
 IMAGE_FOLDER = "images"  # Replace with actual folder
-TOP_K = 5
+TOP_K = 10
 
 # ---- Load CLIP ----
 device = "cuda" if torch.cuda.is_available() else "mps"
-model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32").to(device)
-processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
+model = CLIPModel.from_pretrained("openai/clip-vit-large-patch14").to(device)
+processor = CLIPProcessor.from_pretrained("openai/clip-vit-large-patch14")
 
 # ---- App setup ----
 app = Flask(__name__)
@@ -66,6 +66,14 @@ def get_embeddings():
         for idx, embedding in enumerate(embeddings)
     ]
     return jsonify(embeddings_list)
+
+@app.route("/embedding/<int:image_id>", methods=["GET"])
+def get_embedding(image_id):
+    if 0 <= image_id < len(embeddings):
+        embedding = embeddings[image_id].tolist()
+        return jsonify(embedding)
+    else:
+        return abort(404, description="Image ID not found")
 
 @app.route("/search", methods=["GET"])
 def search():

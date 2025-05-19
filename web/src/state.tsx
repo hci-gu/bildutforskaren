@@ -12,6 +12,7 @@ async function loadAndPlotEmbeddings() {
   const embeddings = embeddingsData.map(
     (item: { id: string; embedding: number[] }) => item.embedding
   )
+  console.log('embeddings:', embeddings)
   const umap = new UMAP({
     nNeighbors: 15,
     minDist: 0.1,
@@ -84,3 +85,19 @@ export const embeddingsAtom = atom(async (_) => {
     return []
   }
 })
+
+export const embeddingAtom = atomFamily((id: string) =>
+  atom(async () => {
+    try {
+      const response = await fetch(`${API_URL}/embedding/${id}`)
+      if (!response.ok) {
+        throw new Error('Network response was not ok')
+      }
+      const data = await response.json()
+      return data
+    } catch (error) {
+      console.error('Failed to fetch image:', error)
+      return null
+    }
+  })
+)

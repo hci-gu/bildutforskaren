@@ -1,12 +1,6 @@
 import { API_URL } from '@/state'
 import React from 'react'
-import {
-  NodeProps,
-  Handle,
-  Position,
-  useReactFlow,
-  useViewport,
-} from 'reactflow'
+import { NodeProps } from 'reactflow'
 
 type CustomData = {
   id: number
@@ -14,17 +8,13 @@ type CustomData = {
 }
 
 export const CustomImageNode: React.FC<NodeProps<CustomData>> = ({ data }) => {
-  const { zoom } = useViewport()
-
-  const remappedZoom = zoom / 20
-
   return (
     <div
       style={{
-        width: data.size * remappedZoom,
-        height: data.size * remappedZoom,
+        width: data.size * 0.25,
+        height: data.size * 0.25,
         overflow: 'hidden',
-        borderRadius: 8,
+        borderRadius: 4,
         boxShadow: '0 0 4px rgba(51, 36, 36, 0.3)',
       }}
     >
