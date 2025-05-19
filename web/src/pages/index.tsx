@@ -4,11 +4,13 @@ import { useState, useEffect } from 'react'
 import { Input } from '../components/ui/input'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { EmbeddingsCanvas } from '../components/EmbeddingsCanvas'
+import Image from '@/components/Image'
 
 function IndexPage() {
   const [query, setQuery] = useState('')
   const [debouncedQuery, setDebouncedQuery] = useState(query)
-  const images = useAtomValue(imagesAtom)
+  // const images = useAtomValue(imagesAtom)
+  const images: any = []
   const searchResults = useAtomValue(searchImagesAtom(debouncedQuery))
 
   useEffect(() => {
@@ -32,37 +34,11 @@ function IndexPage() {
       />
 
       <div className="flex flex-row w-9/10 justify-around gap-16 margin-x-4">
-        <div className="w-1/2">
+        <div className="w-full">
           <h1 className="text-2xl font-bold">Matches</h1>
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-6 gap-4">
             {searchResults.map((image: string, index: number) => (
-              <div key={index} className="w-full h-48 bg-gray-200 relative">
-                <img
-                  src={`${API_URL}/image/${image}`}
-                  alt={`Image ${index}`}
-                  className="w-full h-full object-cover"
-                />
-                <span className="absolute bottom-2 right-2 bg-black text-white text-xs px-2 py-1 rounded">
-                  {image}
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-        <div className="w-1/2">
-          <h1 className="text-2xl font-bold">Images ( {images.length} )</h1>
-          <div className="grid grid-cols-3 gap-4">
-            {images.map((image: string, index: number) => (
-              <div key={index} className="w-full h-48 bg-gray-200 relative">
-                <img
-                  src={`${API_URL}/image/${image}`}
-                  alt={`Image ${index}`}
-                  className="w-full h-full object-cover"
-                />
-                <span className="absolute bottom-2 right-2 bg-black text-white text-xs px-2 py-1 rounded">
-                  {image}
-                </span>
-              </div>
+              <Image key={index} image={image} index={index} />
             ))}
           </div>
         </div>
