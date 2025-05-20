@@ -24,10 +24,11 @@ async function loadAndPlotEmbeddings() {
     (item: { id: string }, index: number) => ({
       id: item.id,
       point: embedding2d[index],
+      meta: {
+        matched: Math.random() > 0.9,
+      },
     })
   )
-
-  console.log('Embedding Map:', embeddingMap)
 
   return embeddingMap
 }

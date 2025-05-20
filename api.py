@@ -131,6 +131,7 @@ logging.info("FAISS index ready\n")
 # ── Routes ────────────────────────────────────────────────────────────────
 @app.route("/embeddings", methods=["GET"])
 def get_embeddings():
+
     return jsonify([
         {"id": idx, "embedding": emb.tolist()} for idx, emb in enumerate(embeddings.numpy())
     ])
