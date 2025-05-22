@@ -1,23 +1,18 @@
 import { useAtomValue } from 'jotai'
-import { API_URL, imagesAtom, searchImagesAtom } from '../state'
+import { API_URL, searchImagesAtom } from '../state'
 import { useState, useEffect } from 'react'
 import { Input } from '../components/ui/input'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { EmbeddingsCanvas } from '../components/EmbeddingsCanvas'
-import Image from '@/components/Image'
+import { PhotoView } from 'react-photo-view'
 
 function IndexPage() {
   const [query, setQuery] = useState('')
   const [debouncedQuery, setDebouncedQuery] = useState(query)
-  // const images = useAtomValue(imagesAtom)
-  const images: any = []
   const searchResults = useAtomValue(searchImagesAtom(debouncedQuery))
 
   useEffect(() => {
     const handler = setTimeout(() => {
       setDebouncedQuery(query)
-    }, 300) // Adjust debounce delay as needed
-
+    }, 300)
     return () => {
       clearTimeout(handler)
     }
@@ -37,9 +32,19 @@ function IndexPage() {
         <div className="w-full">
           <h1 className="text-2xl font-bold">Matches</h1>
           <div className="grid grid-cols-6 gap-4">
-            {searchResults.map((image: string, index: number) => (
-              <Image key={index} image={image} index={index} />
-            ))}
+            {searchResults.map(
+              ({ id, distance }: { id: number; distance: number }) => (
+                <PhotoView
+                  key={`Image_${id}`}
+                  src={`${API_URL}/original/${id}`}
+                >
+                  <div>
+                    <img src={`${API_URL}/image/${id}`} />
+                    <span>{distance.toFixed(4)}</span>
+                  </div>
+                </PhotoView>
+              )
+            )}
           </div>
         </div>
       </div>

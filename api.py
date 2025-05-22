@@ -1,6 +1,7 @@
 import os
 import sys
 import logging
+import umap
 from pathlib import Path
 from typing import List
 
@@ -27,10 +28,6 @@ CACHE_DIR     = Path(".cache")                  # where we persist embeddings
 CACHE_FILE    = CACHE_DIR / "clip_index.npz"     # compressed NumPy archive
 CACHE_DIR.mkdir(exist_ok=True)
 
-# ◼️  FAISS stability toggles — adjust if you still see segfaults ----------
-FAISS_THREADS = 1        # safest setting; raise if you need more speed
-FORCE_FLAT32  = True     # ensure contiguous float32 everywhere
-
 # ── Load CLIP ─────────────────────────────────────────────────────────────
 logging.info("Loading CLIP model …")
 
@@ -38,34 +35,32 @@ device     = "cuda" if torch.cuda.is_available() else "mps"
 model      = CLIPModel.from_pretrained("openai/clip-vit-large-patch14").to(device)
 processor  = CLIPProcessor.from_pretrained("openai/clip-vit-large-patch14")
 
-# ── Set FAISS threads early ───────────────────────────────────────────────
-try:
-    faiss.omp_set_num_threads(FAISS_THREADS)
-    logging.info("FAISS will use %s thread(s)", FAISS_THREADS)
-except AttributeError:
-    logging.warning("Could not set FAISS thread count; continuing with default")
-
 # ── Flask app ─────────────────────────────────────────────────────────────
 app = Flask(__name__)
 CORS(app)
 
 # ── Helpers ───────────────────────────────────────────────────────────────
+def extract_metadata(path: Path) -> dict:
+    parts = path.relative_to(IMAGE_ROOT).parts
+    photographer_id = ''
+    if parts[0] == 'Arnold Glöckners fotoarkiv':
+        photographer_id = '1'
+    else:
+        if parts[1].startswith('K 1'):
+            photographer_id = '2'
+        elif parts[1].startswith('K 2'):
+            photographer_id = '3'
+        elif parts[1].startswith('K 3'):
+            photographer_id = '4'
+
+    return {
+        "filename": path.name,
+        "photographer": photographer_id,
+    }
 
 def collect_image_paths(root: Path) -> List[Path]:
     """Recursively gather all image files under *root*, sorted for stable IDs."""
     return sorted(p for p in root.rglob("*") if p.suffix.lower() in IMAGE_TYPES)
-
-
-def to_float32(x: np.ndarray) -> np.ndarray:
-    """Ensure *x* is contiguous float32 (FAISS crashes otherwise)."""
-    if not FORCE_FLAT32:
-        return x
-    if x.dtype != np.float32:
-        x = x.astype("float32", copy=False)
-    if not x.flags["C_CONTIGUOUS"]:
-        x = np.ascontiguousarray(x)
-    return x
-
 
 def embed_images(paths: List[Path]) -> torch.Tensor:
     """Return a (N,512/768) tensor of CLIP embeddings for *paths* (batched)."""
@@ -99,9 +94,8 @@ def load_cache():
     embeddings   = torch.from_numpy(data["embeddings"])
     return cached_paths, embeddings
 
-
 def build_index(emb: torch.Tensor) -> faiss.Index:
-    emb_np = to_float32(emb.numpy())
+    emb_np = emb.numpy()
     dim = emb_np.shape[1]
     index = faiss.IndexFlatL2(dim)
     index.add(emb_np)
@@ -111,7 +105,7 @@ def build_index(emb: torch.Tensor) -> faiss.Index:
 logging.info("Scanning image tree …")
 image_paths: List[Path] = collect_image_paths(IMAGE_ROOT)
 logging.info("Found %s files in %s", len(image_paths), IMAGE_ROOT)
-
+metadata = [extract_metadata(p) for p in image_paths]
 cached_paths, embeddings = load_cache()
 
 if cached_paths == [str(p) for p in image_paths]:
@@ -131,11 +125,17 @@ logging.info("FAISS index ready\n")
 # ── Routes ────────────────────────────────────────────────────────────────
 @app.route("/embeddings", methods=["GET"])
 def get_embeddings():
-
     return jsonify([
-        {"id": idx, "embedding": emb.tolist()} for idx, emb in enumerate(embeddings.numpy())
+        {
+            "id": idx,
+            "embedding": emb.tolist(),
+            "metadata": metadata[idx],
+        } for idx, emb in enumerate(embeddings.numpy())
     ])
 
+@app.route("/metadata", methods=["GET"])
+def get_all_metadata():
+    return jsonify(metadata)
 
 @app.route("/embedding/<int:image_id>", methods=["GET"])
 def get_embedding(image_id):
@@ -144,48 +144,70 @@ def get_embedding(image_id):
     abort(404, description="Image ID not found")
 
 
-@app.route("/search", methods=["GET"])
-def search():
+@app.route("/embedding-for-text", methods=["GET"])
+def get_embedding_for_text():
     query = request.args.get("query", "").strip()
-    k     = int(request.args.get("top_k", TOP_K))
-
     if not query:
         return jsonify({"error": "Missing 'query'"}), 400
-
-    k = max(1, min(k, len(image_paths)))  # keep k sane
 
     inputs = processor(text=[query], return_tensors="pt").to(device)
     with torch.no_grad():
         txt = model.get_text_features(**inputs)
         txt = txt / txt.norm(dim=-1, keepdim=True)
 
-    q = to_float32(txt.cpu().numpy().reshape(1, -1))
+    return jsonify(txt.cpu().numpy().reshape(-1).tolist())
 
-    # Safety check to avoid silent shape mismatches — these often cause segfaults
-    dim_index = faiss_index.d
-    if q.shape[1] != dim_index:
-        logging.error("Query dim (%s) != index dim (%s)", q.shape[1], dim_index)
-        return abort(500, description="Dimension mismatch between query and index")
 
-    try:
-        print("q dtype:", q.dtype)
-        print("q shape:", q.shape)
-        print("q flags:", q.flags)
-        print("index dim:", faiss_index.d)
-        D, I = faiss_index.search(q, k)
-    except Exception:
-        logging.exception("FAISS search failed — falling back to single-thread")
-        # last-chance fallback: try again with one thread
-        faiss.omp_set_num_threads(1)
-        D, I = faiss_index.search(q, k)
-    print("return D:", I[0].tolist())
-    return jsonify(I[0].tolist())
+@app.route("/search", methods=["GET"])
+def search():
+    query = request.args.get("query", "").strip()
+    k = int(request.args.get("top_k", TOP_K))
 
+    if not query:
+        return jsonify({"error": "Missing 'query'"}), 400
+
+    # keep k sane
+    k = max(1, min(k, len(image_paths)))
+
+    # -------- encode query --------
+    inputs = processor(text=[query], return_tensors="pt").to(device)
+    with torch.no_grad():
+        txt = model.get_text_features(**inputs)
+        txt = txt / txt.norm(dim=-1, keepdim=True)
+
+    # -------- search --------
+    q = txt.cpu().numpy().reshape(1, -1)
+    D, I = faiss_index.search(q, k)          # D: distances, I: indices
+
+    # -------- format result --------
+    results = [
+        {"id": int(idx), "distance": float(dist)}
+        for idx, dist in zip(I[0], D[0])
+    ]
+
+    return jsonify(results)
 
 @app.route("/images", methods=["GET"])
 def list_images():
     return jsonify(list(range(len(image_paths))))
 
+@app.route("/umap", methods=["GET"])
+def get_umap():
+    n_neighbors = int(request.args.get("n_neighbors", 15))
+    min_dist    = float(request.args.get("min_dist", 0.1))
+    n_components = int(request.args.get("n_components", 2))
+    seed       = int(request.args.get("seed", 42))
+
+    reducer = umap.UMAP(
+        n_neighbors=n_neighbors,
+        min_dist=min_dist,
+        n_components=n_components,
+        metric="cosine",
+        transform_seed=seed
+    )
+    embedding = reducer.fit_transform(embeddings[:1000].numpy())
+
+    return jsonify(embedding.tolist())
 
 @app.route("/image/<int:image_id>", methods=["GET"])
 def serve_image(image_id):

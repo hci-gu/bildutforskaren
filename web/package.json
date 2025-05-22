@@ -10,6 +10,10 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@pixi/core": "^7.4.3",
+    "@pixi/display": "^7.4.3",
+    "@pixi/events": "^7.4.3",
+    "@pixi/filter-glow": "^5.2.1",
     "@pixi/react": "^8.0.2",
     "@radix-ui/react-dialog": "^1.1.13",
     "@radix-ui/react-slot": "^1.2.0",
@@ -21,10 +25,12 @@
     "konva": "^9.3.20",
     "lodash": "^4.17.21",
     "lucide-react": "^0.487.0",
+    "pixi-viewport": "^6.0.3",
     "pixi.js": "^8.9.2",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-konva": "^19.0.3",
+    "react-photo-view": "^1.2.7",
     "react-router": "^7.5.0",
     "reactflow": "^11.11.4",
     "seedrandom": "^3.0.5",
