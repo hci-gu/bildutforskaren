@@ -66,9 +66,24 @@ const Embeddings: React.FC<{
     (embed: any) => embed.meta.matched
   )
 
+  const defaultScale = 0.05
+  const maxScale = 0.7
+  const minMatchedScale = 0.2
+
+  let minMatchDist = 0
+  let maxMatchDist = 0
+
+  if (matchedEmbeddings.length > 0) {
+    const distances = matchedEmbeddings.map(
+      (embed: any) => embed.meta.matchedDistance
+    )
+    minMatchDist = Math.min(...distances)
+    maxMatchDist = Math.max(...distances)
+  }
+
   const normalized = useMemo(
     () => normalizePoints(rawEmbeddings.map((e: any) => e.point)),
-    [rawEmbeddings, matchedEmbeddings]
+    [rawEmbeddings]
   )
   const textEmbeddings = rawEmbeddings.filter(
     (embed: any) => embed.type === 'text'
@@ -76,7 +91,9 @@ const Embeddings: React.FC<{
 
   useTick((_: PIXI.Ticker) => {
     if (particleContainerRef.current) {
-      for (let particle of particleContainerRef.current.particleChildren) {
+      const currentParticles = particleContainerRef.current.particleChildren as (PIXI.Particle & {data?: any, texture?: PIXI.Texture})[]
+
+      for (let particle of currentParticles) {
         // lerp position towards data position
         const data = particle.data
         if (data) {
@@ -84,19 +101,35 @@ const Embeddings: React.FC<{
           const targetY = data.y
           const dx = targetX - particle.x
           const dy = targetY - particle.y
-          const distance = Math.sqrt(dx * dx + dy * dy)
+          const currentDistance = Math.sqrt(dx * dx + dy * dy) // Renamed to avoid conflict
           const speed = 0.1
-          if (distance > 1) {
+          if (currentDistance > 1) {
             particle.x += dx * speed
             particle.y += dy * speed
           }
           // lerp scale towards targetScale
-          const targetScale = data.targetScale || 0.05
-          const scaleDiff = targetScale - particle.scaleX
+          const targetScaleValue = data.targetScale || defaultScale // Use defaultScale from outer scope
+          const scaleDiff = targetScaleValue - particle.scale.x // PIXI.Particle scale is a Point
           if (Math.abs(scaleDiff) > 0.01) {
-            particle.scaleX += scaleDiff * speed
-            particle.scaleY += scaleDiff * speed
+            particle.scale.x += scaleDiff * speed
+            particle.scale.y += scaleDiff * speed
           }
+        }
+      }
+
+      // Overlap prevention logic using the refactored function
+      const repulsionFactor = 0.1 
+      for (let i = 0; i < currentParticles.length; i++) {
+        const p1 = currentParticles[i]
+        for (let j = i + 1; j < currentParticles.length; j++) {
+          const p2 = currentParticles[j]
+          // Adapt PIXI.Particle to the Particle interface expected by resolveOverlap
+          // The resolveOverlap function modifies p1 and p2 directly.
+          resolveOverlap(
+            { x: p1.x, y: p1.y, scale: { x: p1.scale.x, y: p1.scale.y }, texture: p1.texture as any}, // Cast texture if needed
+            { x: p2.x, y: p2.y, scale: { x: p2.scale.x, y: p2.scale.y }, texture: p2.texture as any}, // Cast texture if needed
+            repulsionFactor
+          );
         }
       }
       particleContainerRef.current.update()
@@ -109,20 +142,25 @@ const Embeddings: React.FC<{
         const [nx, ny] = normalized[i]
         const x = nx * 1920
         const y = ny * 1200
-        const particle = particleContainerRef.current.particleChildren[i]
+        const particle = particleContainerRef.current.particleChildren[i] as (PIXI.Particle & {data?: any})
         if (particle) {
           particle.data = rawEmbeddings[i]
           particle.data.x = x
           particle.data.y = y
-          if (particle.data.meta.matched) {
-            particle.data.targetScale = 0.5
-          } else {
-            particle.data.targetScale = 0.05
-          }
+          
+          particle.data.targetScale = calculateTargetScale(
+            particle.data.meta.matchedDistance,
+            minMatchDist,
+            maxMatchDist,
+            defaultScale,
+            minMatchedScale,
+            maxScale,
+            particle.data.meta.matched
+          )
         }
       }
     }
-  }, [normalized])
+  }, [normalized, rawEmbeddings, minMatchDist, maxMatchDist, defaultScale, minMatchedScale, maxScale])
 
   useEffect(() => {
     if (particleContainerRef.current) {
