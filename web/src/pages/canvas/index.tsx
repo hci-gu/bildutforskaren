@@ -7,6 +7,7 @@ import atlasImageSrc from '@/assets/atlas.png'
 import { useAtom, useAtomValue, useSetAtom } from 'jotai'
 import {
   API_URL,
+  displaySettingsAtom,
   filteredEmbeddingsAtom,
   searchQueryAtom,
   selectedEmbeddingAtom,
@@ -65,8 +66,9 @@ const Embeddings: React.FC<{
   const matchedEmbeddings = rawEmbeddings.filter(
     (embed: any) => embed.meta.matched
   )
+  const displaySettings = useAtomValue(displaySettingsAtom)
 
-  const normalized = useMemo(
+  const positions = useMemo(
     () => normalizePoints(rawEmbeddings.map((e: any) => e.point)),
     [rawEmbeddings, matchedEmbeddings]
   )
@@ -91,7 +93,8 @@ const Embeddings: React.FC<{
             particle.y += dy * speed
           }
           // lerp scale towards targetScale
-          const targetScale = data.targetScale || 0.05
+          const targetScale = (data.targetScale || 0.05) * displaySettings.scale
+
           const scaleDiff = targetScale - particle.scaleX
           if (Math.abs(scaleDiff) > 0.01) {
             particle.scaleX += scaleDiff * speed
@@ -105,8 +108,8 @@ const Embeddings: React.FC<{
 
   useEffect(() => {
     if (particleContainerRef.current) {
-      for (let i = 0; i < normalized.length; i++) {
-        const [nx, ny] = normalized[i]
+      for (let i = 0; i < positions.length; i++) {
+        const [nx, ny] = positions[i]
         const x = nx * 1920
         const y = ny * 1200
         const particle = particleContainerRef.current.particleChildren[i]
@@ -115,30 +118,48 @@ const Embeddings: React.FC<{
           particle.data.x = x
           particle.data.y = y
           if (particle.data.meta.matched) {
-            particle.data.targetScale = 0.5
+            particle.data.targetScale = 0.5 * displaySettings.scale
           } else {
-            particle.data.targetScale = 0.05
+            particle.data.targetScale = 0.05 * displaySettings.scale
           }
         }
       }
     }
-  }, [normalized])
+  }, [displaySettings, positions])
+
+  // useEffect(() => {
+  //   if (particleContainerRef.current) {
+  //     for (let particle of particleContainerRef.current.particleChildren) {
+  //       if (displaySettings.colorPhotographer) {
+  //         particle.color = colorForMetadata(particle.data.meta)
+  //       } else {
+  //         particle.color = 0xffffff
+  //       }
+  //     }
+  //   }
+  // }, [displaySettings, particleContainerRef])
 
   useEffect(() => {
     if (particleContainerRef.current) {
+      console.log(
+        'CHILDREN:',
+        particleContainerRef.current.particleChildren.length
+      )
       for (let i = 0; i < rawEmbeddings.length; i++) {
-        const [nx, ny] = normalized[i]
+        const [nx, ny] = positions[i]
         const x = nx * 1920
         const y = ny * 1200
         const particle = new PIXI.Particle({
           texture: atlas.textures[i],
           x,
           y,
-          scaleX: 0.05,
-          scaleY: 0.05,
+          scaleX: 0.05 * displaySettings.scale,
+          scaleY: 0.05 * displaySettings.scale,
           anchorX: 0.5,
           anchorY: 0.5,
-          tint: colorForMetadata(rawEmbeddings[i].meta),
+          tint: displaySettings.colorPhotographer
+            ? colorForMetadata(rawEmbeddings[i].meta)
+            : 0xffffff,
         })
         particle.data = rawEmbeddings[i]
         particle.data.x = x
@@ -150,9 +171,10 @@ const Embeddings: React.FC<{
     return () => {
       if (particleContainerRef.current) {
         particleContainerRef.current.removeParticles()
+        particleContainerRef.current.particleChildren = []
       }
     }
-  }, [particleContainerRef])
+  }, [displaySettings, particleContainerRef])
 
   return (
     <>
@@ -167,7 +189,7 @@ const Embeddings: React.FC<{
       />
       <pixiContainer>
         {textEmbeddings.map((embed: any, i: number) => {
-          const [nx, ny] = normalized[i]
+          const [nx, ny] = positions[i]
           const x = nx * 1920
           const y = ny * 1200
 

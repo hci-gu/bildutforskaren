@@ -1,5 +1,6 @@
 import { Input } from '@/components/ui/input'
 import {
+  displaySettingsAtom,
   projectionSettingsAtom,
   searchQueryAtom,
   searchSettingsAtom,
@@ -14,6 +15,14 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { Checkbox } from '@/components/ui/checkbox'
 
 const Search = () => {
   const [settings, setSettings] = useAtom(searchSettingsAtom)
@@ -71,6 +80,26 @@ const ProjectionSettings = () => {
   }
   return (
     <div className="flex flex-col gap-2 mt-2">
+      <CardHeader className="p-0 mt-2">
+        <CardTitle>Projection Settings</CardTitle>
+        <CardDescription>Settings for the projection algorithm</CardDescription>
+      </CardHeader>
+      <Select
+        value={settings.type}
+        onValueChange={(value) =>
+          setSettings((prev) => ({ ...prev, type: value }))
+        }
+      >
+        <SelectTrigger className="w-[180px]">
+          <SelectValue placeholder="Type" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="umap">U-Map</SelectItem>
+          <SelectItem value="grid">Grid</SelectItem>
+          <SelectItem value="spreadsheet">Spreadsheet</SelectItem>
+        </SelectContent>
+      </Select>
+      Copy
       <Input
         type="number"
         name="minDist"
@@ -102,12 +131,59 @@ const ProjectionSettings = () => {
   )
 }
 
+const DisplaySettings = () => {
+  const [settings, setSettings] = useAtom(displaySettingsAtom)
+
+  return (
+    <div className="flex flex-col gap-2 mt-2">
+      <CardHeader className="p-0 mt-2">
+        <CardTitle>Display Settings</CardTitle>
+        <CardDescription>Settings for the display</CardDescription>
+      </CardHeader>
+      <div className="flex items-center space-x-2">
+        <Checkbox
+          id="terms"
+          name="colorPhotographer"
+          onCheckedChange={(checked) =>
+            setSettings((prev) => ({
+              ...prev,
+              colorPhotographer: !!checked,
+            }))
+          }
+          checked={settings.colorPhotographer}
+        />
+        <label
+          htmlFor="terms"
+          className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+        >
+          Color by Photographer
+        </label>
+      </div>
+      <Input
+        type="number"
+        name="scale"
+        value={settings.scale}
+        onChange={(e) =>
+          setSettings((prev) => ({
+            ...prev,
+            scale: parseFloat(e.target.value),
+          }))
+        }
+        placeholder="Scale"
+        step={0.25}
+        className="text-black bg-white border border-gray-300 rounded-md shadow-sm focus:ring focus:ring-blue-500 focus:border-blue-500 p-2"
+      />
+    </div>
+  )
+}
+
 export default function Panel() {
   return (
     <Card className="absolute top-8 right-8 z-10 w-1/6 bg-white border border-gray-300 shadow-lg">
       <CardContent>
         <Search />
         <ProjectionSettings />
+        <DisplaySettings />
       </CardContent>
     </Card>
   )

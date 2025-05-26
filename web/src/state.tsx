@@ -123,11 +123,19 @@ export const embeddingsAtom = atom(async (_) => {
 })
 
 export const projectionSettingsAtom = atom({
+  type: 'umap',
   nNeighbors: 15,
   minDist: 0.1,
   spread: 1,
   seed: 1,
 })
+
+export const displaySettingsAtom = atom({
+  colorPhotographer: true,
+  scale: 1,
+})
+
+const projectionCache = new Map()
 
 export const embeddingProjection = atom(async (get) => {
   const embeddingsData = await get(embeddingsAtom)
@@ -137,19 +145,34 @@ export const embeddingProjection = atom(async (get) => {
   //   `${API_URL}/umap?n_neighbors=${projectionSettings.nNeighbors}&min_dist=${projectionSettings.minDist}&spread=${projectionSettings.spread}&seed=${projectionSettings.seed}`
   // )
   // const embedding2d = await result.json()
+  if (projectionSettings.type === 'umap') {
+    let embeddings = embeddingsData.map(
+      (item: { id: string; embedding: number[] }) => item.embedding
+    )
+    const umap = new UMAP({
+      nNeighbors: projectionSettings.nNeighbors,
+      minDist: projectionSettings.minDist,
+      spread: projectionSettings.spread,
+      random: seedrandom(projectionSettings.seed),
+    })
+    const cacheKey = `${projectionSettings.nNeighbors}-${projectionSettings.minDist}-${projectionSettings.spread}-${projectionSettings.seed}`
+    if (projectionCache.has(cacheKey)) {
+      return projectionCache.get(cacheKey)
+    }
+    const embedding2d = await umap.fitAsync(embeddings)
+    projectionCache.set(cacheKey, embedding2d)
 
-  let embeddings = embeddingsData.map(
-    (item: { id: string; embedding: number[] }) => item.embedding
-  )
-  const umap = new UMAP({
-    nNeighbors: projectionSettings.nNeighbors,
-    minDist: projectionSettings.minDist,
-    spread: projectionSettings.spread,
-    random: seedrandom(projectionSettings.seed),
-  })
-  const embedding2d = await umap.fitAsync(embeddings)
-
-  return embedding2d
+    return embedding2d
+  } else if (projectionSettings.type === 'grid') {
+    const gridSize = Math.ceil(Math.sqrt(embeddingsData.length))
+    const embedding2d = []
+    for (let i = 0; i < gridSize; i++) {
+      for (let j = 0; j < gridSize; j++) {
+        embedding2d.push([i / gridSize, j / gridSize])
+      }
+    }
+    return embedding2d
+  }
 })
 
 export const projectedEmbeddingsAtom = atom(async (get) => {
