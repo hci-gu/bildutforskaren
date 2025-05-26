@@ -60,16 +60,19 @@ const repulsionFactor = 0.1;
 const mockTextureWidth = 64; // Standard texture width assumed in implementation
 
 describe('resolveOverlap', () => {
-  const createParticle = (x: number, y: number, scale: number): Particle => ({
+  // Updated createParticle to match the Particle interface in utils.ts
+  const createParticle = (id: string, x: number, y: number, scale: number, textureWidth: number = mockTextureWidth): Particle => ({
+    id,
     x,
     y,
-    scale: { x: scale, y: scale }, // Assuming uniform scaling for radius calculation
-    texture: { width: mockTextureWidth, height: mockTextureWidth },
+    scaleX: scale, 
+    scaleY: scale,
+    texture: { width: textureWidth, height: textureWidth }, // Assuming square textures for simplicity
   });
 
   it('Scenario 1: should move overlapping particles apart', () => {
-    const p1 = createParticle(0, 0, 0.5); // radius = 0.5 * 64 / 2 = 16
-    const p2 = createParticle(10, 0, 0.5); // radius = 16. Sum of radii = 32. Distance = 10. Overlap.
+    const p1 = createParticle("p1", 0, 0, 0.5); // radius = 0.5 * 64 / 2 = 16
+    const p2 = createParticle("p2", 10, 0, 0.5); // radius = 16. Sum of radii = 32. Distance = 10. Overlap.
     
     const initialP1X = p1.x;
     const initialP1Y = p1.y;
@@ -98,8 +101,8 @@ describe('resolveOverlap', () => {
   });
 
   it('Scenario 2: should not move non-overlapping particles', () => {
-    const p1 = createParticle(0, 0, 0.1); // radius = 0.1 * 64 / 2 = 3.2
-    const p2 = createParticle(10, 0, 0.1); // radius = 3.2. Sum of radii = 6.4. Distance = 10. No overlap.
+    const p1 = createParticle("p1", 0, 0, 0.1); // radius = 0.1 * 64 / 2 = 3.2
+    const p2 = createParticle("p2", 10, 0, 0.1); // radius = 3.2. Sum of radii = 6.4. Distance = 10. No overlap.
     
     const initialP1X = p1.x;
     const initialP1Y = p1.y;
@@ -117,8 +120,8 @@ describe('resolveOverlap', () => {
   });
 
   it('Scenario 3: should not move particles that are just touching (distance === sum of radii)', () => {
-    const p1 = createParticle(0, 0, 0.5); // radius = 16
-    const p2 = createParticle(32, 0, 0.5); // radius = 16. Sum of radii = 32. Distance = 32. Touching.
+    const p1 = createParticle("p1", 0, 0, 0.5); // radius = 16
+    const p2 = createParticle("p2", 32, 0, 0.5); // radius = 16. Sum of radii = 32. Distance = 32. Touching.
     
     const initialP1X = p1.x;
     const initialP1Y = p1.y;
@@ -136,8 +139,8 @@ describe('resolveOverlap', () => {
   });
 
   it('Scenario 4: should move particles apart if they are at the exact same position (distance = 0)', () => {
-    const p1 = createParticle(0, 0, 0.5);
-    const p2 = createParticle(0, 0, 0.5);
+    const p1 = createParticle("p1", 0, 0, 0.5);
+    const p2 = createParticle("p2", 0, 0, 0.5);
         
     const { p1Moved, p2Moved } = resolveOverlap(p1, p2, repulsionFactor);
 
@@ -151,23 +154,23 @@ describe('resolveOverlap', () => {
   });
 
   it('should handle particles with missing textures gracefully', () => {
-    const p1: Particle = { x: 0, y: 0, scale: { x: 0.5, y: 0.5 }, texture: null as any };
-    const p2: Particle = { x: 1, y: 1, scale: { x: 0.5, y: 0.5 }, texture: {width: 64, height: 64}};
+    const p1: Particle = { id: "p1", x: 0, y: 0, scaleX: 0.5, scaleY: 0.5, texture: null as any };
+    const p2: Particle = { id: "p2", x: 1, y: 1, scaleX: 0.5, scaleY: 0.5, texture: {width: 64, height: 64}};
     
     const { p1Moved, p2Moved } = resolveOverlap(p1, p2, repulsionFactor);
     expect(p1Moved).toBe(false);
     expect(p2Moved).toBe(false);
 
-    const p3: Particle = { x: 0, y: 0, scale: { x: 0.5, y: 0.5 }, texture: {width: 64, height: 64}};
-    const p4: Particle = { x: 1, y: 1, scale: { x: 0.5, y: 0.5 }, texture: null as any };
+    const p3: Particle = { id: "p3", x: 0, y: 0, scaleX: 0.5, scaleY: 0.5, texture: {width: 64, height: 64}};
+    const p4: Particle = { id: "p4", x: 1, y: 1, scaleX: 0.5, scaleY: 0.5, texture: null as any };
     const { p1Moved: p3Moved, p2Moved: p4Moved } = resolveOverlap(p3, p4, repulsionFactor);
     expect(p3Moved).toBe(false);
     expect(p4Moved).toBe(false);
   });
 
    it('Scenario 5: Overlap on Y axis', () => {
-    const p1 = createParticle(0, 0, 0.5); // radius = 16
-    const p2 = createParticle(0, 10, 0.5); // radius = 16. Sum = 32. Dist = 10. Overlap.
+    const p1 = createParticle("p1", 0, 0, 0.5); // radius = 16
+    const p2 = createParticle("p2", 0, 10, 0.5); // radius = 16. Sum = 32. Dist = 10. Overlap.
     
     const initialP1X = p1.x;
     const initialP1Y = p1.y;
@@ -189,8 +192,8 @@ describe('resolveOverlap', () => {
     // p1 at (0,0), p2 at (7,7). scale 0.5 -> radius 16.
     // Distance = sqrt(7^2 + 7^2) = sqrt(49+49) = sqrt(98) approx 9.89
     // Sum of radii = 32. Overlap.
-    const p1 = createParticle(0, 0, 0.5); 
-    const p2 = createParticle(7, 7, 0.5); 
+    const p1 = createParticle("p1", 0, 0, 0.5); 
+    const p2 = createParticle("p2", 7, 7, 0.5); 
     
     const initialP1X = p1.x;
     const initialP1Y = p1.y;
@@ -208,5 +211,131 @@ describe('resolveOverlap', () => {
     // p2 should move towards positive x and positive y
     expect(p2.x).toBeGreaterThan(initialP2X);
     expect(p2.y).toBeGreaterThan(initialP2Y);
+  });
+});
+
+// Tests for performIterativeOverlapResolution
+import { performIterativeOverlapResolution } from './utils';
+
+describe('performIterativeOverlapResolution', () => {
+  const mockTextureWidthIter = 64;
+  const createParticleIter = (id: string, x: number, y: number, scale: number): Particle => ({
+    id,
+    x,
+    y,
+    scaleX: scale,
+    scaleY: scale,
+    texture: { width: mockTextureWidthIter, height: mockTextureWidthIter },
+  });
+
+  const calculateOverlapAmount = (p1: Particle, p2: Particle): number => {
+    const r1 = (p1.scaleX * p1.texture.width) / 2;
+    const r2 = (p2.scaleX * p2.texture.width) / 2;
+    const dx = p2.x - p1.x;
+    const dy = p2.y - p1.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    return Math.max(0, r1 + r2 - dist);
+  };
+
+  const totalOverlap = (particles: Particle[]): number => {
+    let currentTotalOverlap = 0;
+    for (let i = 0; i < particles.length; i++) {
+      for (let j = i + 1; j < particles.length; j++) {
+        currentTotalOverlap += calculateOverlapAmount(particles[i], particles[j]);
+      }
+    }
+    return currentTotalOverlap;
+  };
+
+
+  it('Scenario 1: Basic Overlap Resolution - should reduce total overlap', () => {
+    const particles: Particle[] = [
+      createParticleIter("1", 0, 0, 0.5), // r=16
+      createParticleIter("2", 10, 0, 0.5), // r=16. Overlap with 1
+      createParticleIter("3", 0, 10, 0.5), // r=16. Overlap with 1
+    ];
+    const initialTotalOverlap = totalOverlap(particles);
+    expect(initialTotalOverlap).toBeGreaterThan(0);
+
+    const resolvedParticles = performIterativeOverlapResolution(particles, 50, 0.2, 0.1);
+    const finalTotalOverlap = totalOverlap(resolvedParticles);
+    
+    expect(finalTotalOverlap).toBeLessThan(initialTotalOverlap);
+    // Ideally, it should be close to 0 for simple cases with enough iterations
+    expect(finalTotalOverlap).toBeLessThan(1); // Allowing for minor floating point inaccuracies
+  });
+
+  it('Scenario 2: MAX_ITERATIONS Limit - should run up to maxIterations if not stabilized', () => {
+    // Create a scenario that is unlikely to stabilize quickly
+    // e.g., many particles tightly packed.
+    const particles: Particle[] = [];
+    for(let i=0; i<10; i++) {
+        particles.push(createParticleIter(String(i), Math.random()*5, Math.random()*5, 0.5));
+    }
+    
+    // We can't directly spy on resolveOverlap easily without a spy framework like Jest/Vitest's jest.spyOn
+    // So, we'll infer by checking that particles have moved, implying resolveOverlap was called.
+    // And we'll trust the internal iteration counting of performIterativeOverlapResolution.
+    // The function itself doesn't return iteration count.
+    // For this test, we'll assume if it runs and modifies particles, it's respecting iterations.
+    // A more robust test would require a spy or modifying the function to return iteration count.
+    
+    const initialPositions = particles.map(p => ({ x: p.x, y: p.y }));
+    const resolvedParticles = performIterativeOverlapResolution(particles, 10, 0.1, 0.001); // Low stabilization threshold to force more iterations
+
+    let moved = false;
+    for(let i=0; i<resolvedParticles.length; i++) {
+        if(resolvedParticles[i].x !== initialPositions[i].x || resolvedParticles[i].y !== initialPositions[i].y) {
+            moved = true;
+            break;
+        }
+    }
+    expect(moved).toBe(true); // Check that particles actually moved, implying iterations happened.
+  });
+
+
+  it('Scenario 3: Stabilization - should terminate earlier than maxIterations', () => {
+    const particles: Particle[] = [
+      createParticleIter("1", 0, 0, 0.5),
+      createParticleIter("2", 100, 0, 0.5), // Far apart, should stabilize in few iterations
+    ];
+    // To test stabilization, we'd ideally want to know how many iterations it ran.
+    // Since the function doesn't return this, we can test that the state is stable.
+    // For this, we run it, then run it again with 1 iteration and see if anything changes.
+    
+    const resolvedParticles1 = performIterativeOverlapResolution([...particles.map(p => ({...p}))], 100, 0.2, 0.1);
+    const positionsAfterFirstRun = resolvedParticles1.map(p => ({x: p.x, y: p.y}));
+
+    // Run again for a single iteration. If already stable, positions shouldn't change.
+    const resolvedParticles2 = performIterativeOverlapResolution([...resolvedParticles1.map(p => ({...p}))], 1, 0.2, 0.1);
+    
+    for(let i=0; i<resolvedParticles2.length; i++) {
+        expect(resolvedParticles2[i].x).toBeCloseTo(positionsAfterFirstRun[i].x);
+        expect(resolvedParticles2[i].y).toBeCloseTo(positionsAfterFirstRun[i].y);
+    }
+    // This indirectly tests stabilization: if it was stable, 1 more iteration shouldn't change much.
+    // A direct test of iteration count would require modifying the function or a more complex spy setup.
+  });
+
+  it('Scenario 4: No Overlaps Initially - positions should remain unchanged', () => {
+    const particles: Particle[] = [
+      createParticleIter("1", 0, 0, 0.1),   // r = 3.2
+      createParticleIter("2", 100, 0, 0.1), // r = 3.2. Sum of radii = 6.4. Dist = 100.
+      createParticleIter("3", 0, 100, 0.1),
+    ];
+    const initialPositions = particles.map(p => ({ x: p.x, y: p.y }));
+    
+    const resolvedParticles = performIterativeOverlapResolution(particles, 50, 0.2, 0.1);
+
+    for (let i = 0; i < resolvedParticles.length; i++) {
+      expect(resolvedParticles[i].x).toBe(initialPositions[i].x);
+      expect(resolvedParticles[i].y).toBe(initialPositions[i].y);
+    }
+  });
+
+  it('should handle an empty array of particles', () => {
+    const particles: Particle[] = [];
+    const resolvedParticles = performIterativeOverlapResolution(particles, 50, 0.2, 0.1);
+    expect(resolvedParticles).toEqual([]);
   });
 });

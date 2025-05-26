@@ -89,78 +89,190 @@ const Embeddings: React.FC<{
     (embed: any) => embed.type === 'text'
   )
 
+  // useEffect to pre-calculate target positions and scales, including overlap resolution
+  useEffect(() => {
+    if (!rawEmbeddings.length || !atlas) return;
+
+    // Create a temporary list of "particle-like" objects for pre-calculation
+    const tempParticlesForPreCalculation: Particle[] = rawEmbeddings.map((embed: any, i: number) => {
+      const [nx, ny] = normalized[i];
+      const initialTargetX = nx * 1920;
+      const initialTargetY = ny * 1200;
+      const scale = calculateTargetScale(
+        embed.meta.matchedDistance,
+        minMatchDist,
+        maxMatchDist,
+        defaultScale,
+        minMatchedScale,
+        maxScale,
+        embed.meta.matched
+      );
+      // Ensure texture exists for this particle index in the atlas
+      // The atlas keys are based on the original index of embeddings
+      const textureKey = embed.id // Assuming embed.id is the key for atlas.textures, or use index 'i' if that's the case
+      const texture = atlas.textures[textureKey] || atlas.textures[i] || Object.values(atlas.textures)[0]; // Fallback texture
+
+      return {
+        id: embed.id, // Keep id for mapping back
+        x: initialTargetX,
+        y: initialTargetY,
+        scaleX: scale,
+        scaleY: scale,
+        texture: texture ? { width: texture.width, height: texture.height } : { width: 64, height: 64 }, // Use actual texture dimensions or fallback
+        data: embed, // Keep original embedding data
+      };
+    });
+
+    // Use the refactored iterative overlap resolution
+    const repulsionFactor = 0.2;
+    const MAX_ITERATIONS = 100;
+    const stabilizationThresholdPerParticle = 0.1; 
+    
+    // performIterativeOverlapResolution modifies tempParticlesForPreCalculation in place
+    performIterativeOverlapResolution(
+      tempParticlesForPreCalculation,
+      MAX_ITERATIONS,
+      repulsionFactor,
+      stabilizationThresholdPerParticle
+    );
+
+    // Update the actual PIXI particles' data with these pre-calculated target positions and scales
+    if (particleContainerRef.current) {
+      for (let i = 0; i < particleContainerRef.current.particleChildren.length; i++) {
+        const pixiParticle = particleContainerRef.current.particleChildren[i] as (PIXI.Particle & { data?: any });
+        // Ensure pixiParticle.data and pixiParticle.data.id exist before trying to find
+        if (!pixiParticle.data || pixiParticle.data.id === undefined) continue;
+        
+        const correspondingTempParticle = tempParticlesForPreCalculation.find(tp => tp.id === pixiParticle.data.id);
+
+        if (pixiParticle && correspondingTempParticle) {
+          pixiParticle.data.targetX = correspondingTempParticle.x; // Store resolved X
+          pixiParticle.data.targetY = correspondingTempParticle.y; // Store resolved Y
+          pixiParticle.data.targetScale = correspondingTempParticle.scaleX; // Store calculated scale
+
+          // If PIXI particles are already created, assign initial rawEmbedding data if not already done
+          // This part depends on when PIXI particles are created vs. when this effect runs.
+          // Assuming particle.data is already set with rawEmbeddings[i] from the creation useEffect.
+        }
+      }
+    }
+     // This effect primarily updates the .data properties of existing PIXI particles.
+     // If PIXI particles are not yet created, this data needs to be available when they are.
+     // One way is to update rawEmbeddings or a derived state that the particle creation effect uses.
+     // For now, assuming particles are there and we're updating their .data
+
+  }, [rawEmbeddings, normalized, atlas, minMatchDist, maxMatchDist, defaultScale, minMatchedScale, maxScale, particleContainerRef]);
+
+
   useTick((_: PIXI.Ticker) => {
     if (particleContainerRef.current) {
-      const currentParticles = particleContainerRef.current.particleChildren as (PIXI.Particle & {data?: any, texture?: PIXI.Texture})[]
+      const currentParticles = particleContainerRef.current.particleChildren as (PIXI.Particle & {data?: any})[]
 
       for (let particle of currentParticles) {
-        // lerp position towards data position
-        const data = particle.data
+        const data = particle.data;
         if (data) {
-          const targetX = data.x
-          const targetY = data.y
-          const dx = targetX - particle.x
-          const dy = targetY - particle.y
-          const currentDistance = Math.sqrt(dx * dx + dy * dy) // Renamed to avoid conflict
-          const speed = 0.1
-          if (currentDistance > 1) {
-            particle.x += dx * speed
-            particle.y += dy * speed
+          // Lerp position towards pre-calculated targetX and targetY
+          const targetX = data.targetX !== undefined ? data.targetX : data.x; // Fallback to data.x if targetX not set
+          const targetY = data.targetY !== undefined ? data.targetY : data.y; // Fallback to data.y if targetY not set
+          
+          const dx = targetX - particle.x;
+          const dy = targetY - particle.y;
+          const currentDistance = Math.sqrt(dx * dx + dy * dy);
+          const speed = 0.1;
+          if (currentDistance > 0.5) { // Adjusted threshold for movement
+            particle.x += dx * speed;
+            particle.y += dy * speed;
+          } else if (currentDistance > 0) { // Snap if very close
+            particle.x = targetX;
+            particle.y = targetY;
           }
-          // lerp scale towards targetScale
-          const targetScaleValue = data.targetScale || defaultScale // Use defaultScale from outer scope
-          const scaleDiff = targetScaleValue - particle.scale.x // PIXI.Particle scale is a Point
-          if (Math.abs(scaleDiff) > 0.01) {
-            particle.scale.x += scaleDiff * speed
-            particle.scale.y += scaleDiff * speed
-          }
-        }
-      }
 
-      // Overlap prevention logic using the refactored function
-      const repulsionFactor = 0.1 
-      for (let i = 0; i < currentParticles.length; i++) {
-        const p1 = currentParticles[i]
-        for (let j = i + 1; j < currentParticles.length; j++) {
-          const p2 = currentParticles[j]
-          // Adapt PIXI.Particle to the Particle interface expected by resolveOverlap
-          // The resolveOverlap function modifies p1 and p2 directly.
-          resolveOverlap(
-            { x: p1.x, y: p1.y, scale: { x: p1.scale.x, y: p1.scale.y }, texture: p1.texture as any}, // Cast texture if needed
-            { x: p2.x, y: p2.y, scale: { x: p2.scale.x, y: p2.scale.y }, texture: p2.texture as any}, // Cast texture if needed
-            repulsionFactor
-          );
+          // Lerp scale towards targetScale (already calculated and stored in data.targetScale)
+          const targetScaleValue = data.targetScale !== undefined ? data.targetScale : defaultScale;
+          const scaleDiff = targetScaleValue - particle.scale.x;
+          if (Math.abs(scaleDiff) > 0.001) { // Adjusted threshold for scaling
+            particle.scale.x += scaleDiff * speed;
+            particle.scale.y += scaleDiff * speed;
+          } else if (scaleDiff !== 0) {
+            particle.scale.x = targetScaleValue;
+            particle.scale.y = targetScaleValue;
+          }
         }
       }
-      particleContainerRef.current.update()
+      // particleContainerRef.current.update() // update is not a method on ParticleContainer
+      // The PIXI ticker automatically handles rendering updates.
     }
   })
 
+  // useEffect for initial particle creation
   useEffect(() => {
-    if (particleContainerRef.current) {
-      for (let i = 0; i < normalized.length; i++) {
-        const [nx, ny] = normalized[i]
-        const x = nx * 1920
-        const y = ny * 1200
-        const particle = particleContainerRef.current.particleChildren[i] as (PIXI.Particle & {data?: any})
-        if (particle) {
-          particle.data = rawEmbeddings[i]
-          particle.data.x = x
-          particle.data.y = y
-          
-          particle.data.targetScale = calculateTargetScale(
-            particle.data.meta.matchedDistance,
-            minMatchDist,
-            maxMatchDist,
-            defaultScale,
-            minMatchedScale,
-            maxScale,
-            particle.data.meta.matched
-          )
+    if (particleContainerRef.current && atlas && rawEmbeddings.length && normalized.length) { // Added normalized.length check
+       // Clear existing particles before adding new ones to prevent duplicates if rawEmbeddings changes
+      particleContainerRef.current.removeChildren();
+
+      for (let i = 0; i < rawEmbeddings.length; i++) {
+        const embedData = rawEmbeddings[i];
+        // Ensure normalized[i] exists to prevent errors
+        if (!normalized[i]) {
+          console.warn(`Normalized data missing for embedding index: ${i}, ID: ${embedData.id}`);
+          continue;
         }
+        const [nx, ny] = normalized[i];
+        
+        // Initial position before pre-calculation (will be quickly updated by useTick lerping to targetX/Y)
+        const initialX = nx * 1920;
+        const initialY = ny * 1200;
+
+        // Initial scale (will be quickly updated by useTick lerping to targetScale)
+        // Use calculateTargetScale here for a more accurate initial scale before pre-calc effect runs
+        const initialTargetMetaScale = calculateTargetScale(
+            embedData.meta.matchedDistance,
+            minMatchDist, maxMatchDist, defaultScale, minMatchedScale, maxScale, embedData.meta.matched
+        );
+        
+        const textureKey = embedData.id // Or use index i if that's the key for atlas.textures
+        const texture = atlas.textures[textureKey] || atlas.textures[String(i)] || Object.values(atlas.textures)[0];
+
+
+        if (!texture) {
+          console.warn(`Texture not found for embedding id: ${embedData.id} or index: ${i}`);
+          continue; // Skip creating particle if texture is missing
+        }
+
+        const particle = new PIXI.Particle({
+          texture: texture,
+          x: initialX,
+          y: initialY,
+          scaleX: initialTargetMetaScale, // Use more accurate initial scale
+          scaleY: initialTargetMetaScale, // Use more accurate initial scale
+          anchorX: 0.5,
+          anchorY: 0.5,
+          tint: colorForMetadata(embedData.meta),
+        });
+        
+        // Store all necessary data on the particle for pre-calculation and rendering logic
+        particle.data = {
+          ...embedData, // Original embedding data
+          id: embedData.id, // Ensure id is present for mapping
+          targetX: initialX, // Initialize targetX to initialX
+          targetY: initialY, // Initialize targetY to initialY
+          targetScale: initialTargetMetaScale, // Initialize targetScale
+          // These will be updated by the pre-calculation useEffect
+          x: initialX, // Store initial normalized position as data.x, data.y (used as fallback in useTick)
+          y: initialY,
+        };
+        particleContainerRef.current.addParticle(particle);
       }
     }
-  }, [normalized, rawEmbeddings, minMatchDist, maxMatchDist, defaultScale, minMatchedScale, maxScale])
+
+    return () => {
+      if (particleContainerRef.current) {
+        // particleContainerRef.current.removeParticles() // .removeParticles() is not a method
+        particleContainerRef.current.removeChildren(); // Correct method
+      }
+    }
+  }, [rawEmbeddings, atlas, normalized, particleContainerRef, minMatchDist, maxMatchDist, defaultScale, minMatchedScale, maxScale]); // Added scale dependencies
+
 
   useEffect(() => {
     if (particleContainerRef.current) {
@@ -191,6 +303,138 @@ const Embeddings: React.FC<{
       }
     }
   }, [particleContainerRef])
+
+  return (
+          resolveOverlap(
+            tempParticlesForPreCalculation[i],
+            tempParticlesForPreCalculation[j],
+            repulsionFactor
+          );
+        }
+      }
+    }
+
+    // Update the actual PIXI particles' data with these pre-calculated target positions and scales
+    if (particleContainerRef.current) {
+      for (let i = 0; i < particleContainerRef.current.particleChildren.length; i++) {
+        const pixiParticle = particleContainerRef.current.particleChildren[i] as (PIXI.Particle & { data?: any });
+        const correspondingTempParticle = tempParticlesForPreCalculation.find(tp => tp.id === pixiParticle.data.id);
+
+          // This part depends on when PIXI particles are created vs. when this effect runs.
+          // Assuming particle.data is already set with rawEmbeddings[i] from the creation useEffect.
+        }
+      }
+    }
+     // This effect primarily updates the .data properties of existing PIXI particles.
+     // If PIXI particles are not yet created, this data needs to be available when they are.
+     // One way is to update rawEmbeddings or a derived state that the particle creation effect uses.
+     // For now, assuming particles are there and we're updating their .data
+
+  }, [rawEmbeddings, normalized, atlas, minMatchDist, maxMatchDist, defaultScale, minMatchedScale, maxScale, particleContainerRef]);
+
+
+  useTick((_: PIXI.Ticker) => {
+    if (particleContainerRef.current) {
+      const currentParticles = particleContainerRef.current.particleChildren as (PIXI.Particle & {data?: any})[]
+
+      for (let particle of currentParticles) {
+        const data = particle.data;
+        if (data) {
+          // Lerp position towards pre-calculated targetX and targetY
+          const targetX = data.targetX !== undefined ? data.targetX : data.x; // Fallback to data.x if targetX not set
+          const targetY = data.targetY !== undefined ? data.targetY : data.y; // Fallback to data.y if targetY not set
+          
+          const dx = targetX - particle.x;
+          const dy = targetY - particle.y;
+          const currentDistance = Math.sqrt(dx * dx + dy * dy);
+          const speed = 0.1;
+          if (currentDistance > 0.5) { // Adjusted threshold for movement
+            particle.x += dx * speed;
+            particle.y += dy * speed;
+          } else if (currentDistance > 0) { // Snap if very close
+            particle.x = targetX;
+            particle.y = targetY;
+          }
+
+            particle.scale.x += scaleDiff * speed;
+            particle.scale.y += scaleDiff * speed;
+          } else if (scaleDiff !== 0) {
+            particle.scale.x = targetScaleValue;
+            particle.scale.y = targetScaleValue;
+          }
+        }
+      }
+      // particleContainerRef.current.update() // update is not a method on ParticleContainer
+      // The PIXI ticker automatically handles rendering updates.
+    }
+  })
+
+  // useEffect for initial particle creation
+  useEffect(() => {
+    if (particleContainerRef.current && atlas && rawEmbeddings.length) {
+       // Clear existing particles before adding new ones to prevent duplicates if rawEmbeddings changes
+      particleContainerRef.current.removeChildren();
+
+      for (let i = 0; i < rawEmbeddings.length; i++) {
+        const embedData = rawEmbeddings[i];
+        const [nx, ny] = normalized[i] || [0.5, 0.5]; // Fallback if normalized[i] is undefined
+        
+        // Initial position before pre-calculation (will be quickly updated by useTick lerping to targetX/Y)
+        const initialX = nx * 1920;
+        const initialY = ny * 1200;
+
+
+        if (!texture) {
+          console.warn(`Texture not found for embedding id: ${embedData.id} or index: ${i}`);
+          continue; // Skip creating particle if texture is missing
+        }
+
+        const particle = new PIXI.Particle({
+          texture: texture,
+          x: initialX,
+          y: initialY,
+          scaleX: initialScale,
+          scaleY: initialScale,
+          anchorX: 0.5,
+          anchorY: 0.5,
+          tint: colorForMetadata(embedData.meta),
+        });
+        
+        // Store all necessary data on the particle for pre-calculation and rendering logic
+        particle.data = {
+          ...embedData, // Original embedding data
+          id: embedData.id, // Ensure id is present for mapping
+  // This useEffect seems redundant now as its logic is incorporated into the main particle creation useEffect.
+  // I will remove it.
+  // useEffect(() => {
+  //   if (particleContainerRef.current) {
+  //     for (let i = 0; i < rawEmbeddings.length; i++) {
+  //       const [nx, ny] = normalized[i]
+  //       const x = nx * 1920
+  //       const y = ny * 1200
+  //       const particle = new PIXI.Particle({
+  //         texture: atlas.textures[i],
+  //         x,
+  //         y,
+  //         scaleX: 0.05,
+  //         scaleY: 0.05,
+  //         anchorX: 0.5,
+  //         anchorY: 0.5,
+  //         tint: colorForMetadata(rawEmbeddings[i].meta),
+  //       })
+  //       particle.data = rawEmbeddings[i]
+  //       particle.data.x = x
+  //       particle.data.y = y
+  //       particleContainerRef.current.addParticle(particle)
+  //     }
+  //   }
+
+  //   return () => {
+  //     if (particleContainerRef.current) {
+  //       particleContainerRef.current.removeParticles()
+  //     }
+  //   }
+  // }, [particleContainerRef])
 
   return (
     <>

@@ -29,11 +29,13 @@ export const calculateTargetScale = (
 };
 
 export interface Particle {
+  id: any; // Or specific type like string | number
   x: number;
   y: number;
-  scale: { x: number; y: number }; // Keep y for consistency, though only x is used for radius
-  texture: { width: number; height: number }; // Keep height for consistency
-  data?: any; // Optional: if you need to access other particle data
+  scaleX: number;
+  scaleY: number; 
+  texture: { width: number; height: number }; 
+  data?: any; 
 }
 
 export const resolveOverlap = (
@@ -46,8 +48,8 @@ export const resolveOverlap = (
     return { p1Moved: false, p2Moved: false };
   }
 
-  const radius1 = (p1.scale.x * p1.texture.width) / 2;
-  const radius2 = (p2.scale.x * p2.texture.width) / 2;
+  const radius1 = (p1.scaleX * p1.texture.width) / 2;
+  const radius2 = (p2.scaleX * p2.texture.width) / 2;
 
   const dx = p2.x - p1.x;
   const dy = p2.y - p1.y;
@@ -91,4 +93,57 @@ export const resolveOverlap = (
     p2Moved = true;
   }
   return { p1Moved, p2Moved };
+};
+
+export const performIterativeOverlapResolution = (
+  particles: Particle[],
+  maxIterations: number,
+  repulsionFactor: number,
+  stabilizationThresholdPerParticle: number // Threshold per particle for clarity
+): Particle[] => {
+  if (!particles || particles.length === 0) {
+    return [];
+  }
+
+  const stabilizationThresholdTotal = stabilizationThresholdPerParticle * particles.length;
+
+  for (let iter = 0; iter < maxIterations; iter++) {
+    let totalMovement = 0;
+    for (let i = 0; i < particles.length; i++) {
+      const p1 = particles[i];
+      const p1InitialX = p1.x;
+      const p1InitialY = p1.y;
+      let p1HasMovedThisIteration = false;
+
+      for (let j = i + 1; j < particles.length; j++) {
+        const p2 = particles[j];
+        const p2InitialX = p2.x;
+        const p2InitialY = p2.y;
+
+        // resolveOverlap directly modifies p1 and p2 if they overlap
+        const { p1Moved, p2Moved } = resolveOverlap(p1, p2, repulsionFactor);
+        
+        // Track if p1 moved due to this interaction or a previous one in this iteration
+        if (p1Moved) p1HasMovedThisIteration = true;
+
+        // For totalMovement, we sum the movement of p2 if it moved.
+        // p1's movement will be accounted for after its inner loop finishes.
+        if (p2Moved) {
+          totalMovement += Math.sqrt((p2.x - p2InitialX) ** 2 + (p2.y - p2InitialY) ** 2);
+        }
+      }
+      // Add p1's total movement in this iteration
+      if (p1HasMovedThisIteration) {
+         totalMovement += Math.sqrt((p1.x - p1InitialX) ** 2 + (p1.y - p1InitialY) ** 2);
+      }
+    }
+
+    // Start checking for stabilization after a few initial iterations
+    // to allow gross overlaps to resolve first.
+    if (iter > 10 && totalMovement < stabilizationThresholdTotal) {
+      // console.log(`Stabilized after ${iter + 1} iterations. Total movement: ${totalMovement}`);
+      break;
+    }
+  }
+  return particles; // Return the modified particles array
 };
