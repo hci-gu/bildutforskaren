@@ -3,6 +3,7 @@ import { API_URL, searchImagesAtom } from '../state'
 import { useState, useEffect } from 'react'
 import { Input } from '../components/ui/input'
 import { PhotoView } from 'react-photo-view'
+import { Link } from 'react-router-dom'
 
 function IndexPage() {
   const [query, setQuery] = useState('')
@@ -20,6 +21,7 @@ function IndexPage() {
 
   return (
     <div className="flex flex-col items-center justify-center min-h-svh mt-4">
+      <Link to="/maps" className="mb-4 text-blue-500 hover:text-blue-700">Go to Maps</Link>
       <Input
         type="text"
         placeholder="Search..."

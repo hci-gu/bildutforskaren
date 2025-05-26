@@ -4,6 +4,7 @@ import logging
 import umap
 from pathlib import Path
 from typing import List
+import io # Added for BytesIO
 
 import numpy as np
 import torch
@@ -11,6 +12,7 @@ import faiss
 from flask import Flask, request, jsonify, send_file, abort
 from flask_cors import CORS
 from PIL import Image
+import requests # Added for fetching image from URL
 from transformers import CLIPProcessor, CLIPModel
 
 # ── Logging ───────────────────────────────────────────────────────────────
@@ -236,3 +238,60 @@ def serve_original(image_id):
 if __name__ == "__main__":
     # Disable multithreaded fork-safety issues in Flask's reloader
     app.run(host="0.0.0.0", port=3000, debug=False)
+
+
+@app.route("/search_by_image", methods=["POST"])
+def search_by_image():
+    data = request.get_json()
+    if not data or "image_url" not in data:
+        return jsonify({"error": "Missing 'image_url' in JSON payload"}), 400
+
+    image_url = data["image_url"]
+    k = int(data.get("k", TOP_K)) # Use TOP_K as default, allow 'k' in payload
+
+    # Keep k sane
+    k = max(1, min(k, len(image_paths)))
+
+    try:
+        # Fetch image from URL
+        response = requests.get(image_url, timeout=10) # Added timeout
+        response.raise_for_status()  # Raise an exception for HTTP errors
+        
+        # Open image using Pillow
+        img = Image.open(io.BytesIO(response.content)).convert("RGB")
+
+    except requests.exceptions.RequestException as e:
+        logging.error(f"Error fetching image from URL {image_url}: {e}")
+        return jsonify({"error": f"Error fetching image from URL: {e}"}), 400
+    except IOError as e: # Catch Pillow errors
+        logging.error(f"Error processing image from URL {image_url}: {e}")
+        return jsonify({"error": f"Invalid or unsupported image format: {e}"}), 400
+    except Exception as e: # Catch any other unexpected errors
+        logging.error(f"Unexpected error processing image {image_url}: {e}")
+        return jsonify({"error": f"An unexpected error occurred: {e}"}), 500
+
+    # Embed the fetched image
+    try:
+        inputs = processor(images=[img], return_tensors="pt", padding=True).to(device)
+        with torch.no_grad():
+            query_embedding = model.get_image_features(**inputs)
+            query_embedding = query_embedding / query_embedding.norm(dim=-1, keepdim=True)
+    except Exception as e:
+        logging.error(f"Error embedding image from {image_url}: {e}")
+        return jsonify({"error": f"Error generating image embedding: {e}"}), 500
+
+    # Perform FAISS search
+    q_np = query_embedding.cpu().numpy().reshape(1, -1)
+    try:
+        D, I = faiss_index.search(q_np, k)  # D: distances, I: indices
+    except Exception as e:
+        logging.error(f"Error during FAISS search for image {image_url}: {e}")
+        return jsonify({"error": f"Error during similarity search: {e}"}), 500
+        
+    # Format results
+    results = [
+        {"id": int(idx), "distance": float(dist)}
+        for idx, dist in zip(I[0], D[0])
+    ]
+
+    return jsonify(results)
