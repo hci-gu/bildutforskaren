@@ -6,6 +6,7 @@ import EmbeddingsCanvas from './pages/canvas'
 import { PhotoProvider } from 'react-photo-view'
 import { useSetAtom } from 'jotai'
 import { selectedEmbeddingAtom } from './state'
+import StreetViewPage from './pages/streetview'
 
 function App() {
   const setSelectedEmbedding = useSetAtom(selectedEmbeddingAtom)
@@ -21,6 +22,7 @@ function App() {
       <Routes>
         <Route path="/" element={<IndexPage />} />
         <Route path="/canvas" element={<EmbeddingsCanvas />} />
+        <Route path="/street-view" element={<StreetViewPage />} />
         <Route path="/images/:id" element={<ImagePage />} />
       </Routes>
     </PhotoProvider>
