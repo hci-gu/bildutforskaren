@@ -1,6 +1,7 @@
 import { Input } from '@/components/ui/input'
 import {
   displaySettingsAtom,
+  filterSettingsAtom,
   projectionSettingsAtom,
   searchQueryAtom,
   searchSettingsAtom,
@@ -96,6 +97,7 @@ const ProjectionSettings = () => {
         <SelectContent>
           <SelectItem value="umap">U-Map</SelectItem>
           <SelectItem value="grid">Grid</SelectItem>
+          <SelectItem value="year">Year</SelectItem>
           <SelectItem value="spreadsheet">Spreadsheet</SelectItem>
         </SelectContent>
       </Select>
@@ -177,6 +179,43 @@ const DisplaySettings = () => {
   )
 }
 
+const FilterSettings = () => {
+  const [settings, setSettings] = useAtom(filterSettingsAtom)
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = e.target
+    setSettings((prev) => ({
+      ...prev,
+      [name]: value || null,
+    }))
+  }
+
+  return (
+    <div className="flex flex-col gap-2 mt-2">
+      <CardHeader className="p-0 mt-2">
+        <CardTitle>Filters</CardTitle>
+      </CardHeader>
+      <Select
+        value={settings.photographer || ''}
+        onValueChange={(value) =>
+          setSettings((prev: any) => ({ ...prev, photographer: value }))
+        }
+      >
+        <SelectTrigger className="w-[180px]">
+          <SelectValue placeholder="Photographer" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value={null}>Ingen</SelectItem>
+          <SelectItem value="1">1</SelectItem>
+          <SelectItem value="2">2</SelectItem>
+          <SelectItem value="3">3</SelectItem>
+          <SelectItem value="4">4</SelectItem>
+        </SelectContent>
+      </Select>
+    </div>
+  )
+}
+
 export default function Panel() {
   return (
     <Card className="absolute top-8 right-8 z-10 w-1/6 bg-white border border-gray-300 shadow-lg">
@@ -184,6 +223,7 @@ export default function Panel() {
         <Search />
         <ProjectionSettings />
         <DisplaySettings />
+        <FilterSettings />
       </CardContent>
     </Card>
   )

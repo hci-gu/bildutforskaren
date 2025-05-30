@@ -8,7 +8,8 @@ import { useAtom, useAtomValue, useSetAtom } from 'jotai'
 import {
   API_URL,
   displaySettingsAtom,
-  filteredEmbeddingsAtom,
+  filterSettingsAtom,
+  projectedEmbeddingsAtom,
   searchQueryAtom,
   selectedEmbeddingAtom,
 } from '@/state'
@@ -62,11 +63,12 @@ const Embeddings: React.FC<{
   atlas: PIXI.Spritesheet
   particleContainerRef: React.RefObject<PIXI.ParticleContainer | null>
 }> = ({ atlas, particleContainerRef }) => {
-  const rawEmbeddings = useAtomValue(filteredEmbeddingsAtom)
+  const rawEmbeddings = useAtomValue(projectedEmbeddingsAtom)
   const matchedEmbeddings = rawEmbeddings.filter(
     (embed: any) => embed.meta.matched
   )
   const displaySettings = useAtomValue(displaySettingsAtom)
+  const filterSettings = useAtomValue(filterSettingsAtom)
 
   const positions = useMemo(
     () => normalizePoints(rawEmbeddings.map((e: any) => e.point)),
@@ -125,7 +127,7 @@ const Embeddings: React.FC<{
         }
       }
     }
-  }, [displaySettings, positions])
+  }, [filterSettings, displaySettings, positions])
 
   // useEffect(() => {
   //   if (particleContainerRef.current) {
@@ -141,10 +143,6 @@ const Embeddings: React.FC<{
 
   useEffect(() => {
     if (particleContainerRef.current) {
-      console.log(
-        'CHILDREN:',
-        particleContainerRef.current.particleChildren.length
-      )
       for (let i = 0; i < rawEmbeddings.length; i++) {
         const [nx, ny] = positions[i]
         const x = nx * 1920
@@ -174,7 +172,7 @@ const Embeddings: React.FC<{
         particleContainerRef.current.particleChildren = []
       }
     }
-  }, [displaySettings, particleContainerRef])
+  }, [filterSettings, displaySettings, particleContainerRef])
 
   return (
     <>
@@ -188,10 +186,15 @@ const Embeddings: React.FC<{
         }}
       />
       <pixiContainer>
-        {textEmbeddings.map((embed: any, i: number) => {
-          const [nx, ny] = positions[i]
+        {textEmbeddings.map((embed: any) => {
+          const originalIndex = rawEmbeddings.findIndex(
+            (e: any) => e.id === embed.id
+          )
+          const [nx, ny] = positions[originalIndex]
           const x = nx * 1920
           const y = ny * 1200
+
+          console.log('Rendering text embed:', embed, x, y)
 
           return (
             <pixiText
@@ -229,6 +232,19 @@ const pointIntersectsParticle = (
   return null
 }
 
+const ImageOverlay = ({ embedding }: any) => {
+  return (
+    <div className="fixed bottom-0 left-0 p-4 bg-white z-50">
+      <span>
+        <strong>Photographer:</strong> {embedding.meta.photographer}
+      </span>
+      <span className="ml-4">
+        <strong>Year:</strong> {embedding.meta.year}
+      </span>
+    </div>
+  )
+}
+
 const ImageDisplayer = () => {
   const buttonRef = React.useRef<HTMLButtonElement>(null)
   const selectedEmbedding = useAtomValue<any>(selectedEmbeddingAtom)
@@ -247,6 +263,7 @@ const ImageDisplayer = () => {
     <PhotoView
       key={`Image_${selectedEmbedding.id}`}
       src={`${API_URL}/original/${selectedEmbedding.id}`}
+      // overlay={<ImageOverlay embedding={selectedEmbedding} />}
     >
       <button ref={buttonRef}></button>
     </PhotoView>

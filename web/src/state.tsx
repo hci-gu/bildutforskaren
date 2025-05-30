@@ -74,41 +74,62 @@ export const imagesAtom = atom(async (_) => {
 })
 
 export const searchQueryAtom = atom('')
+export const searchImageAtom = atom(null)
 export const searchSettingsAtom = atom({
   topK: 100,
 })
 
-export const searchImagesAtom = atomFamily((query: string) =>
-  atom(async (get) => {
-    const searchSettings = get(searchSettingsAtom)
+export const searchImagesAtom = atom(async (get) => {
+  const query = get(searchQueryAtom)
+  const image = get(searchImageAtom)
+  const searchSettings = get(searchSettingsAtom)
 
-    if (!query) {
-      return []
-    }
+  if (!query && !image) {
+    return []
+  }
+
+  if (image) {
+    const formData = new FormData()
+    formData.append('file', image)
 
     try {
-      const response = await fetch(
-        `${API_URL}/search?query=${encodeURIComponent(query)}&top_k=${
-          searchSettings.topK
-        }`,
-        {
-          method: 'GET',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-        }
-      )
+      const response = await fetch(`${API_URL}/search-by-image`, {
+        method: 'POST',
+        body: formData,
+      })
       if (!response.ok) {
         throw new Error('Network response was not ok')
       }
       const data = await response.json()
       return data
     } catch (error) {
-      console.error('Failed to fetch search results:', error)
+      console.error('Failed to fetch search results by image:', error)
       return []
     }
-  })
-)
+  }
+
+  try {
+    const response = await fetch(
+      `${API_URL}/search?query=${encodeURIComponent(query)}&top_k=${
+        searchSettings.topK
+      }`,
+      {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      }
+    )
+    if (!response.ok) {
+      throw new Error('Network response was not ok')
+    }
+    const data = await response.json()
+    return data
+  } catch (error) {
+    console.error('Failed to fetch search results:', error)
+    return []
+  }
+})
 
 export const embeddingsAtom = atom(async (_) => {
   try {
@@ -122,8 +143,27 @@ export const embeddingsAtom = atom(async (_) => {
   }
 })
 
+export const filteredEmbeddingsAtom = atom(async (get) => {
+  const embeddingsData = await get(embeddingsAtom)
+  const filterSettings = get(filterSettingsAtom)
+
+  if (!filterSettings.year && !filterSettings.photographer) {
+    return embeddingsData
+  }
+
+  return embeddingsData.filter((item: any) => {
+    const matchesYear =
+      !filterSettings.year || item.metadata?.year === filterSettings.year
+    const matchesPhotographer =
+      !filterSettings.photographer ||
+      item.metadata?.photographer === filterSettings.photographer
+
+    return matchesYear && matchesPhotographer
+  })
+})
+
 export const projectionSettingsAtom = atom({
-  type: 'umap',
+  type: 'grid',
   nNeighbors: 15,
   minDist: 0.1,
   spread: 1,
@@ -135,16 +175,17 @@ export const displaySettingsAtom = atom({
   scale: 1,
 })
 
+export const filterSettingsAtom = atom({
+  year: null,
+  photographer: null,
+})
+
 const projectionCache = new Map()
 
 export const embeddingProjection = atom(async (get) => {
-  const embeddingsData = await get(embeddingsAtom)
+  const embeddingsData = await get(filteredEmbeddingsAtom)
   const projectionSettings = get(projectionSettingsAtom)
 
-  // const result = await fetch(
-  //   `${API_URL}/umap?n_neighbors=${projectionSettings.nNeighbors}&min_dist=${projectionSettings.minDist}&spread=${projectionSettings.spread}&seed=${projectionSettings.seed}`
-  // )
-  // const embedding2d = await result.json()
   if (projectionSettings.type === 'umap') {
     let embeddings = embeddingsData.map(
       (item: { id: string; embedding: number[] }) => item.embedding
@@ -172,14 +213,52 @@ export const embeddingProjection = atom(async (get) => {
       }
     }
     return embedding2d
+  } else if (projectionSettings.type === 'year') {
+    const embeddingsWithYear = embeddingsData.filter(
+      (item: any) =>
+        item.metadata?.year !== undefined && item.metadata.year !== null
+    )
+
+    const uniqueYears = [
+      ...new Set(embeddingsWithYear.map((item: any) => item.metadata.year)),
+    ].sort()
+    const yearToColumn = new Map(uniqueYears.map((year, i) => [year, i]))
+
+    const totalColumns = uniqueYears.length + 1 // extra column for items without a year
+    const rowSpacing = 1
+
+    // Prepare columns
+    const columns: number[][][] = Array.from({ length: totalColumns }, () => [])
+    embeddingsData.forEach((item: any, index: number) => {
+      const year = item.metadata?.year
+      const colIndex = yearToColumn.has(year)
+        ? yearToColumn.get(year)!
+        : uniqueYears.length
+      columns[colIndex].push([index])
+    })
+
+    // Assign coordinates
+    const positions = new Array(embeddingsData.length)
+    for (let col = 0; col < totalColumns; col++) {
+      const colItems = columns[col]
+      for (let row = 0; row < colItems.length; row++) {
+        const [originalIndex] = colItems[row]
+        const x = totalColumns === 1 ? 0.5 : col / (totalColumns - 1)
+        const y = row * rowSpacing
+        positions[originalIndex] = [x, y]
+      }
+    }
+
+    return positions
   }
 })
 
 export const projectedEmbeddingsAtom = atom(async (get) => {
-  const embeddingsData = await get(embeddingsAtom)
-  const texts = await get(textEmbeddingsAtom)
+  const projectionSettings = get(projectionSettingsAtom)
+  const embeddingsData = await get(filteredEmbeddingsAtom)
+  // const texts = await get(textEmbeddingsAtom)
   const projection = await get(embeddingProjection)
-
+  const result = await get(searchImagesAtom)
   // const textEmbeddings = await getTextEmbeddings(texts)
 
   const projectedEmbeddings = embeddingsData.map(
@@ -193,16 +272,35 @@ export const projectedEmbeddingsAtom = atom(async (get) => {
       },
     })
   )
-  return projectedEmbeddings
-})
+  if (projectionSettings.type == 'year') {
+    const embeddingsWithYear = embeddingsData.filter(
+      (item: any) =>
+        item.metadata?.year !== undefined && item.metadata.year !== null
+    )
+    const uniqueYears = [
+      ...new Set(embeddingsWithYear.map((item: any) => item.metadata.year)),
+    ].sort()
 
-export const filteredEmbeddingsAtom = atom(async (get) => {
-  const query = get(searchQueryAtom)
-  const result = await get(searchImagesAtom(query))
+    const yearToColumn = new Map(uniqueYears.map((year, i) => [year, i]))
+    const totalColumns = uniqueYears.length + 1 // extra column for items without a year
 
-  const embeddings = await get(projectedEmbeddingsAtom)
+    for (let year of uniqueYears) {
+      const columnIndex = yearToColumn.get(year)!
+      projectedEmbeddings.push({
+        id: `year_${year}`,
+        point: [columnIndex / (totalColumns - 1), 0],
+        text: year,
+        type: 'text',
+        meta: {
+          matched: false,
+        },
+      })
+    }
 
-  return embeddings.map((embedding: any) => {
+    console.log('Projected embeddings with years:', projectedEmbeddings)
+  }
+
+  return projectedEmbeddings.map((embedding: any) => {
     const found = result.find((res: any) => res.id === embedding.id)
     return {
       ...embedding,

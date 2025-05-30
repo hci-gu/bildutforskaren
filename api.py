@@ -2,9 +2,12 @@ import os
 import sys
 import logging
 import umap
+import re
+from datetime import datetime
 from pathlib import Path
 from typing import List
 
+import pandas as pd
 import numpy as np
 import torch
 import faiss
@@ -12,6 +15,19 @@ from flask import Flask, request, jsonify, send_file, abort
 from flask_cors import CORS
 from PIL import Image
 from transformers import CLIPProcessor, CLIPModel
+
+
+METADATA_FILE = Path("metadata.xlsx")  # adjust path to your actual Excel file
+EXCEL_METADATA = {}
+
+if METADATA_FILE.exists():
+    xl = pd.read_excel(METADATA_FILE, sheet_name=None, header=2)  # loads all sheets
+    for sheet, df in xl.items():
+        df = df.fillna("")  # optional: replace NaNs
+        EXCEL_METADATA[sheet] = df
+    logging.info("Loaded metadata for sheets: %s", list(EXCEL_METADATA.keys()))
+else:
+    logging.warning("Metadata file %s not found", METADATA_FILE)
 
 # ── Logging ───────────────────────────────────────────────────────────────
 logging.basicConfig(level=logging.INFO, stream=sys.stdout,
@@ -40,8 +56,50 @@ app = Flask(__name__)
 CORS(app)
 
 # ── Helpers ───────────────────────────────────────────────────────────────
+def extract_year(date_str: str) -> str | None:
+    if not date_str or not isinstance(date_str, str):
+        return None
+
+    date_str = date_str.strip().lower()
+
+    # Try direct datetime parsing for known formats
+    for fmt in ("%Y-%m-%d", "%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S.%f", "%Y"):
+        try:
+            dt = datetime.strptime(date_str, fmt)
+            return str(dt.year)
+        except ValueError:
+            pass
+
+    # Match years like '1905', '1946', '2022'
+    m = re.search(r"\b(18|19|20)\d{2}\b", date_str)
+    if m:
+        return m.group(0)
+
+    # Match ranges like '1914–1915' or '1914-1915' → take first year
+    m = re.search(r"\b(18|19|20)\d{2}[-–](18|19|20)\d{2}\b", date_str)
+    if m:
+        return m.group(1)
+
+    # Match numeric dates like '19370826' (yyyymmdd)
+    m = re.match(r"^(18|19|20)\d{6}$", date_str)
+    if m:
+        return date_str[:4]
+
+    # Match float representations like '1923.0'
+    m = re.match(r"^(18|19|20)\d{2}\.0$", date_str)
+    if m:
+        return date_str.split(".")[0]
+
+    # Match months in Swedish (e.g., "mars 1980", "oktober 1976")
+    m = re.search(r"(18|19|20)\d{2}", date_str)
+    if m:
+        return m.group(0)
+
+    return None
+
 def extract_metadata(path: Path) -> dict:
     parts = path.relative_to(IMAGE_ROOT).parts
+    folder = parts[1]
     photographer_id = ''
     if parts[0] == 'Arnold Glöckners fotoarkiv':
         photographer_id = '1'
@@ -53,10 +111,35 @@ def extract_metadata(path: Path) -> dict:
         elif parts[1].startswith('K 3'):
             photographer_id = '4'
 
-    return {
+    meta = {
         "filename": path.name,
         "photographer": photographer_id,
     }
+
+    stem = Path(path).stem
+    digits = stem.split("_")[-1]  # assume last part is the image number
+    # remove leading zeros
+    image_id = digits.lstrip("0")
+    sheet_data = EXCEL_METADATA.get(folder)
+    if sheet_data is not None and image_id is not None:
+        # if image_id only contains digits, convert to int
+        if image_id.isdigit():
+            image_id = int(image_id)
+                    
+        row_data = sheet_data[sheet_data[sheet_data.columns[0]] == image_id]
+        date = row_data["Datering"].values[0] if "Datering" in row_data and not row_data["Datering"].empty else None
+        description = row_data["Beskrivning"].values[0] if "Beskrivning" in row_data and not row_data["Beskrivning"].empty else None
+        date_str = str(date) if date is not None else ""
+        year = extract_year(date_str)
+        if year is not None:
+            decade = year[:3] + "0" if year and len(year) >= 3 else None
+            meta['decade'] = decade
+
+        meta['date'] = date_str
+        meta['year'] = year
+        meta['description'] = description
+
+    return meta
 
 def collect_image_paths(root: Path) -> List[Path]:
     """Recursively gather all image files under *root*, sorted for stable IDs."""
@@ -76,7 +159,6 @@ def embed_images(paths: List[Path]) -> torch.Tensor:
         all_embeddings.append(feats.cpu())
     return torch.cat(all_embeddings, dim=0)
 
-
 def save_cache(emb: torch.Tensor, paths: List[Path]):
     np.savez_compressed(
         CACHE_FILE,
@@ -84,7 +166,6 @@ def save_cache(emb: torch.Tensor, paths: List[Path]):
         paths=np.array([str(p) for p in paths]),
     )
     logging.info("Saved %s embeddings → %s", len(paths), CACHE_FILE)
-
 
 def load_cache():
     if not CACHE_FILE.exists():
@@ -100,6 +181,7 @@ def build_index(emb: torch.Tensor) -> faiss.Index:
     index = faiss.IndexFlatL2(dim)
     index.add(emb_np)
     return index
+
 
 # ── One-time start-up ─────────────────────────────────────────────────────
 logging.info("Scanning image tree …")
@@ -187,6 +269,44 @@ def search():
 
     return jsonify(results)
 
+@app.route("/search-by-image", methods=["POST"])
+def search_by_image():
+    if "file" not in request.files:
+        return jsonify({"error": "Missing 'file' field"}), 400
+
+    file = request.files["file"]
+
+    try:
+        img = Image.open(file.stream).convert("RGB")
+    except Exception:
+        return jsonify({"error": "Could not read image"}), 400
+
+    # -------- embed query image --------
+    with torch.no_grad():
+        inputs = processor(images=[img], return_tensors="pt").to(device)
+        img_feat = model.get_image_features(**inputs)
+        img_feat = img_feat / img_feat.norm(dim=-1, keepdim=True)
+
+    # -------- determine k --------
+    try:
+        k = int(request.form.get("top_k", TOP_K))
+    except ValueError:
+        return jsonify({"error": "'top_k' must be an integer"}), 400
+
+    k = max(1, min(k, len(image_paths)))
+
+    # -------- FAISS search --------
+    q = img_feat.cpu().numpy().astype("float32")
+    D, I = faiss_index.search(q, k)  # D = distances, I = indices
+
+    # -------- format & return --------
+    results = [
+        {"id": int(idx), "distance": float(dist)}
+        for idx, dist in zip(I[0], D[0])
+    ]
+
+    return jsonify(results)
+
 @app.route("/images", methods=["GET"])
 def list_images():
     return jsonify(list(range(len(image_paths))))
@@ -205,7 +325,7 @@ def get_umap():
         metric="cosine",
         transform_seed=seed
     )
-    embedding = reducer.fit_transform(embeddings[:1000].numpy())
+    embedding = reducer.fit_transform(embeddings.numpy())
 
     return jsonify(embedding.tolist())
 
