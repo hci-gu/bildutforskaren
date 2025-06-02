@@ -1,19 +1,19 @@
-import React, { use, useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import '@pixi/events'
-import { Application, useApplication, extend, useTick } from '@pixi/react'
+import { Application, extend, useTick } from '@pixi/react'
 import * as PIXI from 'pixi.js'
 import atlasMeta from '@/assets/atlas.json'
 import atlasImageSrc from '@/assets/atlas.png'
-import { useAtom, useAtomValue, useSetAtom } from 'jotai'
+import { useAtomValue, useSetAtom } from 'jotai'
 import {
   API_URL,
   displaySettingsAtom,
   filterSettingsAtom,
   projectedEmbeddingsAtom,
+  projectionSettingsAtom,
   searchQueryAtom,
   selectedEmbeddingAtom,
 } from '@/state'
-import { Input } from '../../components/ui/input'
 import { PhotoView } from 'react-photo-view'
 import { state } from './canvasState'
 import { Viewport } from './ViewPort'
@@ -28,23 +28,21 @@ extend({
   Text: PIXI.Text,
 })
 
-function normalizePoints(points: [number, number][]): [number, number][] {
-  const xs = points.map(([x]) => x)
-  const ys = points.map(([, y]) => y)
-  const minX = Math.min(...xs)
-  const maxX = Math.max(...xs)
-  const minY = Math.min(...ys)
-  const maxY = Math.max(...ys)
-  const rangeX = maxX - minX || 1
-  const rangeY = maxY - minY || 1
-  return points.map(([x, y]) => [(x - minX) / rangeX, (y - minY) / rangeY])
-}
-
 type Props = {
   width?: number
   height?: number
   nodeSize?: number
 }
+
+type CustomParticle = PIXI.Particle & {
+  data?: any
+}
+
+const CANVAS_WIDTH = 1920 / 2
+const CANVAS_HEIGHT = 1200 / 2
+const CANVAS_OFFSET_X = 0
+const CANVAS_OFFSET_Y = 0
+const BASE_SCALE = 0.075
 
 const colorForMetadata = (metadata: any) => {
   if (metadata.photographer == '1') {
@@ -69,18 +67,15 @@ const Embeddings: React.FC<{
   )
   const displaySettings = useAtomValue(displaySettingsAtom)
   const filterSettings = useAtomValue(filterSettingsAtom)
-
-  const positions = useMemo(
-    () => normalizePoints(rawEmbeddings.map((e: any) => e.point)),
-    [rawEmbeddings, matchedEmbeddings]
-  )
+  const projectionSettings = useAtomValue(projectionSettingsAtom)
   const textEmbeddings = rawEmbeddings.filter(
     (embed: any) => embed.type === 'text'
   )
 
   useTick((_: PIXI.Ticker) => {
     if (particleContainerRef.current) {
-      for (let particle of particleContainerRef.current.particleChildren) {
+      for (let particle of particleContainerRef.current
+        .particleChildren as CustomParticle[]) {
         // lerp position towards data position
         const data = particle.data
         if (data) {
@@ -89,13 +84,14 @@ const Embeddings: React.FC<{
           const dx = targetX - particle.x
           const dy = targetY - particle.y
           const distance = Math.sqrt(dx * dx + dy * dy)
-          const speed = 0.1
-          if (distance > 1) {
+          const speed = 0.0001
+          if (distance > 0.1) {
             particle.x += dx * speed
             particle.y += dy * speed
           }
           // lerp scale towards targetScale
-          const targetScale = (data.targetScale || 0.05) * displaySettings.scale
+          const targetScale =
+            (data.targetScale || BASE_SCALE) * displaySettings.scale
 
           const scaleDiff = targetScale - particle.scaleX
           if (Math.abs(scaleDiff) > 0.01) {
@@ -110,58 +106,58 @@ const Embeddings: React.FC<{
 
   useEffect(() => {
     if (particleContainerRef.current) {
-      for (let i = 0; i < positions.length; i++) {
-        const [nx, ny] = positions[i]
-        const x = nx * 1920
-        const y = ny * 1200
-        const particle = particleContainerRef.current.particleChildren[i]
-        if (particle) {
-          particle.data = rawEmbeddings[i]
+      console.log('updating particle data')
+      for (let particle of particleContainerRef.current
+        .particleChildren as CustomParticle[]) {
+        const embeddingId = particle.data.embedding.id
+        const rawEmbedding = rawEmbeddings.find(
+          (e: any) => e.id === embeddingId
+        )
+        if (rawEmbedding) {
+          const [nx, ny] = rawEmbedding.point
+          const x = nx * CANVAS_WIDTH
+          const y = ny * CANVAS_HEIGHT
+          particle.data.embedding = rawEmbedding
+          particle.tint = displaySettings.colorPhotographer
+            ? colorForMetadata(rawEmbedding.meta)
+            : 0xffffff
           particle.data.x = x
           particle.data.y = y
-          if (particle.data.meta.matched) {
-            particle.data.targetScale = 0.5 * displaySettings.scale
-          } else {
-            particle.data.targetScale = 0.05 * displaySettings.scale
-          }
+          // if (particle.data.meta.matched) {
+          //   particle.data.targetScale = BASE_SCALE * displaySettings.scale
+          // } else {
+          // }
+          particle.data.targetScale = BASE_SCALE * displaySettings.scale
         }
       }
     }
-  }, [filterSettings, displaySettings, positions])
-
-  // useEffect(() => {
-  //   if (particleContainerRef.current) {
-  //     for (let particle of particleContainerRef.current.particleChildren) {
-  //       if (displaySettings.colorPhotographer) {
-  //         particle.color = colorForMetadata(particle.data.meta)
-  //       } else {
-  //         particle.color = 0xffffff
-  //       }
-  //     }
-  //   }
-  // }, [displaySettings, particleContainerRef])
+  }, [rawEmbeddings, filterSettings, displaySettings, projectionSettings])
 
   useEffect(() => {
     if (particleContainerRef.current) {
+      console.log('recreating particles')
       for (let i = 0; i < rawEmbeddings.length; i++) {
-        const [nx, ny] = positions[i]
-        const x = nx * 1920
-        const y = ny * 1200
+        const [nx, ny] = rawEmbeddings[i].point
+        const x = nx * CANVAS_WIDTH
+        const y = ny * CANVAS_HEIGHT
         const particle = new PIXI.Particle({
-          texture: atlas.textures[i],
+          texture: atlas.textures[rawEmbeddings[i].id],
           x,
           y,
-          scaleX: 0.05 * displaySettings.scale,
-          scaleY: 0.05 * displaySettings.scale,
+          scaleX: BASE_SCALE * displaySettings.scale,
+          scaleY: BASE_SCALE * displaySettings.scale,
           anchorX: 0.5,
           anchorY: 0.5,
           tint: displaySettings.colorPhotographer
             ? colorForMetadata(rawEmbeddings[i].meta)
             : 0xffffff,
-        })
-        particle.data = rawEmbeddings[i]
+        }) as CustomParticle
+        particle.data = {}
+        particle.data.embedding = rawEmbeddings[i]
         particle.data.x = x
         particle.data.y = y
+        particle.data.originalX = x
+        particle.data.originalY = y
         particleContainerRef.current.addParticle(particle)
       }
     }
@@ -172,11 +168,15 @@ const Embeddings: React.FC<{
         particleContainerRef.current.particleChildren = []
       }
     }
-  }, [filterSettings, displaySettings, particleContainerRef])
+  }, [rawEmbeddings, filterSettings, projectionSettings, particleContainerRef])
 
   return (
     <>
       <pixiParticleContainer
+        position={{
+          x: CANVAS_OFFSET_X,
+          y: CANVAS_OFFSET_Y,
+        }}
         ref={particleContainerRef}
         dynamicProperties={{
           position: true,
@@ -185,23 +185,29 @@ const Embeddings: React.FC<{
           alpha: false,
         }}
       />
-      <pixiContainer>
+      <pixiContainer
+        position={{
+          x: CANVAS_OFFSET_X,
+          y: CANVAS_OFFSET_Y,
+        }}
+      >
         {textEmbeddings.map((embed: any) => {
           const originalIndex = rawEmbeddings.findIndex(
             (e: any) => e.id === embed.id
           )
-          const [nx, ny] = positions[originalIndex]
-          const x = nx * 1920
-          const y = ny * 1200
+          const [nx, ny] = rawEmbeddings[originalIndex].point
+          const x = nx * CANVAS_WIDTH
+          const y = ny * CANVAS_HEIGHT
 
-          console.log('Rendering text embed:', embed, x, y)
+          // console.log('Rendering text embed:', embed, x, y)
 
           return (
             <pixiText
               key={embed.id}
               text={embed.text}
               x={x}
-              y={y}
+              y={y - 12}
+              rotation={-Math.PI / 4}
               anchor={0.5}
               style={{
                 fontSize: 12,
@@ -219,30 +225,17 @@ const Embeddings: React.FC<{
 const pointIntersectsParticle = (
   x: number,
   y: number,
-  particles: PIXI.Particle[]
+  particles: CustomParticle[]
 ) => {
   for (const particle of particles) {
     const dx = x - particle.x
     const dy = y - particle.y
     const distanceSquared = dx * dx + dy * dy
-    if (distanceSquared < 5) {
+    if (distanceSquared < 10) {
       return particle
     }
   }
   return null
-}
-
-const ImageOverlay = ({ embedding }: any) => {
-  return (
-    <div className="fixed bottom-0 left-0 p-4 bg-white z-50">
-      <span>
-        <strong>Photographer:</strong> {embedding.meta.photographer}
-      </span>
-      <span className="ml-4">
-        <strong>Year:</strong> {embedding.meta.year}
-      </span>
-    </div>
-  )
 }
 
 const ImageDisplayer = () => {
@@ -343,8 +336,9 @@ const EmbeddingsCanvas: React.FC<Props> = ({ width = 1920, height = 1200 }) => {
                 particles as PIXI.Particle[]
               )
               if (particle) {
+                console.log('Particle clicked:', point, particle)
                 const data = particle.data
-                setSelectedEmbedding(data)
+                setSelectedEmbedding(data.embedding)
               } else {
                 setSelectedEmbedding(null)
               }

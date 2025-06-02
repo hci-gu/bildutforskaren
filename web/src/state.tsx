@@ -91,6 +91,7 @@ export const searchImagesAtom = atom(async (get) => {
   if (image) {
     const formData = new FormData()
     formData.append('file', image)
+    console.log('searching by image', formData)
 
     try {
       const response = await fetch(`${API_URL}/search-by-image`, {
@@ -144,8 +145,17 @@ export const embeddingsAtom = atom(async (_) => {
 })
 
 export const filteredEmbeddingsAtom = atom(async (get) => {
-  const embeddingsData = await get(embeddingsAtom)
+  let embeddingsData = await get(embeddingsAtom)
+  const projectionSettings = get(projectionSettingsAtom)
   const filterSettings = get(filterSettingsAtom)
+
+  if (projectionSettings.type === 'year') {
+    // Filter out items without a year
+    embeddingsData = embeddingsData.filter(
+      (item: any) =>
+        item.metadata?.year !== undefined && item.metadata.year !== null
+    )
+  }
 
   if (!filterSettings.year && !filterSettings.photographer) {
     return embeddingsData
@@ -164,14 +174,14 @@ export const filteredEmbeddingsAtom = atom(async (get) => {
 
 export const projectionSettingsAtom = atom({
   type: 'grid',
-  nNeighbors: 15,
+  nNeighbors: 2,
   minDist: 0.1,
   spread: 1,
   seed: 1,
 })
 
 export const displaySettingsAtom = atom({
-  colorPhotographer: true,
+  colorPhotographer: false,
   scale: 1,
 })
 
@@ -222,6 +232,7 @@ export const embeddingProjection = atom(async (get) => {
     const uniqueYears = [
       ...new Set(embeddingsWithYear.map((item: any) => item.metadata.year)),
     ].sort()
+
     const yearToColumn = new Map(uniqueYears.map((year, i) => [year, i]))
 
     const totalColumns = uniqueYears.length + 1 // extra column for items without a year
@@ -231,9 +242,7 @@ export const embeddingProjection = atom(async (get) => {
     const columns: number[][][] = Array.from({ length: totalColumns }, () => [])
     embeddingsData.forEach((item: any, index: number) => {
       const year = item.metadata?.year
-      const colIndex = yearToColumn.has(year)
-        ? yearToColumn.get(year)!
-        : uniqueYears.length
+      const colIndex = yearToColumn.get(year)!
       columns[colIndex].push([index])
     })
 
@@ -244,7 +253,7 @@ export const embeddingProjection = atom(async (get) => {
       for (let row = 0; row < colItems.length; row++) {
         const [originalIndex] = colItems[row]
         const x = totalColumns === 1 ? 0.5 : col / (totalColumns - 1)
-        const y = row * rowSpacing
+        const y = row * rowSpacing * 10
         positions[originalIndex] = [x, y]
       }
     }
@@ -255,11 +264,32 @@ export const embeddingProjection = atom(async (get) => {
 
 export const projectedEmbeddingsAtom = atom(async (get) => {
   const projectionSettings = get(projectionSettingsAtom)
-  const embeddingsData = await get(filteredEmbeddingsAtom)
+  let embeddingsData = await get(filteredEmbeddingsAtom)
   // const texts = await get(textEmbeddingsAtom)
   const projection = await get(embeddingProjection)
   const result = await get(searchImagesAtom)
   // const textEmbeddings = await getTextEmbeddings(texts)
+
+  if (projectionSettings.type === 'grid' && result.length > 0) {
+    // sort by search results, all matches will be at the top
+    const resultIds = new Set(result.map((res: any) => res.id))
+    console.log('resultIds', resultIds)
+
+    embeddingsData = embeddingsData.sort((a: any, b: any) => {
+      const aFound = result.find((res: any) => res.id === a.id)
+      const bFound = result.find((res: any) => res.id === b.id)
+      if (aFound && bFound) {
+        const aIsCloser = aFound.distance < bFound.distance
+        const bIsCloser = bFound.distance < aFound.distance
+        return aIsCloser ? -1 : bIsCloser ? 1 : 0
+      } else if (aFound) {
+        return -1 // a is found, b is not
+      } else if (bFound) {
+        return 1 // b is found, a is not
+      }
+      return 0 // neither are found
+    })
+  }
 
   const projectedEmbeddings = embeddingsData.map(
     (item: any, index: number) => ({
@@ -280,6 +310,15 @@ export const projectedEmbeddingsAtom = atom(async (get) => {
     const uniqueYears = [
       ...new Set(embeddingsWithYear.map((item: any) => item.metadata.year)),
     ].sort()
+    // const yearMap = {}
+    // uniqueYears.forEach((year, index) => {
+    //   yearMap[year] = 0
+    // })
+    // for (let item of embeddingsWithYear) {
+    //   if (item.metadata?.year !== undefined && item.metadata.year !== null) {
+    //     yearMap[item.metadata.year] += 1
+    //   }
+    // }
 
     const yearToColumn = new Map(uniqueYears.map((year, i) => [year, i]))
     const totalColumns = uniqueYears.length + 1 // extra column for items without a year
@@ -296,8 +335,6 @@ export const projectedEmbeddingsAtom = atom(async (get) => {
         },
       })
     }
-
-    console.log('Projected embeddings with years:', projectedEmbeddings)
   }
 
   return projectedEmbeddings.map((embedding: any) => {

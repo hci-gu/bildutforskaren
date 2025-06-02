@@ -3,11 +3,16 @@ import { API_URL, searchImageAtom, searchImagesAtom } from '@/state'
 import { GoogleMap, StreetViewPanorama } from '@react-google-maps/api'
 import { useAtomValue, useSetAtom } from 'jotai'
 import { useEffect, useRef, useState } from 'react'
-import { PhotoView } from 'react-photo-view'
 import Draggable from 'react-draggable'
 import { Slider } from '@/components/ui/slider'
 
-const SelectedDraggableImage = ({ id }: { id: string }) => {
+const SelectedDraggableImage = ({
+  id,
+  close,
+}: {
+  id: string
+  close: () => void
+}) => {
   const draggableRef = useRef<any>(null)
   const imageRef = useRef<HTMLImageElement>(null)
 
@@ -31,7 +36,7 @@ const SelectedDraggableImage = ({ id }: { id: string }) => {
           onValueChange={(value) => {
             const scale = value[0] / 100
             if (imageRef.current) {
-              imageRef.current.style.opacity = scale
+              imageRef.current.style.opacity = `${scale}`
             }
           }}
         />
@@ -49,6 +54,13 @@ const SelectedDraggableImage = ({ id }: { id: string }) => {
             }
           }}
         />
+        <Button
+          className="absolute top-2 right-2 z-100"
+          onClick={close}
+          variant="destructive"
+        >
+          Close
+        </Button>
       </div>
     </Draggable>
   )
@@ -59,7 +71,7 @@ function Map() {
     useState<google.maps.StreetViewPanorama | null>()
   const [selectedImage, setSelectedImage] = useState<string | null>(null)
   const [position, setPosition] = useState({ lat: 57.6947298, lng: 11.9258134 })
-  const setSearchImage = useSetAtom(searchImageAtom)
+  const setSearchImage = useSetAtom<any>(searchImageAtom)
   const searchResults = useAtomValue(searchImagesAtom)
 
   const containerStyle = {
@@ -103,30 +115,24 @@ function Map() {
           }
         }}
       />
-      {selectedImage && <SelectedDraggableImage id={selectedImage} />}
-      {searchResults.length > 0 && (
-        <div className="absolute top-16 left-4 bg-white p-2 rounded shadow z-50 w-100 h-full overflow-y-scroll">
+      {selectedImage && (
+        <SelectedDraggableImage
+          id={selectedImage}
+          close={() => setSelectedImage(null)}
+        />
+      )}
+      {!selectedImage && searchResults.length > 0 && (
+        <div className="absolute top-20 left-4 bg-white p-2 rounded shadow z-50 w-75 h-full overflow-y-scroll no-scrollbar">
           <h2 className="text-lg font-bold">Search Results</h2>
           <div className="grid grid-cols-1 gap-4">
-            {searchResults.map(
-              (
-                { id, distance }: { id: number; distance: number },
-                index: number
-              ) => (
-                // <PhotoView
-                //   key={`Image_${id}_${index}_${distance}`}
-                //   src={`${API_URL}/original/${id}`}
-                // >
-                <div
-                  onClick={() => setSelectedImage(id.toString())}
-                  className="cursor-pointer"
-                >
-                  <img src={`${API_URL}/image/${id}`} />
-                  <span>{distance.toFixed(4)}</span>
-                </div>
-                // </PhotoView>
-              )
-            )}
+            {searchResults.map(({ id }: { id: number; distance: number }) => (
+              <div
+                onClick={() => setSelectedImage(id.toString())}
+                className="cursor-pointer"
+              >
+                <img src={`${API_URL}/image/${id}`} />
+              </div>
+            ))}
           </div>
         </div>
       )}
@@ -145,9 +151,6 @@ function Map() {
             const response = await fetch(url)
             const blob = await response.blob()
             setSearchImage(blob)
-
-            // const formData = new FormData()
-            // formData.append('file', blob, 'streetview.jpg')
           }
         }}
       >
