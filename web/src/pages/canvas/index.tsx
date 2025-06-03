@@ -3,7 +3,14 @@ import '@pixi/events'
 import { Application, extend, useTick } from '@pixi/react'
 import * as PIXI from 'pixi.js'
 import atlasMeta from '@/assets/atlas.json'
-import atlasImageSrc from '@/assets/atlas.png'
+import atlas0 from '@/assets/atlas_0.png'
+import atlas1 from '@/assets/atlas_1.png'
+import atlas2 from '@/assets/atlas_2.png'
+import atlas3 from '@/assets/atlas_3.png'
+import atlas4 from '@/assets/atlas_4.png'
+import atlas5 from '@/assets/atlas_5.png'
+import atlas6 from '@/assets/atlas_6.png'
+import atlas7 from '@/assets/atlas_7.png'
 import { useAtomValue, useSetAtom } from 'jotai'
 import {
   API_URL,
@@ -11,7 +18,6 @@ import {
   filterSettingsAtom,
   projectedEmbeddingsAtom,
   projectionSettingsAtom,
-  searchQueryAtom,
   selectedEmbeddingAtom,
 } from '@/state'
 import { PhotoView } from 'react-photo-view'
@@ -43,170 +49,181 @@ const CANVAS_HEIGHT = 1200 / 2
 const CANVAS_OFFSET_X = 0
 const CANVAS_OFFSET_Y = 0
 const BASE_SCALE = 0.075
+const NUM_ATLASES = 8
 
 const colorForMetadata = (metadata: any) => {
-  if (metadata.photographer == '1') {
-    return 0x5555ff
-  } else if (metadata.photographer == '2') {
-    return 0x55ff55
-  } else if (metadata.photographer == '3') {
-    return 0xffff55
-  } else if (metadata.photographer == '4') {
-    return 0xff55ff
+  switch (metadata.photographer) {
+    case '1':
+      return 0x5555ff
+    case '2':
+      return 0x55ff55
+    case '3':
+      return 0xffff55
+    case '4':
+      return 0xff55ff
+    default:
+      return 0xffffff
   }
-  return 0xffffff
 }
 
+///////////////////////////////////////////////////////////////////////////////
+// Embeddings layer – now uses one ParticleContainer per atlas image
+///////////////////////////////////////////////////////////////////////////////
+
 const Embeddings: React.FC<{
-  atlas: PIXI.Spritesheet
-  particleContainerRef: React.RefObject<PIXI.ParticleContainer | null>
-}> = ({ atlas, particleContainerRef }) => {
+  masterAtlas: { [key: string]: PIXI.Spritesheet }
+  particleContainerRefs: React.RefObject<PIXI.ParticleContainer | null>[]
+}> = ({ masterAtlas, particleContainerRefs }) => {
   const rawEmbeddings = useAtomValue(projectedEmbeddingsAtom)
-  const matchedEmbeddings = rawEmbeddings.filter(
-    (embed: any) => embed.meta.matched
-  )
   const displaySettings = useAtomValue(displaySettingsAtom)
   const filterSettings = useAtomValue(filterSettingsAtom)
   const projectionSettings = useAtomValue(projectionSettingsAtom)
-  const textEmbeddings = rawEmbeddings.filter(
-    (embed: any) => embed.type === 'text'
-  )
+  const textEmbeddings = rawEmbeddings.filter((e: any) => e.type === 'text')
 
-  useTick((_: PIXI.Ticker) => {
-    if (particleContainerRef.current) {
-      for (let particle of particleContainerRef.current
-        .particleChildren as CustomParticle[]) {
-        // lerp position towards data position
+  // ────────────────────────────────────────────────────────────────────────────
+  // Animate particles every frame
+  // ────────────────────────────────────────────────────────────────────────────
+  useTick(() => {
+    particleContainerRefs.forEach((ref) => {
+      if (!ref.current) return
+      for (const particle of ref.current.particleChildren as CustomParticle[]) {
         const data = particle.data
-        if (data) {
-          const targetX = data.x
-          const targetY = data.y
-          const dx = targetX - particle.x
-          const dy = targetY - particle.y
-          const distance = Math.sqrt(dx * dx + dy * dy)
-          const speed = 0.0001
-          if (distance > 0.1) {
-            particle.x += dx * speed
-            particle.y += dy * speed
-          }
-          // lerp scale towards targetScale
-          const targetScale =
-            (data.targetScale || BASE_SCALE) * displaySettings.scale
-
-          const scaleDiff = targetScale - particle.scaleX
-          if (Math.abs(scaleDiff) > 0.01) {
-            particle.scaleX += scaleDiff * speed
-            particle.scaleY += scaleDiff * speed
-          }
+        if (!data) continue
+        // Lerp position
+        const dx = data.x - particle.x
+        const dy = data.y - particle.y
+        const dist = Math.sqrt(dx * dx + dy * dy)
+        const lerp = 0.1
+        if (dist > 0.1) {
+          particle.x += dx * lerp
+          particle.y += dy * lerp
+        }
+        // Lerp scale
+        const targetScale =
+          (data.targetScale || BASE_SCALE) * displaySettings.scale
+        const ds = targetScale - particle.scaleX
+        if (Math.abs(ds) > 0.01) {
+          particle.scaleX += ds * lerp
+          particle.scaleX += ds * lerp
         }
       }
-      particleContainerRef.current.update()
-    }
+      ref.current.update()
+    })
   })
 
+  // ────────────────────────────────────────────────────────────────────────────
+  // Sync particle data when atoms change (positions / colours / scales)
+  // ────────────────────────────────────────────────────────────────────────────
   useEffect(() => {
-    if (particleContainerRef.current) {
-      console.log('updating particle data')
-      for (let particle of particleContainerRef.current
-        .particleChildren as CustomParticle[]) {
+    particleContainerRefs.forEach((ref) => {
+      if (!ref.current) return
+      for (const particle of ref.current.particleChildren as CustomParticle[]) {
         const embeddingId = particle.data.embedding.id
         const rawEmbedding = rawEmbeddings.find(
           (e: any) => e.id === embeddingId
         )
-        if (rawEmbedding) {
-          const [nx, ny] = rawEmbedding.point
-          const x = nx * CANVAS_WIDTH
-          const y = ny * CANVAS_HEIGHT
-          particle.data.embedding = rawEmbedding
-          particle.tint = displaySettings.colorPhotographer
-            ? colorForMetadata(rawEmbedding.meta)
-            : 0xffffff
-          particle.data.x = x
-          particle.data.y = y
-          // if (particle.data.meta.matched) {
-          //   particle.data.targetScale = BASE_SCALE * displaySettings.scale
-          // } else {
-          // }
-          particle.data.targetScale = BASE_SCALE * displaySettings.scale
-        }
-      }
-    }
-  }, [rawEmbeddings, filterSettings, displaySettings, projectionSettings])
+        if (!rawEmbedding) continue
 
-  useEffect(() => {
-    if (particleContainerRef.current) {
-      console.log('recreating particles')
-      for (let i = 0; i < rawEmbeddings.length; i++) {
-        const [nx, ny] = rawEmbeddings[i].point
+        const [nx, ny] = rawEmbedding.point
         const x = nx * CANVAS_WIDTH
         const y = ny * CANVAS_HEIGHT
-        const particle = new PIXI.Particle({
-          texture: atlas.textures[rawEmbeddings[i].id],
-          x,
-          y,
-          scaleX: BASE_SCALE * displaySettings.scale,
-          scaleY: BASE_SCALE * displaySettings.scale,
-          anchorX: 0.5,
-          anchorY: 0.5,
-          tint: displaySettings.colorPhotographer
-            ? colorForMetadata(rawEmbeddings[i].meta)
-            : 0xffffff,
-        }) as CustomParticle
-        particle.data = {}
-        particle.data.embedding = rawEmbeddings[i]
+        particle.tint = displaySettings.colorPhotographer
+          ? colorForMetadata(rawEmbedding.meta)
+          : 0xffffff
+        particle.data.embedding = rawEmbedding
         particle.data.x = x
         particle.data.y = y
-        particle.data.originalX = x
-        particle.data.originalY = y
-        particleContainerRef.current.addParticle(particle)
+        particle.data.targetScale = BASE_SCALE * displaySettings.scale
       }
-    }
+    })
+  }, [
+    rawEmbeddings,
+    filterSettings,
+    displaySettings,
+    projectionSettings,
+    particleContainerRefs,
+  ])
+
+  // ────────────────────────────────────────────────────────────────────────────
+  // (Re-)create all particles whenever projection/filter set changes
+  // ────────────────────────────────────────────────────────────────────────────
+  useEffect(() => {
+    rawEmbeddings.forEach((embed: any) => {
+      const atlasInfo = (atlasMeta as any)[embed.id]
+      if (!atlasInfo) return
+      const sheetIndex: number = atlasInfo.sheet
+      const container = particleContainerRefs[sheetIndex].current
+      const texture = masterAtlas[sheetIndex]?.textures[embed.id]
+      if (!container || !texture) return
+
+      const [nx, ny] = embed.point
+      const x = nx * CANVAS_WIDTH
+      const y = ny * CANVAS_HEIGHT
+
+      const particle = new PIXI.Particle({
+        texture,
+        x,
+        y,
+        scaleX: BASE_SCALE * displaySettings.scale,
+        scaleY: BASE_SCALE * displaySettings.scale,
+        anchorX: 0.5,
+        anchorY: 0.5,
+        tint: displaySettings.colorPhotographer
+          ? colorForMetadata(embed.meta)
+          : 0xffffff,
+      }) as CustomParticle
+
+      particle.data = {
+        embedding: embed,
+        x,
+        y,
+        originalX: x,
+        originalY: y,
+        targetScale: BASE_SCALE * displaySettings.scale,
+      }
+
+      container.addParticle(particle)
+    })
 
     return () => {
-      if (particleContainerRef.current) {
-        particleContainerRef.current.removeParticles()
-        particleContainerRef.current.particleChildren = []
-      }
+      particleContainerRefs.forEach((ref) => {
+        if (ref.current) {
+          ref.current.removeParticles()
+          ref.current.particleChildren = []
+        }
+      })
     }
-  }, [rawEmbeddings, filterSettings, projectionSettings, particleContainerRef])
+  }, [filterSettings, projectionSettings, particleContainerRefs, masterAtlas])
 
+  // ────────────────────────────────────────────────────────────────────────────
+  // Render – one <pixiParticleContainer> per atlas sheet
+  // ────────────────────────────────────────────────────────────────────────────
   return (
     <>
-      <pixiParticleContainer
-        position={{
-          x: CANVAS_OFFSET_X,
-          y: CANVAS_OFFSET_Y,
-        }}
-        ref={particleContainerRef}
-        dynamicProperties={{
-          position: true,
-          scale: true,
-          rotation: false,
-          alpha: false,
-        }}
-      />
-      <pixiContainer
-        position={{
-          x: CANVAS_OFFSET_X,
-          y: CANVAS_OFFSET_Y,
-        }}
-      >
+      {particleContainerRefs.map((ref, i) => (
+        <pixiParticleContainer
+          key={`pc_${i}`}
+          ref={ref}
+          position={{ x: CANVAS_OFFSET_X, y: CANVAS_OFFSET_Y }}
+          dynamicProperties={{
+            position: true,
+            scale: true,
+            rotation: false,
+            alpha: false,
+          }}
+        />
+      ))}
+
+      {/* Text labels that float above */}
+      <pixiContainer position={{ x: CANVAS_OFFSET_X, y: CANVAS_OFFSET_Y }}>
         {textEmbeddings.map((embed: any) => {
-          const originalIndex = rawEmbeddings.findIndex(
-            (e: any) => e.id === embed.id
-          )
-          const [nx, ny] = rawEmbeddings[originalIndex].point
-          const x = nx * CANVAS_WIDTH
-          const y = ny * CANVAS_HEIGHT
-
-          // console.log('Rendering text embed:', embed, x, y)
-
+          const [nx, ny] = embed.point
           return (
             <pixiText
               key={embed.id}
               text={embed.text}
-              x={x}
-              y={y - 12}
+              x={nx * CANVAS_WIDTH}
+              y={ny * CANVAS_HEIGHT - 12}
               rotation={-Math.PI / 4}
               anchor={0.5}
               style={{
@@ -222,21 +239,29 @@ const Embeddings: React.FC<{
   )
 }
 
+///////////////////////////////////////////////////////////////////////////////
+// Utility – hit-test a point against the particles of ALL containers
+///////////////////////////////////////////////////////////////////////////////
+
 const pointIntersectsParticle = (
   x: number,
   y: number,
-  particles: CustomParticle[]
-) => {
-  for (const particle of particles) {
-    const dx = x - particle.x
-    const dy = y - particle.y
-    const distanceSquared = dx * dx + dy * dy
-    if (distanceSquared < 10) {
-      return particle
+  containerRefs: React.RefObject<PIXI.ParticleContainer | null>[]
+): CustomParticle | null => {
+  for (const ref of containerRefs) {
+    if (!ref.current) continue
+    for (const particle of ref.current.particleChildren as CustomParticle[]) {
+      const dx = x - particle.x
+      const dy = y - particle.y
+      if (dx * dx + dy * dy < 10) return particle
     }
   }
   return null
 }
+
+///////////////////////////////////////////////////////////////////////////////
+// Light-box helper
+///////////////////////////////////////////////////////////////////////////////
 
 const ImageDisplayer = () => {
   const buttonRef = React.useRef<HTMLButtonElement>(null)
@@ -244,11 +269,9 @@ const ImageDisplayer = () => {
 
   useEffect(() => {
     if (buttonRef.current && selectedEmbedding) {
-      setTimeout(() => {
-        buttonRef.current?.click()
-      }, 100)
+      setTimeout(() => buttonRef.current?.click(), 100)
     }
-  }, [buttonRef, selectedEmbedding])
+  }, [selectedEmbedding])
 
   if (!selectedEmbedding) return null
 
@@ -256,58 +279,83 @@ const ImageDisplayer = () => {
     <PhotoView
       key={`Image_${selectedEmbedding.id}`}
       src={`${API_URL}/original/${selectedEmbedding.id}`}
-      // overlay={<ImageOverlay embedding={selectedEmbedding} />}
     >
-      <button ref={buttonRef}></button>
+      <button ref={buttonRef} />
     </PhotoView>
   )
 }
 
+///////////////////////////////////////////////////////////////////////////////
+// Top-level canvas component
+///////////////////////////////////////////////////////////////////////////////
+
 const EmbeddingsCanvas: React.FC<Props> = ({ width = 1920, height = 1200 }) => {
   const setSelectedEmbedding = useSetAtom(selectedEmbeddingAtom)
   const viewportRef = React.useRef<Viewport>(null)
-  const particleContainerRef = React.useRef<PIXI.ParticleContainer>(null)
-  const [atlas, setAtlas] = useState<PIXI.Spritesheet | null>(null)
+  const particleContainerRefs = useMemo(
+    () =>
+      Array.from({ length: NUM_ATLASES }, () =>
+        React.createRef<PIXI.ParticleContainer>()
+      ),
+    []
+  )
+  const [allLoaded, setAllLoaded] = useState(false)
+  const [masterAtlas, setMasterAtlas] = useState<{
+    [key: string]: PIXI.Spritesheet
+  }>({})
 
+  // ────────────────────────────────────────────────────────────────────────────
+  // Load all atlas PNGs & build masterAtlas
+  // ────────────────────────────────────────────────────────────────────────────
   useEffect(() => {
-    const sourceSize = {
-      w: 64,
-      h: 64,
-    }
-    const frames: any = {}
+    const atlasImageSrcs = [
+      atlas0,
+      atlas1,
+      atlas2,
+      atlas3,
+      atlas4,
+      atlas5,
+      atlas6,
+      atlas7,
+    ]
+    let loaded = 0
 
-    for (const key in atlasMeta) {
-      const { x, y, width, height } = (atlasMeta as any)[key]
-      frames[key] = {
-        frame: { x, y, w: width, h: height },
-        spriteSourceSize: { x: 0, y: 0, w: width, h: height },
-        sourceSize,
+    atlasImageSrcs.forEach((imgSrc, index) => {
+      const frames: any = {}
+      for (const key in atlasMeta) {
+        const { x, y, width: w, height: h, sheet } = (atlasMeta as any)[key]
+        if (sheet !== index) continue
+        frames[key] = {
+          frame: { x, y, w, h },
+          spriteSourceSize: { x: 0, y: 0, w, h },
+          sourceSize: { w: 64, h: 64 },
+        }
       }
-    }
 
-    const atlasData = {
-      frames,
-      meta: {
-        scale: '1',
-        image: atlasImageSrc,
-        format: 'RGBA8888',
-        size: { w: 8450, h: 8450 },
-      },
-    }
+      const data = {
+        frames,
+        meta: {
+          image: imgSrc,
+          scale: '1',
+          format: 'RGBA8888',
+          size: { w: 2990, h: 2990 },
+        },
+      }
 
-    // Load the image first
-    PIXI.Assets.load(atlasData.meta.image).then((baseTexture) => {
-      const spritesheet = new PIXI.Spritesheet(
-        baseTexture.baseTexture,
-        atlasData
-      )
-      spritesheet.parse().then(() => {
-        setAtlas(spritesheet)
+      PIXI.Assets.load(data.meta.image).then((baseTexture: any) => {
+        const sheet = new PIXI.Spritesheet(baseTexture.baseTexture, data)
+        sheet.parse().then(() => {
+          setMasterAtlas((prev) => ({ ...prev, [index]: sheet }))
+          if (++loaded === atlasImageSrcs.length) setAllLoaded(true)
+        })
       })
     })
   }, [])
 
-  if (!atlas) return <div>Loading...</div>
+  // ────────────────────────────────────────────────────────────────────────────
+  // Render once all atlases are ready
+  // ────────────────────────────────────────────────────────────────────────────
+  if (!allLoaded) return <div>Loading embeddings…</div>
 
   return (
     <>
@@ -316,38 +364,30 @@ const EmbeddingsCanvas: React.FC<Props> = ({ width = 1920, height = 1200 }) => {
       <Application
         width={window.innerWidth}
         height={window.innerHeight}
-        onInit={(app) => {
-          state.pixiApp = app
-        }}
+        onInit={(app) => (state.pixiApp = app)}
       >
         <viewport
           ref={viewportRef}
           width={width}
           height={height}
           onClick={(e: any) => {
-            const point = viewportRef.current?.toWorld(e.data.global)
-
-            const particles = particleContainerRef.current?.particleChildren
-            if (particles && point) {
-              // const zoom = viewportRef.current?.lastViewport?.scaleX
-              const particle = pointIntersectsParticle(
-                point.x,
-                point.y,
-                particles as PIXI.Particle[]
-              )
-              if (particle) {
-                console.log('Particle clicked:', point, particle)
-                const data = particle.data
-                setSelectedEmbedding(data.embedding)
-              } else {
-                setSelectedEmbedding(null)
-              }
+            const world = viewportRef.current?.toWorld(e.data.global)
+            if (!world) return
+            const hit = pointIntersectsParticle(
+              world.x,
+              world.y,
+              particleContainerRefs
+            )
+            if (hit) {
+              setSelectedEmbedding(hit.data.embedding)
+            } else {
+              setSelectedEmbedding(null)
             }
           }}
         >
           <Embeddings
-            atlas={atlas}
-            particleContainerRef={particleContainerRef}
+            masterAtlas={masterAtlas}
+            particleContainerRefs={particleContainerRefs}
           />
         </viewport>
       </Application>
