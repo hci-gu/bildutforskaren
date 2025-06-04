@@ -136,6 +136,7 @@ def extract_metadata(path: Path) -> dict:
             image_id = int(image_id)
                     
         row_data = sheet_data[sheet_data[sheet_data.columns[0]] == image_id]
+
         date = row_data["Datering"].values[0] if "Datering" in row_data and not row_data["Datering"].empty else None
         description = row_data["Beskrivning"].values[0] if "Beskrivning" in row_data and not row_data["Beskrivning"].empty else None
         date_str = str(date) if date is not None else ""
@@ -144,6 +145,14 @@ def extract_metadata(path: Path) -> dict:
             decade = year[:3] + "0" if year and len(year) >= 3 else None
             meta['decade'] = decade
 
+        # get values from columns 12 to end
+        keywords = []
+        for col in sheet_data.columns[12:]:
+            if col in row_data and not row_data[col].empty:
+                value = row_data[col].values[0]
+                if isinstance(value, str) and value.strip():
+                    keywords.append(value.strip())
+        meta['keywords'] = keywords
         meta['date'] = date_str
         meta['year'] = year
         meta['description'] = description
@@ -255,6 +264,116 @@ def infer_missing_years(
     logging.info("Year inference complete. %s images were annotated.",
                  sum(1 for m in metadata if "year_estimate" in m))
 
+# ── Keyword propagation helper ───────────────────────────────────────────
+def _normalise_keyword(word: str) -> str:
+    """cheap normalisation → lower-case, trim, collapse whitespace."""
+    return re.sub(r"\s+", " ", word.strip().lower())
+
+def _clip_text_embed(prompts: list[str]) -> np.ndarray:
+    """Encode *prompts* with CLIP text encoder → (len(prompts), d) np.float32."""
+    with torch.no_grad():
+        inputs = processor(text=prompts, return_tensors="pt", padding=True).to(device)
+        txt = model.get_text_features(**inputs)
+        txt = txt / txt.norm(dim=-1, keepdim=True)
+    return txt.cpu().numpy().astype("float32")
+
+def infer_missing_keywords(
+    embeddings: torch.Tensor,
+    metadata: list[dict],
+    *,
+    min_images_per_kw: int = 5,
+    max_keywords_per_image: int = 5,
+    sim_threshold: float = 0.25,
+    blend_text_prior: bool = True,
+    text_prior_weight: float = 0.30,
+) -> None:
+    """
+    Multi-label tag propagation.
+
+    Adds two keys to each meta *without* original 'keywords':
+        keywords_estimate         – list[str]
+        keywords_estimate_scores  – list[float] (cosine similarity)
+    """
+
+    # ── 1. gather keyword → indices --------------------------------------
+    kw_to_indices: dict[str, list[int]] = {}
+    for idx, meta in enumerate(metadata):
+        kws = meta.get("keywords", [])
+        if not kws:
+            continue
+        for kw in kws:
+            kw_norm = _normalise_keyword(kw)
+            kw_to_indices.setdefault(kw_norm, []).append(idx)
+
+    if not kw_to_indices:
+        logging.warning("No ground-truth keywords available; aborting inference.")
+        return
+
+    # ── 2. build prototypes ---------------------------------------------
+    emb_np = embeddings.numpy()
+    emb_np /= np.linalg.norm(emb_np, axis=1, keepdims=True)
+
+    proto_vecs, proto_keywords = [], []
+    text_prompts = []
+
+    for kw, idxs in kw_to_indices.items():
+        if len(idxs) < min_images_per_kw:
+            continue                                   # skip very rare tags
+        # image-centroid
+        img_centroid = emb_np[idxs].mean(axis=0)
+        img_centroid /= np.linalg.norm(img_centroid)
+
+        if blend_text_prior:
+            text_prompts.append(f"a photo of {kw}")
+            proto_keywords.append(kw)                  # placeholder for now
+            proto_vecs.append(img_centroid)            # temp (will blend later)
+        else:
+            proto_keywords.append(kw)
+            proto_vecs.append(img_centroid.astype("float32"))
+
+    if not proto_vecs:
+        logging.warning("No keyword met min_images_per_kw=%s", min_images_per_kw)
+        return
+
+    # ── 2b. optional text priors blended in one go ----------------------
+    if blend_text_prior:
+        txt_emb = _clip_text_embed(text_prompts)
+        for i in range(len(proto_vecs)):
+            v = (1.0 - text_prior_weight) * proto_vecs[i] + text_prior_weight * txt_emb[i]
+            v /= np.linalg.norm(v)
+            proto_vecs[i] = v.astype("float32")
+
+    proto_mat = np.stack(proto_vecs).astype("float32")
+
+    # ── 3. FAISS index over prototypes ----------------------------------
+    dim = proto_mat.shape[1]
+    kw_index = faiss.IndexFlatL2(dim)
+    kw_index.add(proto_mat)
+
+    # ── 4. annotate unlabeled images ------------------------------------
+    for idx, meta in enumerate(metadata):
+        if meta.get("keywords"):                       # already labeled
+            continue
+
+        q = emb_np[idx : idx + 1].astype("float32")
+        D, I = kw_index.search(q, 30)                  # fetch top-30 candidates
+        sims = 1.0 / (1.0 + D[0])                      # convert L2 → cosine-ish
+
+        # filter + keep top-N
+        picked = [
+            (proto_keywords[int(i)], float(s))
+            for i, s in zip(I[0], sims)
+            if s >= sim_threshold
+        ][:max_keywords_per_image]
+
+        if picked:
+            meta["keywords_estimate"] = [p[0] for p in picked]
+            meta["keywords_estimate_scores"] = [p[1] for p in picked]
+
+    logging.info(
+        "Keyword inference complete. %s images received estimates.",
+        sum(1 for m in metadata if "keywords_estimate" in m),
+    )
 
 # ── One-time start-up ─────────────────────────────────────────────────────
 logging.info("Scanning image tree …")
@@ -278,6 +397,15 @@ logging.info("Index has %s vectors of dim %s", faiss_index.ntotal, faiss_index.d
 logging.info("FAISS index ready\n")
 
 infer_missing_years(embeddings, metadata)
+infer_missing_keywords(
+    embeddings,
+    metadata,
+    min_images_per_kw=5,
+    max_keywords_per_image=3,
+    sim_threshold=0.25,
+    blend_text_prior=False,
+    text_prior_weight=0.30,
+)
 
 # ── Routes ────────────────────────────────────────────────────────────────
 @app.route("/embeddings", methods=["GET"])
