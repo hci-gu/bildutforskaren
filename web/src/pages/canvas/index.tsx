@@ -308,13 +308,29 @@ const ImageDisplayer = () => {
 
   if (!selectedEmbedding) return null
 
+  const meta = selectedEmbedding.meta || {}
+  Object.keys(meta).forEach((key) => {
+    if (meta[key] === null || meta[key] === undefined || meta[key] === '') {
+      delete meta[key]
+    }
+    // round numbers to 2 decimal places
+    if (typeof meta[key] === 'number') {
+      meta[key] = Math.round(meta[key] * 100) / 100
+    }
+  })
+
   return (
-    <PhotoView
-      key={`Image_${selectedEmbedding.id}`}
-      src={`${API_URL}/original/${selectedEmbedding.id}`}
-    >
-      <button ref={buttonRef} />
-    </PhotoView>
+    <>
+      <PhotoView
+        key={`Image_${selectedEmbedding.id}`}
+        src={`${API_URL}/original/${selectedEmbedding.id}`}
+      >
+        <button ref={buttonRef} />
+      </PhotoView>
+      <div className="fixed bottom-0 left-0 p-2 text-white z-10000 text-xs bg-black/75">
+        <pre>{JSON.stringify(meta, null, 2)}</pre>
+      </div>
+    </>
   )
 }
 
