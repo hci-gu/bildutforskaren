@@ -9,6 +9,8 @@ import { useState, useEffect } from 'react'
 import { Input } from '../components/ui/input'
 import { PhotoView } from 'react-photo-view'
 import { Label } from '@/components/ui/label'
+import { Button } from '@/components/ui/button'
+import { Link } from 'react-router'
 
 function IndexPage() {
   const [query, setQuery] = useState('')
@@ -51,28 +53,43 @@ function IndexPage() {
   }
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-svh mt-4">
+    <div className="flex flex-col items-center min-h-svh mt-4">
+      <div className="p-32">
+        <h1 className="text-3xl font-bold mb-4">Bildutforskaren</h1>
+        <p className="text-gray-600 mb-8">
+          Utforksa dina bilder med AI! Skriv in en sökterm eller ladda upp en
+          bild för att hitta liknande bilder i din samling.
+        </p>
+        <div className="flex gap-4 justify-center mb-8">
+          <Link to="/canvas">
+            <Button>Canvas</Button>
+          </Link>
+          <Link to="/street-view">
+            <Button>Street view</Button>
+          </Link>
+        </div>
+      </div>
       <div className="flex gap-4 justify-center mb-8">
         <div className="w-1/2">
           <Label className="p-1" htmlFor="search">
-            Search
+            Sök
           </Label>
           <Input
             id="search"
             type="text"
-            placeholder="type anything..."
+            placeholder="Skriv något..."
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
         </div>
         <div className="w-1/2">
           <Label className="p-1" htmlFor="image-search">
-            Image search
+            Sök med bild
           </Label>
           <Input
             id="image-search"
             type="file"
-            placeholder="Search..."
+            placeholder="Sök..."
             onChange={handleFileChange}
           />
         </div>
@@ -80,12 +97,14 @@ function IndexPage() {
 
       <div className="flex flex-row w-9/10 justify-around gap-16 margin-x-4">
         <div className="w-full">
-          <h1 className="text-2xl font-bold">Matches</h1>
           <div className="grid grid-cols-6 gap-4">
             {searchResults.map(
-              ({ id, distance }: { id: number; distance: number }) => (
+              (
+                { id, distance }: { id: number; distance: number },
+                index: number
+              ) => (
                 <PhotoView
-                  key={`Image_${id}`}
+                  key={`Image_${id}_${distance}_${index}`}
                   src={`${API_URL}/original/${id}`}
                 >
                   <div>

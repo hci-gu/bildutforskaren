@@ -24,6 +24,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Checkbox } from '@/components/ui/checkbox'
+import { Label } from '@/components/ui/label'
 
 const Search = () => {
   const [settings, setSettings] = useAtom(searchSettingsAtom)
@@ -49,22 +50,30 @@ const Search = () => {
 
   return (
     <div className="flex gap-2">
-      <Input
-        type="text"
-        placeholder="Search..."
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-        className="text-black bg-white border border-gray-300 rounded-md shadow-sm focus:ring focus:ring-blue-500 focus:border-blue-500 p-2 flex-3"
-      />
-      <Input
-        type="number"
-        name="topK"
-        value={settings.topK}
-        onChange={handleChange}
-        placeholder="topK"
-        step={1}
-        className="text-black bg-white border border-gray-300 rounded-md shadow-sm focus:ring focus:ring-blue-500 focus:border-blue-500 p-2 flex-1"
-      />
+      <div className="flex flex-col gap-2 flex-2">
+        <Label htmlFor="query">Sök</Label>
+        <Input
+          id="query"
+          type="text"
+          placeholder="Skriv något..."
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          className="border border-gray-300 rounded-md shadow-sm focus:ring focus:ring-blue-500 focus:border-blue-500 p-2"
+        />
+      </div>
+      <div className="flex flex-col gap-2 flex-1">
+        <Label htmlFor="topK">Antal</Label>
+        <Input
+          id="topK"
+          type="number"
+          name="topK"
+          value={settings.topK}
+          onChange={handleChange}
+          placeholder="topK"
+          step={1}
+          className="border border-gray-300 rounded-md shadow-sm focus:ring focus:ring-blue-500 focus:border-blue-500 p-2 flex-1"
+        />
+      </div>
     </div>
   )
 }
@@ -82,8 +91,7 @@ const ProjectionSettings = () => {
   return (
     <div className="flex flex-col gap-2 mt-2">
       <CardHeader className="p-0 mt-2">
-        <CardTitle>Projection Settings</CardTitle>
-        <CardDescription>Settings for the projection algorithm</CardDescription>
+        <CardTitle>Typ av visning</CardTitle>
       </CardHeader>
       <Select
         value={settings.type}
@@ -95,40 +103,63 @@ const ProjectionSettings = () => {
           <SelectValue placeholder="Type" />
         </SelectTrigger>
         <SelectContent>
-          <SelectItem value="umap">U-Map</SelectItem>
-          <SelectItem value="grid">Grid</SelectItem>
-          <SelectItem value="year">Year</SelectItem>
-          <SelectItem value="spreadsheet">Spreadsheet</SelectItem>
+          <SelectItem value="umap">Projektion</SelectItem>
+          <SelectItem value="grid">Rutnät</SelectItem>
+          <SelectItem value="year">År</SelectItem>
         </SelectContent>
       </Select>
-      Copy
-      <Input
-        type="number"
-        name="minDist"
-        value={settings.minDist}
-        onChange={handleChange}
-        placeholder="minDist"
-        step={0.1}
-        className="text-black bg-white border border-gray-300 rounded-md shadow-sm focus:ring focus:ring-blue-500 focus:border-blue-500 p-2"
-      />
-      <Input
-        type="number"
-        name="nNeighbors"
-        value={settings.nNeighbors}
-        onChange={handleChange}
-        placeholder="nNeighbors"
-        step={1}
-        className="text-black bg-white border border-gray-300 rounded-md shadow-sm focus:ring focus:ring-blue-500 focus:border-blue-500 p-2"
-      />
-      <Input
-        type="number"
-        name="spread"
-        value={settings.spread}
-        onChange={handleChange}
-        placeholder="spread"
-        step={0.25}
-        className="text-black bg-white border border-gray-300 rounded-md shadow-sm focus:ring focus:ring-blue-500 focus:border-blue-500 p-2"
-      />
+      {settings.type === 'umap' && (
+        <>
+          <CardHeader className="p-0 mt-2">
+            <CardTitle>Inställningar för projektion</CardTitle>
+          </CardHeader>
+          <div className="flex items-center space-x-2">
+            <Label htmlFor="minDist" className="w-24">
+              Min distans
+            </Label>
+            <Input
+              id="minDist"
+              type="number"
+              name="minDist"
+              value={settings.minDist}
+              onChange={handleChange}
+              placeholder="minDist"
+              step={0.1}
+              className="border border-gray-300 rounded-md shadow-sm focus:ring focus:ring-blue-500 focus:border-blue-500 p-2"
+            />
+          </div>
+          <div className="flex items-center space-x-2">
+            <Label htmlFor="nNeighbors" className="w-24">
+              Grannar
+            </Label>
+            <Input
+              id="nNeighbors"
+              type="number"
+              name="nNeighbors"
+              value={settings.nNeighbors}
+              onChange={handleChange}
+              placeholder="nNeighbors"
+              step={1}
+              className="border border-gray-300 rounded-md shadow-sm focus:ring focus:ring-blue-500 focus:border-blue-500 p-2"
+            />
+          </div>
+          <div className="flex items-center space-x-2">
+            <Label htmlFor="spread" className="w-24">
+              Spridning
+            </Label>
+            <Input
+              id="spread"
+              type="number"
+              name="spread"
+              value={settings.spread}
+              onChange={handleChange}
+              placeholder="spread"
+              step={0.25}
+              className="border border-gray-300 rounded-md shadow-sm focus:ring focus:ring-blue-500 focus:border-blue-500 p-2"
+            />
+          </div>
+        </>
+      )}
     </div>
   )
 }
@@ -139,8 +170,8 @@ const DisplaySettings = () => {
   return (
     <div className="flex flex-col gap-2 mt-2">
       <CardHeader className="p-0 mt-2">
-        <CardTitle>Display Settings</CardTitle>
-        <CardDescription>Settings for the display</CardDescription>
+        <CardTitle>Visningsinställningar</CardTitle>
+        <CardDescription>Ändra hur bilderna syns</CardDescription>
       </CardHeader>
       <div className="flex items-center space-x-2">
         <Checkbox
@@ -158,10 +189,12 @@ const DisplaySettings = () => {
           htmlFor="terms"
           className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
         >
-          Color by Photographer
+          Färga fotograf
         </label>
       </div>
+      <Label htmlFor="scale">Bildstorlek</Label>
       <Input
+        id="scale"
         type="number"
         name="scale"
         value={settings.scale}
@@ -173,7 +206,7 @@ const DisplaySettings = () => {
         }
         placeholder="Scale"
         step={0.25}
-        className="text-black bg-white border border-gray-300 rounded-md shadow-sm focus:ring focus:ring-blue-500 focus:border-blue-500 p-2"
+        className="border border-gray-300 rounded-md shadow-sm focus:ring focus:ring-blue-500 focus:border-blue-500 p-2"
       />
     </div>
   )
@@ -193,7 +226,7 @@ const FilterSettings = () => {
   return (
     <div className="flex flex-col gap-2 mt-2">
       <CardHeader className="p-0 mt-2">
-        <CardTitle>Filters</CardTitle>
+        <CardTitle>Filter</CardTitle>
       </CardHeader>
       <Select
         value={settings.photographer || ''}
@@ -202,7 +235,7 @@ const FilterSettings = () => {
         }
       >
         <SelectTrigger className="w-[180px]">
-          <SelectValue placeholder="Photographer" />
+          <SelectValue placeholder="Fotograf" />
         </SelectTrigger>
         <SelectContent>
           <SelectItem value={null}>Ingen</SelectItem>
@@ -218,8 +251,8 @@ const FilterSettings = () => {
 
 export default function Panel() {
   return (
-    <Card className="absolute top-8 right-8 z-10 w-1/6 bg-white border border-gray-300 shadow-lg">
-      <CardContent>
+    <Card className="absolute top-4 right-4 z-10 w-1/6 border border-gray-300 shadow-lg">
+      <CardContent className="px-4">
         <Search />
         <ProjectionSettings />
         <DisplaySettings />

@@ -3,6 +3,7 @@ import sys
 import logging
 import umap
 import re
+import pickle
 from datetime import datetime
 from pathlib import Path
 from typing import List
@@ -43,6 +44,14 @@ TOP_K         = 100                               # default search size
 CACHE_DIR     = Path(".cache")                  # where we persist embeddings
 CACHE_FILE    = CACHE_DIR / "clip_index.npz"     # compressed NumPy archive
 CACHE_DIR.mkdir(exist_ok=True)
+
+UMAP_CACHE_FILE = CACHE_DIR / "umap_cache.pkl"   # where every UMAP layout is kept
+try:
+    with UMAP_CACHE_FILE.open("rb") as fh:
+        umap_cache: dict[tuple, list] = pickle.load(fh)
+        logging.info("Loaded %s UMAP layouts from cache", len(umap_cache))
+except FileNotFoundError:
+    umap_cache = {}
 
 # ── Load CLIP ─────────────────────────────────────────────────────────────
 logging.info("Loading CLIP model …")
@@ -182,6 +191,70 @@ def build_index(emb: torch.Tensor) -> faiss.Index:
     index.add(emb_np)
     return index
 
+def infer_missing_years(
+    embeddings: torch.Tensor,
+    metadata: list[dict],
+    min_samples_per_year: int = 5,
+) -> None:
+    """
+    Annotate images whose metadata lacks 'year' with 'year_estimate'.
+
+    Adds two keys to *metadata[i]* where applicable:
+        year_estimate: int   – the most likely year
+        year_estimate_distance: float – L2 distance to that year's centroid
+    Works in-place; returns nothing.
+    """
+    # --- 1. collect indices by year --------------------------------------
+    year_to_indices: dict[int, list[int]] = {}
+    for idx, meta in enumerate(metadata):
+        y = meta.get("year")
+        if y and str(y).isdigit():
+            y_int = int(y)
+            year_to_indices.setdefault(y_int, []).append(idx)
+
+    if not year_to_indices:
+        logging.warning("No images with explicit year metadata found.")
+        return
+
+    # --- 2. build centroids ---------------------------------------------
+    emb_np = embeddings.numpy()
+    emb_np /= np.linalg.norm(emb_np, axis=1, keepdims=True)  # cosine unit length
+
+    centroids, years = [], []
+    for y, idxs in year_to_indices.items():
+        if len(idxs) < min_samples_per_year:
+            continue                    # skip very small classes – often noise
+        c = emb_np[idxs].mean(axis=0)
+        c /= np.linalg.norm(c)          # keep them on the unit sphere
+        centroids.append(c.astype("float32"))
+        years.append(y)
+
+    if not centroids:
+        logging.warning("No year had ≥%s samples; aborting inference.", min_samples_per_year)
+        return
+
+    centroids_np = np.stack(centroids).astype("float32")
+
+    # --- 3. tiny FAISS index over centroids ------------------------------
+    dim = centroids_np.shape[1]
+    year_index = faiss.IndexFlatL2(dim)
+    year_index.add(centroids_np)
+    years_arr = np.array(years)         # so we can map FAISS ids → year ints
+
+    # --- 4. annotate unlabelled images -----------------------------------
+    for idx, meta in enumerate(metadata):
+        if meta.get("year"):            # already has a ground-truth year
+            continue
+
+        q = emb_np[idx : idx + 1].astype("float32")   # shape (1, dim)
+        D, I = year_index.search(q, 1)                # nearest centroid
+        nearest_id = int(I[0, 0])
+        meta["year_estimate"] = int(years_arr[nearest_id])
+        meta["year_estimate_distance"] = float(D[0, 0])
+
+    logging.info("Year inference complete. %s images were annotated.",
+                 sum(1 for m in metadata if "year_estimate" in m))
+
 
 # ── One-time start-up ─────────────────────────────────────────────────────
 logging.info("Scanning image tree …")
@@ -204,9 +277,12 @@ faiss_index = build_index(embeddings)
 logging.info("Index has %s vectors of dim %s", faiss_index.ntotal, faiss_index.d)
 logging.info("FAISS index ready\n")
 
+infer_missing_years(embeddings, metadata)
+
 # ── Routes ────────────────────────────────────────────────────────────────
 @app.route("/embeddings", methods=["GET"])
 def get_embeddings():
+    print("Serving embeddings for", len(embeddings), "images")
     return jsonify([
         {
             "id": idx,
@@ -313,21 +389,45 @@ def list_images():
 
 @app.route("/umap", methods=["GET"])
 def get_umap():
-    n_neighbors = int(request.args.get("n_neighbors", 15))
-    min_dist    = float(request.args.get("min_dist", 0.1))
-    n_components = int(request.args.get("n_components", 2))
-    seed       = int(request.args.get("seed", 42))
+    # ----- read & normalise parameters -----
+    params = {
+        "n_neighbors" : int(request.args.get("n_neighbors", 15)),
+        "min_dist"    : float(request.args.get("min_dist", 0.1)),
+        "n_components": int(request.args.get("n_components", 2)),
+        "seed"        : int(request.args.get("seed", 42)),
+    }
+    key = (params["n_neighbors"],
+           params["min_dist"],
+           params["n_components"],
+           params["seed"])
 
+    # ----- return immediately if we already have it -----
+    if key in umap_cache:
+        logging.info("UMAP cache hit %s", key)
+        return jsonify(umap_cache[key])
+
+    logging.info("UMAP cache miss %s – computing layout …", key)
+
+    # ----- compute fresh layout -----
     reducer = umap.UMAP(
-        n_neighbors=n_neighbors,
-        min_dist=min_dist,
-        n_components=n_components,
+        n_neighbors=params["n_neighbors"],
+        min_dist=params["min_dist"],
+        n_components=params["n_components"],
         metric="cosine",
-        transform_seed=seed
+        transform_seed=params["seed"],
     )
-    embedding = reducer.fit_transform(embeddings.numpy())
+    embedding = reducer.fit_transform(embeddings.numpy()).tolist()
 
-    return jsonify(embedding.tolist())
+    # ----- persist in RAM & on disk -----
+    umap_cache[key] = embedding
+    try:
+        with UMAP_CACHE_FILE.open("wb") as fh:
+            pickle.dump(umap_cache, fh)
+        logging.info("UMAP layout stored – cache size now %s", len(umap_cache))
+    except Exception as exc:
+        logging.warning("Could not write UMAP cache: %s", exc)
+
+    return jsonify(embedding)
 
 @app.route("/image/<int:image_id>", methods=["GET"])
 def serve_image(image_id):

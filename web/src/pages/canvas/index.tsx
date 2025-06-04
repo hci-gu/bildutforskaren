@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import '@pixi/events'
 import { Application, extend, useTick } from '@pixi/react'
 import * as PIXI from 'pixi.js'
@@ -18,6 +18,7 @@ import {
   filterSettingsAtom,
   projectedEmbeddingsAtom,
   projectionSettingsAtom,
+  searchQueryAtom,
   selectedEmbeddingAtom,
 } from '@/state'
 import { PhotoView } from 'react-photo-view'
@@ -32,6 +33,7 @@ extend({
   Container: PIXI.Container,
   Sprite: PIXI.Sprite,
   Text: PIXI.Text,
+  Graphics: PIXI.Graphics,
 })
 
 type Props = {
@@ -44,12 +46,13 @@ type CustomParticle = PIXI.Particle & {
   data?: any
 }
 
-const CANVAS_WIDTH = 1920 / 2
-const CANVAS_HEIGHT = 1200 / 2
+const CANVAS_WIDTH = 1920
+const CANVAS_HEIGHT = 1200
 const CANVAS_OFFSET_X = 0
 const CANVAS_OFFSET_Y = 0
 const BASE_SCALE = 0.075
 const NUM_ATLASES = 8
+const CLICK_EPS = 8
 
 const colorForMetadata = (metadata: any) => {
   switch (metadata.photographer) {
@@ -69,12 +72,13 @@ const colorForMetadata = (metadata: any) => {
 ///////////////////////////////////////////////////////////////////////////////
 // Embeddings layer – now uses one ParticleContainer per atlas image
 ///////////////////////////////////////////////////////////////////////////////
-
 const Embeddings: React.FC<{
+  type: 'main' | 'minimap'
   masterAtlas: { [key: string]: PIXI.Spritesheet }
   particleContainerRefs: React.RefObject<PIXI.ParticleContainer | null>[]
-}> = ({ masterAtlas, particleContainerRefs }) => {
-  const rawEmbeddings = useAtomValue(projectedEmbeddingsAtom)
+}> = ({ type, masterAtlas, particleContainerRefs }) => {
+  const searchQuery = useAtomValue(searchQueryAtom)
+  const rawEmbeddings = useAtomValue(projectedEmbeddingsAtom(type))
   const displaySettings = useAtomValue(displaySettingsAtom)
   const filterSettings = useAtomValue(filterSettingsAtom)
   const projectionSettings = useAtomValue(projectionSettingsAtom)
@@ -99,12 +103,11 @@ const Embeddings: React.FC<{
           particle.y += dy * lerp
         }
         // Lerp scale
-        const targetScale =
-          (data.targetScale || BASE_SCALE) * displaySettings.scale
+        const targetScale = data.targetScale || BASE_SCALE
         const ds = targetScale - particle.scaleX
         if (Math.abs(ds) > 0.01) {
           particle.scaleX += ds * lerp
-          particle.scaleX += ds * lerp
+          particle.scaleY += ds * lerp
         }
       }
       ref.current.update()
@@ -127,17 +130,43 @@ const Embeddings: React.FC<{
         const [nx, ny] = rawEmbedding.point
         const x = nx * CANVAS_WIDTH
         const y = ny * CANVAS_HEIGHT
-        particle.tint = displaySettings.colorPhotographer
-          ? colorForMetadata(rawEmbedding.meta)
-          : 0xffffff
         particle.data.embedding = rawEmbedding
         particle.data.x = x
         particle.data.y = y
-        particle.data.targetScale = BASE_SCALE * displaySettings.scale
+        if (type === 'minimap') {
+          if (particle.data.embedding.meta.matched) {
+            particle.data.targetScale = BASE_SCALE * displaySettings.scale * 100
+          } else if (searchQuery.length) {
+            particle.data.targetScale = BASE_SCALE * displaySettings.scale * 2
+          } else {
+            particle.data.targetScale = BASE_SCALE * displaySettings.scale * 5
+          }
+          particle.tint = displaySettings.colorPhotographer
+            ? colorForMetadata(rawEmbedding.meta)
+            : 0xffffff
+        } else {
+          if (projectionSettings.type === 'umap') {
+            particle.data.targetScale = BASE_SCALE * displaySettings.scale * 5
+          } else {
+            particle.data.targetScale = BASE_SCALE * displaySettings.scale
+          }
+          if (
+            projectionSettings.type !== 'grid' &&
+            particle.data.embedding.meta.matched
+          ) {
+            // golden tint
+            particle.tint = 0x00d7ff
+          } else {
+            particle.tint = displaySettings.colorPhotographer
+              ? colorForMetadata(rawEmbedding.meta)
+              : 0xffffff
+          }
+        }
       }
     })
   }, [
     rawEmbeddings,
+    searchQuery,
     filterSettings,
     displaySettings,
     projectionSettings,
@@ -159,13 +188,17 @@ const Embeddings: React.FC<{
       const [nx, ny] = embed.point
       const x = nx * CANVAS_WIDTH
       const y = ny * CANVAS_HEIGHT
+      let scale = BASE_SCALE * displaySettings.scale
+      if (type === 'minimap') {
+        scale = BASE_SCALE * displaySettings.scale * 10
+      }
 
       const particle = new PIXI.Particle({
         texture,
         x,
         y,
-        scaleX: BASE_SCALE * displaySettings.scale,
-        scaleY: BASE_SCALE * displaySettings.scale,
+        scaleX: scale,
+        scaleY: scale,
         anchorX: 0.5,
         anchorY: 0.5,
         tint: displaySettings.colorPhotographer
@@ -179,7 +212,7 @@ const Embeddings: React.FC<{
         y,
         originalX: x,
         originalY: y,
-        targetScale: BASE_SCALE * displaySettings.scale,
+        targetScale: scale,
       }
 
       container.addParticle(particle)
@@ -193,7 +226,7 @@ const Embeddings: React.FC<{
         }
       })
     }
-  }, [filterSettings, projectionSettings, particleContainerRefs, masterAtlas])
+  }, [filterSettings, particleContainerRefs, masterAtlas])
 
   // ────────────────────────────────────────────────────────────────────────────
   // Render – one <pixiParticleContainer> per atlas sheet
@@ -253,7 +286,7 @@ const pointIntersectsParticle = (
     for (const particle of ref.current.particleChildren as CustomParticle[]) {
       const dx = x - particle.x
       const dy = y - particle.y
-      if (dx * dx + dy * dy < 10) return particle
+      if (dx * dx + dy * dy < 50) return particle
     }
   }
   return null
@@ -290,9 +323,19 @@ const ImageDisplayer = () => {
 ///////////////////////////////////////////////////////////////////////////////
 
 const EmbeddingsCanvas: React.FC<Props> = ({ width = 1920, height = 1200 }) => {
+  const dragStart = useRef<PIXI.PointData | null>(null)
   const setSelectedEmbedding = useSetAtom(selectedEmbeddingAtom)
-  const viewportRef = React.useRef<Viewport>(null)
+  const projectionSettings = useAtomValue(projectionSettingsAtom)
+  const viewportRef = useRef<Viewport>(null)
+  const minimapFrameRef = useRef<PIXI.Graphics>(null)
   const particleContainerRefs = useMemo(
+    () =>
+      Array.from({ length: NUM_ATLASES }, () =>
+        React.createRef<PIXI.ParticleContainer>()
+      ),
+    []
+  )
+  const minimapParticleContainerRefs = useMemo(
     () =>
       Array.from({ length: NUM_ATLASES }, () =>
         React.createRef<PIXI.ParticleContainer>()
@@ -328,7 +371,7 @@ const EmbeddingsCanvas: React.FC<Props> = ({ width = 1920, height = 1200 }) => {
         frames[key] = {
           frame: { x, y, w, h },
           spriteSourceSize: { x: 0, y: 0, w, h },
-          sourceSize: { w: 64, h: 64 },
+          sourceSize: { w: 128, h: 128 },
         }
       }
 
@@ -352,10 +395,46 @@ const EmbeddingsCanvas: React.FC<Props> = ({ width = 1920, height = 1200 }) => {
     })
   }, [])
 
-  // ────────────────────────────────────────────────────────────────────────────
-  // Render once all atlases are ready
-  // ────────────────────────────────────────────────────────────────────────────
-  if (!allLoaded) return <div>Loading embeddings…</div>
+  useEffect(() => {
+    const viewport = viewportRef.current
+    const g = minimapFrameRef.current
+    if (!viewport || !g) return
+
+    // helper in case your Viewport wrapper doesn’t expose getVisibleBounds()
+    const computeWorldBounds = () => {
+      if (typeof viewport.getVisibleBounds === 'function') {
+        return viewport.getVisibleBounds()
+      }
+      const topLeft = viewport.toWorld(new PIXI.Point(0, 0))
+      const bottomRight = viewport.toWorld(
+        new PIXI.Point(viewport.screenWidth, viewport.screenHeight)
+      )
+      return new PIXI.Rectangle(
+        topLeft.x,
+        topLeft.y,
+        bottomRight.x - topLeft.x,
+        bottomRight.y - topLeft.y
+      )
+    }
+
+    const draw = () => {
+      const b = computeWorldBounds()
+
+      g.clear()
+      if (projectionSettings.type === 'umap' && b.width < 25000) {
+        g.rect(b.x, b.y, b.width, b.height)
+        g.fill({ color: 'white', alpha: 0.1 })
+        g.stroke({ color: 'white', width: 100 })
+        g.fill()
+      }
+    }
+
+    draw() // first paint
+    viewport.on('moved', draw)
+    return () => {
+      viewport.off('moved', draw)
+    }
+  }, [projectionSettings, viewportRef, minimapFrameRef])
 
   return (
     <>
@@ -370,26 +449,67 @@ const EmbeddingsCanvas: React.FC<Props> = ({ width = 1920, height = 1200 }) => {
           ref={viewportRef}
           width={width}
           height={height}
-          onClick={(e: any) => {
+          events={['move']}
+          onPointerDown={(e: any) => {
+            const screen = viewportRef.current?.toScreen(e.data.global)
+            dragStart.current = screen ?? null
+          }}
+          onPointerUp={(e: any) => {
             const world = viewportRef.current?.toWorld(e.data.global)
-            if (!world) return
+            const screen = viewportRef.current?.toScreen(e.data.global)
+            if (!screen || !world || !dragStart.current) {
+              dragStart.current = null
+              return
+            }
+
+            const dx = screen.x - dragStart.current.x
+            const dy = screen.y - dragStart.current.y
+            const movedSq = dx * dx + dy * dy
+            dragStart.current = null
+            if (movedSq > CLICK_EPS) {
+              return
+            }
+
             const hit = pointIntersectsParticle(
               world.x,
               world.y,
               particleContainerRefs
             )
-            if (hit) {
-              setSelectedEmbedding(hit.data.embedding)
-            } else {
-              setSelectedEmbedding(null)
-            }
+            setSelectedEmbedding(hit ? hit.data.embedding : null)
           }}
         >
-          <Embeddings
-            masterAtlas={masterAtlas}
-            particleContainerRefs={particleContainerRefs}
-          />
+          {allLoaded && (
+            <Embeddings
+              type="main"
+              masterAtlas={masterAtlas}
+              particleContainerRefs={particleContainerRefs}
+            />
+          )}
         </viewport>
+        <pixiContainer
+          position={{ x: window.innerWidth - 215, y: window.innerHeight - 235 }}
+          width={250}
+          height={250}
+        >
+          <pixiGraphics
+            draw={(g) => {
+              g.rect(-220, -50, 420, 275)
+              g.fill({ color: 'black', alpha: 0.75 })
+              g.stroke({ color: 'white', width: 1 })
+              g.fill()
+            }}
+          />
+          <pixiContainer scale={0.015}>
+            {allLoaded && (
+              <Embeddings
+                type="minimap"
+                masterAtlas={masterAtlas}
+                particleContainerRefs={minimapParticleContainerRefs}
+              />
+            )}
+            <pixiGraphics ref={minimapFrameRef} />
+          </pixiContainer>
+        </pixiContainer>
       </Application>
     </>
   )

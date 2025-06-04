@@ -19,7 +19,7 @@ from math import ceil, sqrt
 # ---------- Config ----------
 IMAGE_ROOT   = Path("out")          # folder that holds all source images
 OUTPUT_BASENAME = "atlas"          # atlas_0.png, atlas_1.png, ...
-SPRITE_SIZE = 64                    # resize every image to this size
+SPRITE_SIZE = 128                    # resize every image to this size
 PADDING     = 1                     # pixels between sprites
 IMAGE_TYPES = {".jpg", ".jpeg", ".png"}
 NUM_SHEETS  = 8
