@@ -1,23 +1,24 @@
 import { atom } from 'jotai'
 import { atomFamily } from 'jotai/utils'
 
-export const API_URL = 'http://localhost:3000'
+// export const API_URL = 'http://localhost:3000'
+export const API_URL = 'https://bildutforskaren-api.prod.appadem.in'
 
-const getTextEmbeddings = async (texts: string[]) => {
-  let embeddings = []
-  for (let text of texts) {
-    console.log('Fetching embedding for text:', text)
-    const res = await fetch(
-      `${API_URL}/embedding-for-text?query=${encodeURIComponent(text)}`
-    )
-    const embedding = await res.json()
-    embeddings.push({
-      embedding,
-      text: text,
-    })
-  }
-  return embeddings
-}
+// const getTextEmbeddings = async (texts: string[]) => {
+//   let embeddings = []
+//   for (let text of texts) {
+//     console.log('Fetching embedding for text:', text)
+//     const res = await fetch(
+//       `${API_URL}/embedding-for-text?query=${encodeURIComponent(text)}`
+//     )
+//     const embedding = await res.json()
+//     embeddings.push({
+//       embedding,
+//       text: text,
+//     })
+//   }
+//   return embeddings
+// }
 
 export const textEmbeddingsAtom = atom([])
 
@@ -103,7 +104,16 @@ export const searchImagesAtom = atom(async (get) => {
 
 export const embeddingsAtom = atom(async (_) => {
   try {
-    const res = await fetch(`${API_URL}/embeddings`)
+    const controller = new AbortController()
+    const timeout = 60000 // 60s
+    const timeoutId = setTimeout(() => controller.abort(), timeout)
+
+    let res
+    try {
+      res = await fetch(`${API_URL}/embeddings`, { signal: controller.signal })
+    } finally {
+      clearTimeout(timeoutId)
+    }
     const embeddingsData = await res.json()
 
     return embeddingsData

@@ -2,40 +2,40 @@ import { API_URL, embeddingAtom } from '@/state'
 import { useAtomValue } from 'jotai'
 import { useParams } from 'react-router'
 
-function drawEmbeddingColor(embedding: number[], canvas: HTMLCanvasElement) {
-  const width = 32
-  const height = 16
+// function drawEmbeddingColor(embedding: number[], canvas: HTMLCanvasElement) {
+//   const width = 32
+//   const height = 16
 
-  if (embedding.length !== width * height) {
-    console.error(`Expected ${width * height} values, got ${embedding.length}`)
-    return
-  }
+//   if (embedding.length !== width * height) {
+//     console.error(`Expected ${width * height} values, got ${embedding.length}`)
+//     return
+//   }
 
-  const ctx = canvas.getContext('2d')
-  if (!ctx) return
+//   const ctx = canvas.getContext('2d')
+//   if (!ctx) return
 
-  canvas.width = width
-  canvas.height = height
+//   canvas.width = width
+//   canvas.height = height
 
-  const imageData = ctx.createImageData(width, height)
-  const data = imageData.data
+//   const imageData = ctx.createImageData(width, height)
+//   const data = imageData.data
 
-  for (let i = 0; i < embedding.length; i++) {
-    const raw = embedding[i] ?? 0
+//   for (let i = 0; i < embedding.length; i++) {
+//     const raw = embedding[i] ?? 0
 
-    // Normalize from [-1, 1] → [0, 1]
-    const normalized = (raw + 1) / 2
-    const color = colorMap(normalized)
+//     // Normalize from [-1, 1] → [0, 1]
+//     const normalized = (raw + 1) / 2
+//     const color = colorMap(normalized)
 
-    const pixelIndex = i * 4
-    data[pixelIndex + 0] = color[0]
-    data[pixelIndex + 1] = color[1]
-    data[pixelIndex + 2] = color[2]
-    data[pixelIndex + 3] = 255
-  }
+//     const pixelIndex = i * 4
+//     data[pixelIndex + 0] = color[0]
+//     data[pixelIndex + 1] = color[1]
+//     data[pixelIndex + 2] = color[2]
+//     data[pixelIndex + 3] = 255
+//   }
 
-  ctx.putImageData(imageData, 0, 0)
-}
+//   ctx.putImageData(imageData, 0, 0)
+// }
 
 // Simple Jet-like colormap for demonstration
 function colorMap(value: number): [number, number, number] {

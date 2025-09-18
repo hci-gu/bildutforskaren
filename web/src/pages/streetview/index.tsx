@@ -9,7 +9,7 @@ function StreetViewPage() {
     <div className="flex flex-col items-center justify-center min-h-screen mt-4">
       <LoadScript
         googleMapsApiKey={import.meta.env.VITE_GOOGLE_API_KEY || ''}
-        libraries={lib}
+        libraries={lib as any}
       >
         <Map />
       </LoadScript>

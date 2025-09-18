@@ -1,4 +1,3 @@
-import React from 'react'
 import { Route, Routes } from 'react-router'
 import IndexPage from './pages'
 import ImagePage from './pages/Image'

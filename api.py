@@ -36,7 +36,7 @@ logging.basicConfig(level=logging.INFO, stream=sys.stdout,
 
 # ── Config ────────────────────────────────────────────────────────────────
 IMAGE_ROOT    = Path("out")                  # thumbnails / working copies
-ORIGINAL_ROOT = Path("/Volumes/T7/Riksarkivet")             # mirror tree with full-res originals
+ORIGINAL_ROOT = Path("images")             # mirror tree with full-res originals
 IMAGE_TYPES   = {".jpg", ".jpeg", ".png"}
 BATCH_SIZE    = 32                               # embed N images at once
 TOP_K         = 100                               # default search size
@@ -56,13 +56,14 @@ except FileNotFoundError:
 # ── Load CLIP ─────────────────────────────────────────────────────────────
 logging.info("Loading CLIP model …")
 
-device     = "cuda" if torch.cuda.is_available() else "mps"
+device     = "cuda" if torch.cuda.is_available() else "cpu"
 model      = CLIPModel.from_pretrained("openai/clip-vit-large-patch14").to(device)
-processor  = CLIPProcessor.from_pretrained("openai/clip-vit-large-patch14")
+processor  = CLIPProcessor.from_pretrained("openai/clip-vit-large-patch14", from_tf=True)
 
 # ── Flask app ─────────────────────────────────────────────────────────────
 app = Flask(__name__)
-CORS(app)
+# Allow specific origins
+CORS(app, origins=["https://bildutforskaren.prod.appadem.in"], supports_credentials=True)
 
 # ── Helpers ───────────────────────────────────────────────────────────────
 def extract_year(date_str: str) -> str | None:

@@ -31,7 +31,7 @@ function IndexPage() {
     setDebouncedQuery('')
     const selectedFile = event.target.files?.[0]
     if (selectedFile) {
-      setFile(selectedFile)
+      setFile(selectedFile as any)
       // Assuming you want to handle the file upload here
       const formData = new FormData()
       formData.append('file', selectedFile)
@@ -57,7 +57,7 @@ function IndexPage() {
       <div className="p-32">
         <h1 className="text-3xl font-bold mb-4">Bildutforskaren</h1>
         <p className="text-gray-600 mb-8">
-          Utforksa dina bilder med AI! Skriv in en sökterm eller ladda upp en
+          Utforska dina bilder med AI! Skriv in en sökterm eller ladda upp en
           bild för att hitta liknande bilder i din samling.
         </p>
         <div className="flex gap-4 justify-center mb-8">

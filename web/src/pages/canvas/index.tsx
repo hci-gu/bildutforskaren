@@ -150,16 +150,23 @@ const Embeddings: React.FC<{
           } else {
             particle.data.targetScale = BASE_SCALE * displaySettings.scale
           }
-          if (
-            projectionSettings.type !== 'grid' &&
-            particle.data.embedding.meta.matched
-          ) {
-            // golden tint
-            particle.tint = 0x00d7ff
-          } else {
-            particle.tint = displaySettings.colorPhotographer
-              ? colorForMetadata(rawEmbedding.meta)
-              : 0xffffff
+          // if (
+          //   projectionSettings.type !== 'grid' &&
+          //   particle.data.embedding.meta.matched
+          // ) {
+          //   // golden tint
+          //   // particle.tint = 0x00d7ff
+          // } else {
+          //   particle.tint = displaySettings.colorPhotographer
+          //     ? colorForMetadata(rawEmbedding.meta)
+          //     : 0xffffff
+          // }
+          particle.tint = displaySettings.colorPhotographer
+            ? colorForMetadata(rawEmbedding.meta)
+            : 0xffffff
+
+          if (searchQuery.length && !particle.data.embedding.meta.matched) {
+            particle.data.targetScale = BASE_SCALE * 0.1
           }
         }
       }
@@ -337,7 +344,6 @@ const ImageDisplayer = () => {
 ///////////////////////////////////////////////////////////////////////////////
 // Top-level canvas component
 ///////////////////////////////////////////////////////////////////////////////
-
 const EmbeddingsCanvas: React.FC<Props> = ({ width = 1920, height = 1200 }) => {
   const dragStart = useRef<PIXI.PointData | null>(null)
   const setSelectedEmbedding = useSetAtom(selectedEmbeddingAtom)
@@ -454,6 +460,20 @@ const EmbeddingsCanvas: React.FC<Props> = ({ width = 1920, height = 1200 }) => {
 
   return (
     <>
+      {!allLoaded && (
+        <h1
+          style={{
+            position: 'absolute',
+            top: 44,
+            left: 44,
+            color: 'white',
+            fontSize: 24,
+            zIndex: 1000,
+          }}
+        >
+          Laddar...
+        </h1>
+      )}
       <ImageDisplayer />
       <Panel />
       <Application
@@ -502,30 +522,36 @@ const EmbeddingsCanvas: React.FC<Props> = ({ width = 1920, height = 1200 }) => {
             />
           )}
         </viewport>
-        <pixiContainer
-          position={{ x: window.innerWidth - 215, y: window.innerHeight - 235 }}
-          width={250}
-          height={250}
-        >
-          <pixiGraphics
-            draw={(g) => {
-              g.rect(-220, -50, 420, 275)
-              g.fill({ color: 'black', alpha: 0.75 })
-              g.stroke({ color: 'white', width: 1 })
-              g.fill()
+        {allLoaded && (
+          <pixiContainer
+            position={{
+              x: window.innerWidth - 215,
+              y: window.innerHeight - 235,
             }}
-          />
-          <pixiContainer scale={0.015}>
-            {allLoaded && (
-              <Embeddings
-                type="minimap"
-                masterAtlas={masterAtlas}
-                particleContainerRefs={minimapParticleContainerRefs}
-              />
-            )}
-            <pixiGraphics ref={minimapFrameRef} />
+            width={250}
+            height={250}
+          >
+            <pixiGraphics
+              draw={(g) => {
+                g.rect(-220, -50, 420, 275)
+                g.fill({ color: 'black', alpha: 0.75 })
+                g.stroke({ color: 'white', width: 1 })
+                g.fill()
+              }}
+            />
+            <pixiContainer scale={0.015}>
+              {allLoaded && (
+                <Embeddings
+                  type="minimap"
+                  masterAtlas={masterAtlas}
+                  particleContainerRefs={minimapParticleContainerRefs}
+                />
+              )}
+              {/* @ts-ignore */}
+              <pixiGraphics ref={minimapFrameRef} />
+            </pixiContainer>
           </pixiContainer>
-        </pixiContainer>
+        )}
       </Application>
     </>
   )

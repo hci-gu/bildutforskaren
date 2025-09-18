@@ -12,7 +12,6 @@ import {
   Card,
   CardContent,
   CardDescription,
-  CardFooter,
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
@@ -215,13 +214,13 @@ const DisplaySettings = () => {
 const FilterSettings = () => {
   const [settings, setSettings] = useAtom(filterSettingsAtom)
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const { name, value } = e.target
-    setSettings((prev) => ({
-      ...prev,
-      [name]: value || null,
-    }))
-  }
+  // const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  //   const { name, value } = e.target
+  //   setSettings((prev) => ({
+  //     ...prev,
+  //     [name]: value || null,
+  //   }))
+  // }
 
   return (
     <div className="flex flex-col gap-2 mt-2">
@@ -238,6 +237,7 @@ const FilterSettings = () => {
           <SelectValue placeholder="Fotograf" />
         </SelectTrigger>
         <SelectContent>
+          {/* @ts-ignore */}
           <SelectItem value={null}>Ingen</SelectItem>
           <SelectItem value="1">1</SelectItem>
           <SelectItem value="2">2</SelectItem>

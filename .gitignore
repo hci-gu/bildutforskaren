@@ -1,3 +1,5 @@
 images/*
 *.xlsx
 .cache
+
+web/.htpasswd

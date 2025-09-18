@@ -86,6 +86,7 @@ function Map() {
   return (
     <GoogleMap mapContainerStyle={containerStyle} center={position} zoom={10}>
       <StreetViewPanorama
+        // @ts-ignore
         id="street-view"
         mapContainerStyle={containerStyle}
         position={position}
