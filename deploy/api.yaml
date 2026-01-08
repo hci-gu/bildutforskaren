@@ -1,0 +1,65 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bildutforskaren-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: bildutforskaren-api
+  template:
+    metadata:
+      labels:
+        app: bildutforskaren-api
+    spec:
+      containers:
+        - name: bildutforskaren-api
+          image: 'registry.k8s.gu.se/appademin/bildutforskaren-api:0.0.7'
+          ports:
+            - containerPort: 3000
+              name: web
+              protocol: TCP
+          imagePullPolicy: Always
+          env:
+            - name: NUMBA_DISABLE_JIT
+              value: "1"
+            - name: XDG_CACHE_HOME
+              value: "/app/.cache"
+            - name: HF_HOME
+              value: "/app/.cache/huggingface"
+            - name: TRANSFORMERS_CACHE
+              value: "/app/.cache/huggingface/transformers"
+            - name: HF_DATASETS_CACHE
+              value: "/app/.cache/huggingface/datasets"
+            - name: TORCH_HOME
+              value: "/app/.cache/torch"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: bildutforskaren-api-service
+spec:
+  selector:
+    app: bildutforskaren-api
+  ports:
+    - protocol: TCP
+      port: 3000
+---
+kind: Route
+apiVersion: route.openshift.io/v1
+metadata:
+  name: bildutforskaren-api-route
+  annotations:
+    kubernetes.io/tls-acme: "true"
+spec:
+  host: bildutforskaren-api.prod.appadem.in
+  to:
+    kind: Service
+    name: bildutforskaren-api-service
+    weight: 100
+  port:
+    targetPort: 3000
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+  wildcardPolicy: None

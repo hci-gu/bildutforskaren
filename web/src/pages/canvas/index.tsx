@@ -16,6 +16,7 @@ import {
   API_URL,
   displaySettingsAtom,
   filterSettingsAtom,
+  loadableEmbeddingsAtom,
   projectedEmbeddingsAtom,
   projectionSettingsAtom,
   searchQueryAtom,
@@ -350,6 +351,7 @@ const EmbeddingsCanvas: React.FC<Props> = ({ width = 1920, height = 1200 }) => {
   const projectionSettings = useAtomValue(projectionSettingsAtom)
   const viewportRef = useRef<Viewport>(null)
   const minimapFrameRef = useRef<PIXI.Graphics>(null)
+  const rawEmbeddings = useAtomValue(projectedEmbeddingsAtom('main'))
   const particleContainerRefs = useMemo(
     () =>
       Array.from({ length: NUM_ATLASES }, () =>
@@ -458,9 +460,11 @@ const EmbeddingsCanvas: React.FC<Props> = ({ width = 1920, height = 1200 }) => {
     }
   }, [projectionSettings, viewportRef, minimapFrameRef])
 
+  console.log('rendering canvas', rawEmbeddings.length)
+
   return (
     <>
-      {!allLoaded && (
+      {(!allLoaded || rawEmbeddings.length == 0) && (
         <h1
           style={{
             position: 'absolute',
@@ -557,4 +561,28 @@ const EmbeddingsCanvas: React.FC<Props> = ({ width = 1920, height = 1200 }) => {
   )
 }
 
-export default EmbeddingsCanvas
+const EmbeddingsFetchWrapper = () => {
+  const embeddings = useAtomValue(loadableEmbeddingsAtom)
+
+  if (embeddings.state === 'loading') {
+    return (
+      <h1
+        style={{
+          position: 'absolute',
+          top: '50%',
+          left: '50%',
+          transform: 'translate(-50%, -50%)',
+          color: 'white',
+          fontSize: 24,
+          zIndex: 1000,
+        }}
+      >
+        Laddar in embeddings<br></br> ( det kan ta upp till en minut )
+      </h1>
+    )
+  }
+
+  return <EmbeddingsCanvas />
+}
+
+export default EmbeddingsFetchWrapper

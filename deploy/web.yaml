@@ -1,0 +1,52 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bildutforskaren
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: bildutforskaren
+  template:
+    metadata:
+      labels:
+        app: bildutforskaren
+    spec:
+      containers:
+        - name: bildutforskaren
+          image: 'registry.k8s.gu.se/appademin/bildutforskaren:0.0.11'
+          ports:
+            - containerPort: 8080
+              name: web
+              protocol: TCP
+          imagePullPolicy: Always
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: bildutforskaren-service
+spec:
+  selector:
+    app: bildutforskaren
+  ports:
+    - protocol: TCP
+      port: 8080
+---
+kind: Route
+apiVersion: route.openshift.io/v1
+metadata:
+  name: bildutforskaren-route
+  annotations:
+    kubernetes.io/tls-acme: "true"
+spec:
+  host: bildutforskaren.prod.appadem.in
+  to:
+    kind: Service
+    name: bildutforskaren-service
+    weight: 100
+  port:
+    targetPort: 8080
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+  wildcardPolicy: None

@@ -157,6 +157,21 @@ const ProjectionSettings = () => {
               className="border border-gray-300 rounded-md shadow-sm focus:ring focus:ring-blue-500 focus:border-blue-500 p-2"
             />
           </div>
+          {/* <div className="flex items-center space-x-2">
+            <Label htmlFor="seed" className="w-24">
+              Seed
+            </Label>
+            <Input
+              id="seed"
+              type="number"
+              name="seed"
+              value={settings.seed}
+              onChange={handleChange}
+              placeholder="seed"
+              step={1}
+              className="border border-gray-300 rounded-md shadow-sm focus:ring focus:ring-blue-500 focus:border-blue-500 p-2"
+            />
+          </div> */}
         </>
       )}
     </div>

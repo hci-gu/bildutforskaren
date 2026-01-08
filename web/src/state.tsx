@@ -1,8 +1,9 @@
 import { atom } from 'jotai'
-import { atomFamily } from 'jotai/utils'
+import { atomFamily, loadable } from 'jotai/utils'
 
-// export const API_URL = 'http://localhost:3000'
-export const API_URL = 'https://bildutforskaren-api.prod.appadem.in'
+export const API_URL = 'http://localhost:3000'
+// export const API_URL = 'https://bildutforskaren-api.prod.appadem.in'
+// export const API_URL = 'https://leviathan.itit.gu.se'
 
 // const getTextEmbeddings = async (texts: string[]) => {
 //   let embeddings = []
@@ -122,6 +123,7 @@ export const embeddingsAtom = atom(async (_) => {
     return []
   }
 })
+export const loadableEmbeddingsAtom = loadable(embeddingsAtom)
 
 export const filteredEmbeddingsAtom = atom(async (get) => {
   let embeddingsData = await get(embeddingsAtom)
