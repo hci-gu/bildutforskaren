@@ -54,6 +54,9 @@ const CANVAS_OFFSET_Y = 0
 const BASE_SCALE = 0.075
 const NUM_ATLASES = 8
 const CLICK_EPS = 8
+const MINIMAP_SIZE = 250
+const MINIMAP_PADDING = 16
+const MINIMAP_MARGIN = 32
 
 const colorForMetadata = (metadata: any) => {
   switch (metadata.photographer) {
@@ -67,6 +70,32 @@ const colorForMetadata = (metadata: any) => {
       return 0xff55ff
     default:
       return 0xffffff
+  }
+}
+
+const computeProjectionBounds = (embeddings: any[]) => {
+  if (!embeddings.length) return null
+  let minX = Infinity
+  let minY = Infinity
+  let maxX = -Infinity
+  let maxY = -Infinity
+  embeddings.forEach((embedding) => {
+    if (!embedding?.point) return
+    const [nx, ny] = embedding.point
+    if (!Number.isFinite(nx) || !Number.isFinite(ny)) return
+    const x = nx * CANVAS_WIDTH
+    const y = ny * CANVAS_HEIGHT
+    if (x < minX) minX = x
+    if (y < minY) minY = y
+    if (x > maxX) maxX = x
+    if (y > maxY) maxY = y
+  })
+  if (!Number.isFinite(minX) || !Number.isFinite(minY)) return null
+  return {
+    x: minX,
+    y: minY,
+    width: Math.max(1, maxX - minX),
+    height: Math.max(1, maxY - minY),
   }
 }
 
@@ -351,7 +380,12 @@ const EmbeddingsCanvas: React.FC<Props> = ({ width = 1920, height = 1200 }) => {
   const projectionSettings = useAtomValue(projectionSettingsAtom)
   const viewportRef = useRef<Viewport>(null)
   const minimapFrameRef = useRef<PIXI.Graphics>(null)
+  const [windowSize, setWindowSize] = useState(() => ({
+    width: typeof window === 'undefined' ? width : window.innerWidth,
+    height: typeof window === 'undefined' ? height : window.innerHeight,
+  }))
   const rawEmbeddings = useAtomValue(projectedEmbeddingsAtom('main'))
+  const rawMinimapEmbeddings = useAtomValue(projectedEmbeddingsAtom('minimap'))
   const particleContainerRefs = useMemo(
     () =>
       Array.from({ length: NUM_ATLASES }, () =>
@@ -370,6 +404,83 @@ const EmbeddingsCanvas: React.FC<Props> = ({ width = 1920, height = 1200 }) => {
   const [masterAtlas, setMasterAtlas] = useState<{
     [key: string]: PIXI.Spritesheet
   }>({})
+  const projectionBounds = useMemo(
+    () => computeProjectionBounds(rawEmbeddings),
+    [rawEmbeddings]
+  )
+  const minimapBounds = useMemo(
+    () => computeProjectionBounds(rawMinimapEmbeddings),
+    [rawMinimapEmbeddings]
+  )
+  const projectionKey = useMemo(
+    () => JSON.stringify(projectionSettings),
+    [projectionSettings]
+  )
+  const minimapTransform = useMemo(() => {
+    if (!minimapBounds) {
+      return {
+        scale: 0.015,
+        position: { x: 0, y: 0 },
+        pivot: { x: 0, y: 0 },
+      }
+    }
+    const innerSize = MINIMAP_SIZE - MINIMAP_PADDING * 2
+    const scale = Math.min(
+      innerSize / minimapBounds.width,
+      innerSize / minimapBounds.height
+    )
+    return {
+      scale,
+      position: {
+        x: MINIMAP_PADDING + innerSize / 2,
+        y: MINIMAP_PADDING + innerSize / 2,
+      },
+      pivot: {
+        x: minimapBounds.x + minimapBounds.width / 2,
+        y: minimapBounds.y + minimapBounds.height / 2,
+      },
+    }
+  }, [minimapBounds])
+  const lastProjectionKeyRef = useRef<string | null>(null)
+
+  useEffect(() => {
+    const handleResize = () => {
+      setWindowSize({ width: window.innerWidth, height: window.innerHeight })
+    }
+    window.addEventListener('resize', handleResize)
+    return () => window.removeEventListener('resize', handleResize)
+  }, [])
+
+  useEffect(() => {
+    const viewport = viewportRef.current
+    if (!viewport) return
+    if (typeof (viewport as any).resize === 'function') {
+      ;(viewport as any).resize(
+        windowSize.width,
+        windowSize.height,
+        width,
+        height
+      )
+    } else {
+      viewport.screenWidth = windowSize.width
+      viewport.screenHeight = windowSize.height
+    }
+  }, [windowSize.width, windowSize.height, width, height])
+
+  useEffect(() => {
+    const viewport = viewportRef.current
+    if (!viewport || !projectionBounds) return
+    if (lastProjectionKeyRef.current === projectionKey) return
+    lastProjectionKeyRef.current = projectionKey
+    const paddingFactor = 0.08
+    const paddedWidth = projectionBounds.width * (1 + paddingFactor * 2)
+    const paddedHeight = projectionBounds.height * (1 + paddingFactor * 2)
+    viewport.fit(false, paddedWidth, paddedHeight)
+    viewport.moveCenter({
+      x: projectionBounds.x + projectionBounds.width / 2,
+      y: projectionBounds.y + projectionBounds.height / 2,
+    })
+  }, [projectionBounds, projectionKey])
 
   // ────────────────────────────────────────────────────────────────────────────
   // Load all atlas PNGs & build masterAtlas
@@ -481,8 +592,8 @@ const EmbeddingsCanvas: React.FC<Props> = ({ width = 1920, height = 1200 }) => {
       <ImageDisplayer />
       <Panel />
       <Application
-        width={window.innerWidth}
-        height={window.innerHeight}
+        width={windowSize.width}
+        height={windowSize.height}
         onInit={(app) => (state.pixiApp = app)}
       >
         <viewport
@@ -529,21 +640,25 @@ const EmbeddingsCanvas: React.FC<Props> = ({ width = 1920, height = 1200 }) => {
         {allLoaded && (
           <pixiContainer
             position={{
-              x: window.innerWidth - 215,
-              y: window.innerHeight - 235,
+              x: windowSize.width - MINIMAP_SIZE - MINIMAP_MARGIN,
+              y: windowSize.height - MINIMAP_SIZE - MINIMAP_MARGIN,
             }}
-            width={250}
-            height={250}
+            width={MINIMAP_SIZE}
+            height={MINIMAP_SIZE}
           >
             <pixiGraphics
               draw={(g) => {
-                g.rect(-220, -50, 420, 275)
+                g.rect(0, 0, MINIMAP_SIZE, MINIMAP_SIZE)
                 g.fill({ color: 'black', alpha: 0.75 })
                 g.stroke({ color: 'white', width: 1 })
                 g.fill()
               }}
             />
-            <pixiContainer scale={0.015}>
+            <pixiContainer
+              scale={minimapTransform.scale}
+              position={minimapTransform.position}
+              pivot={minimapTransform.pivot}
+            >
               {allLoaded && (
                 <Embeddings
                   type="minimap"
