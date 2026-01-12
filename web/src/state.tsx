@@ -5,23 +5,17 @@ export const API_URL = 'http://localhost:3000'
 // export const API_URL = 'https://bildutforskaren-api.prod.appadem.in'
 // export const API_URL = 'https://leviathan.itit.gu.se'
 
-// const getTextEmbeddings = async (texts: string[]) => {
-//   let embeddings = []
-//   for (let text of texts) {
-//     console.log('Fetching embedding for text:', text)
-//     const res = await fetch(
-//       `${API_URL}/embedding-for-text?query=${encodeURIComponent(text)}`
-//     )
-//     const embedding = await res.json()
-//     embeddings.push({
-//       embedding,
-//       text: text,
-//     })
-//   }
-//   return embeddings
-// }
-
-export const textEmbeddingsAtom = atom([])
+export const textsAtom = atom([
+  'Ship',
+  'City view',
+  'Portrait',
+  'Landscape',
+  'Close up photograph of flowers',
+])
+export const textItemsAtom = atom((get) => {
+  const texts = get(textsAtom)
+  return texts.map((text) => ({ text, type: 'text' }))
+})
 
 const getImages = async () => {
   const response = await fetch(`${API_URL}/images`)
@@ -45,6 +39,7 @@ export const imagesAtom = atom(async (_) => {
 
 export const searchQueryAtom = atom('')
 export const searchImageAtom = atom(null)
+export const hoveredTextAtom = atom<string | null>(null)
 export const searchSettingsAtom = atom({
   topK: 100,
   filter: false,
@@ -127,13 +122,11 @@ export const loadableEmbeddingsAtom = loadable(embeddingsAtom)
 
 export const filteredEmbeddingsAtom = atom(async (get) => {
   let embeddingsData = await get(embeddingsAtom)
+  const textItems = get(textItemsAtom)
   const filterSettings = get(filterSettingsAtom)
+  const activeEmbeddingIds = get(activeEmbeddingIdsAtom)
 
-  if (!filterSettings.year && !filterSettings.photographer) {
-    return embeddingsData
-  }
-
-  return embeddingsData.filter((item: any) => {
+  let filtered = embeddingsData.filter((item: any) => {
     const matchesYear =
       !filterSettings.year || item.metadata?.year === filterSettings.year
     const matchesPhotographer =
@@ -142,6 +135,23 @@ export const filteredEmbeddingsAtom = atom(async (get) => {
 
     return matchesYear && matchesPhotographer
   })
+
+  if (activeEmbeddingIds && activeEmbeddingIds.length > 0) {
+    const activeIds = new Set(activeEmbeddingIds.map(String))
+    filtered = filtered.filter((item: any) => activeIds.has(String(item.id)))
+  } else if (activeEmbeddingIds && activeEmbeddingIds.length === 0) {
+    filtered = []
+  }
+
+  if (
+    !activeEmbeddingIds &&
+    !filterSettings.year &&
+    !filterSettings.photographer
+  ) {
+    return [...filtered, ...textItems]
+  }
+
+  return filtered
 })
 
 export const projectionSettingsAtom = atom({
@@ -162,23 +172,61 @@ export const filterSettingsAtom = atom({
   photographer: null,
 })
 
+export const activeEmbeddingIdsAtom = atom<string[] | null>(null)
+export const selectionHistoryAtom = atom<(string[] | null)[]>([])
+export const projectionRevisionAtom = atom(0)
+
 export const embeddingProjection = atomFamily((type: string) =>
   atom(async (get) => {
     const embeddingsData = await get(filteredEmbeddingsAtom)
     const projectionSettings = get(projectionSettingsAtom)
+    const filterSettings = get(filterSettingsAtom)
 
     const projectionType = type === 'minimap' ? 'umap' : projectionSettings.type
 
     if (projectionType === 'umap') {
-      const queryParams = new URLSearchParams({
-        n_neighbors: projectionSettings.nNeighbors.toString(),
-        min_dist: projectionSettings.minDist.toString(),
-        spread: projectionSettings.spread.toString(),
-        seed: projectionSettings.seed.toString(),
+      const imageItems = embeddingsData.filter((item: any) => item.type !== 'text')
+      const imageIds = imageItems.map((item: any) => item.id)
+      const includeTexts = !filterSettings.year && !filterSettings.photographer
+      const texts = includeTexts ? get(textsAtom) : []
+
+      const res = await fetch(`${API_URL}/umap`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          image_ids: imageIds,
+          texts,
+          params: {
+            n_neighbors: projectionSettings.nNeighbors,
+            min_dist: projectionSettings.minDist,
+            n_components: 2,
+            spread: projectionSettings.spread,
+            seed: projectionSettings.seed,
+          },
+        }),
       })
 
-      const response = await fetch(`${API_URL}/umap?${queryParams.toString()}`)
-      const embedding2d = await response.json()
+      if (!res.ok) {
+        throw new Error('UMAP request failed')
+      }
+
+      const data = await res.json()
+      const imagePointsById = new Map<number, [number, number]>()
+      for (let i = 0; i < data.image_ids.length; i++) {
+        imagePointsById.set(data.image_ids[i], data.image_points[i])
+      }
+
+      let textIndex = 0
+      const embedding2d = embeddingsData.map((item: any) => {
+        if (item.type === 'text') {
+          const point = data.text_points?.[textIndex]
+          textIndex += 1
+          return point ?? [0, 0]
+        }
+        return imagePointsById.get(item.id) ?? [0, 0]
+      })
 
       return embedding2d
     } else if (projectionType === 'grid') {
@@ -289,13 +337,15 @@ export const projectedEmbeddingsAtom = atomFamily((type: string) =>
       (item: any, index: number) => ({
         id: item.id,
         point: projection[index],
-        type: 'image',
+        type: item.type === 'text' ? 'text' : 'image',
+        text: item.text,
         meta: {
           ...item.metadata,
           matched: false,
         },
       })
     )
+
     if (projectionSettings.type == 'year') {
       const embeddingsWithYear = embeddingsData.filter(
         (item: any) =>
@@ -337,6 +387,7 @@ export const projectedEmbeddingsAtom = atomFamily((type: string) =>
 )
 
 export const selectedEmbeddingAtom = atom(null)
+export const selectedEmbeddingIdsAtom = atom<string[]>([])
 
 export const embeddingAtom = atomFamily((id: string) =>
   atom(async () => {

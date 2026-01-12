@@ -11,15 +11,20 @@ import atlas4 from '@/assets/atlas_4.png'
 import atlas5 from '@/assets/atlas_5.png'
 import atlas6 from '@/assets/atlas_6.png'
 import atlas7 from '@/assets/atlas_7.png'
-import { useAtomValue, useSetAtom } from 'jotai'
+import { useAtom, useAtomValue, useSetAtom } from 'jotai'
 import {
   API_URL,
   displaySettingsAtom,
   filterSettingsAtom,
+  hoveredTextAtom,
   loadableEmbeddingsAtom,
+  projectionRevisionAtom,
   projectedEmbeddingsAtom,
   projectionSettingsAtom,
   searchQueryAtom,
+  activeEmbeddingIdsAtom,
+  selectionHistoryAtom,
+  selectedEmbeddingIdsAtom,
   selectedEmbeddingAtom,
 } from '@/state'
 import { PhotoView } from 'react-photo-view'
@@ -57,6 +62,9 @@ const CLICK_EPS = 8
 const MINIMAP_SIZE = 250
 const MINIMAP_PADDING = 16
 const MINIMAP_MARGIN = 32
+const TEXT_BASE_SIZE = 40
+const TEXT_HOVER_SIZE = 600
+const TEXT_LERP = 0.15
 
 const colorForMetadata = (metadata: any) => {
   switch (metadata.photographer) {
@@ -112,7 +120,17 @@ const Embeddings: React.FC<{
   const displaySettings = useAtomValue(displaySettingsAtom)
   const filterSettings = useAtomValue(filterSettingsAtom)
   const projectionSettings = useAtomValue(projectionSettingsAtom)
+  const hoveredText = useAtomValue(hoveredTextAtom)
+  const selectedEmbeddingIds = useAtomValue(selectedEmbeddingIdsAtom)
   const textEmbeddings = rawEmbeddings.filter((e: any) => e.type === 'text')
+  const textRefs = useRef(new Map<string, PIXI.Text>())
+  const textSizes = useRef(
+    new Map<string, { current: number; target: number }>()
+  )
+  const selectedIdSet = useMemo(
+    () => new Set(selectedEmbeddingIds.map((id) => String(id))),
+    [selectedEmbeddingIds]
+  )
 
   // ────────────────────────────────────────────────────────────────────────────
   // Animate particles every frame
@@ -142,7 +160,31 @@ const Embeddings: React.FC<{
       }
       ref.current.update()
     })
+
+    textSizes.current.forEach((state, key) => {
+      const node = textRefs.current.get(key)
+      if (!node) return
+      const next = state.current + (state.target - state.current) * TEXT_LERP
+      state.current = Math.abs(state.target - next) < 0.05 ? state.target : next
+      node.style.fontSize = state.current
+    })
   })
+
+  useEffect(() => {
+    textEmbeddings.forEach((embed: any, index: number) => {
+      const textKey = String(embed.id ?? embed.text ?? index)
+      const state = textSizes.current.get(textKey) || {
+        current: TEXT_BASE_SIZE,
+        target: TEXT_BASE_SIZE,
+      }
+      if (hoveredText && embed.text === hoveredText) {
+        state.target = TEXT_HOVER_SIZE
+      } else if (!hoveredText) {
+        state.target = TEXT_BASE_SIZE
+      }
+      textSizes.current.set(textKey, state)
+    })
+  }, [hoveredText, textEmbeddings])
 
   // ────────────────────────────────────────────────────────────────────────────
   // Sync particle data when atoms change (positions / colours / scales)
@@ -163,41 +205,40 @@ const Embeddings: React.FC<{
         particle.data.embedding = rawEmbedding
         particle.data.x = x
         particle.data.y = y
+        const isSelected = selectedIdSet.has(String(embeddingId))
         if (type === 'minimap') {
+          let targetScale = BASE_SCALE * displaySettings.scale * 10
           if (particle.data.embedding.meta.matched) {
-            particle.data.targetScale = BASE_SCALE * displaySettings.scale * 100
+            targetScale = BASE_SCALE * displaySettings.scale * 100
           } else if (searchQuery.length) {
-            particle.data.targetScale = BASE_SCALE * displaySettings.scale * 2
+            targetScale = BASE_SCALE * displaySettings.scale * 2
           } else {
-            particle.data.targetScale = BASE_SCALE * displaySettings.scale * 5
+            targetScale = BASE_SCALE * displaySettings.scale * 5
           }
+          particle.data.targetScale = targetScale
           particle.tint = displaySettings.colorPhotographer
             ? colorForMetadata(rawEmbedding.meta)
             : 0xffffff
         } else {
+          let targetScale = BASE_SCALE * displaySettings.scale
           if (projectionSettings.type === 'umap') {
-            particle.data.targetScale = BASE_SCALE * displaySettings.scale * 5
-          } else {
-            particle.data.targetScale = BASE_SCALE * displaySettings.scale
+            targetScale = BASE_SCALE * displaySettings.scale * 5
           }
-          // if (
-          //   projectionSettings.type !== 'grid' &&
-          //   particle.data.embedding.meta.matched
-          // ) {
-          //   // golden tint
-          //   // particle.tint = 0x00d7ff
-          // } else {
-          //   particle.tint = displaySettings.colorPhotographer
-          //     ? colorForMetadata(rawEmbedding.meta)
-          //     : 0xffffff
-          // }
-          particle.tint = displaySettings.colorPhotographer
+          let tint = displaySettings.colorPhotographer
             ? colorForMetadata(rawEmbedding.meta)
             : 0xffffff
 
           if (searchQuery.length && !particle.data.embedding.meta.matched) {
-            particle.data.targetScale = BASE_SCALE * 0.1
+            targetScale = BASE_SCALE * 0.1
           }
+
+          if (isSelected) {
+            targetScale *= 1.6
+            tint = 0xffaa33
+          }
+
+          particle.data.targetScale = targetScale
+          particle.tint = tint
         }
       }
     })
@@ -207,6 +248,7 @@ const Embeddings: React.FC<{
     filterSettings,
     displaySettings,
     projectionSettings,
+    selectedIdSet,
     particleContainerRefs,
   ])
 
@@ -225,22 +267,41 @@ const Embeddings: React.FC<{
       const [nx, ny] = embed.point
       const x = nx * CANVAS_WIDTH
       const y = ny * CANVAS_HEIGHT
-      let scale = BASE_SCALE * displaySettings.scale
+      const isSelected = selectedIdSet.has(String(embed.id))
+      let targetScale = BASE_SCALE * displaySettings.scale
+      let tint = displaySettings.colorPhotographer
+        ? colorForMetadata(embed.meta)
+        : 0xffffff
       if (type === 'minimap') {
-        scale = BASE_SCALE * displaySettings.scale * 10
+        if (embed.meta.matched) {
+          targetScale = BASE_SCALE * displaySettings.scale * 100
+        } else if (searchQuery.length) {
+          targetScale = BASE_SCALE * displaySettings.scale * 2
+        } else {
+          targetScale = BASE_SCALE * displaySettings.scale * 5
+        }
+      } else {
+        if (projectionSettings.type === 'umap') {
+          targetScale = BASE_SCALE * displaySettings.scale * 5
+        }
+        if (searchQuery.length && !embed.meta.matched) {
+          targetScale = BASE_SCALE * 0.1
+        }
+        if (isSelected) {
+          targetScale *= 1.6
+          tint = 0xffaa33
+        }
       }
 
       const particle = new PIXI.Particle({
         texture,
         x,
         y,
-        scaleX: scale,
-        scaleY: scale,
+        scaleX: targetScale,
+        scaleY: targetScale,
         anchorX: 0.5,
         anchorY: 0.5,
-        tint: displaySettings.colorPhotographer
-          ? colorForMetadata(embed.meta)
-          : 0xffffff,
+        tint,
       }) as CustomParticle
 
       particle.data = {
@@ -249,7 +310,7 @@ const Embeddings: React.FC<{
         y,
         originalX: x,
         originalY: y,
-        targetScale: scale,
+        targetScale,
       }
 
       container.addParticle(particle)
@@ -263,7 +324,16 @@ const Embeddings: React.FC<{
         }
       })
     }
-  }, [filterSettings, particleContainerRefs, masterAtlas])
+  }, [
+    rawEmbeddings,
+    particleContainerRefs,
+    masterAtlas,
+    displaySettings,
+    searchQuery,
+    projectionSettings,
+    selectedIdSet,
+    type,
+  ])
 
   // ────────────────────────────────────────────────────────────────────────────
   // Render – one <pixiParticleContainer> per atlas sheet
@@ -286,18 +356,53 @@ const Embeddings: React.FC<{
 
       {/* Text labels that float above */}
       <pixiContainer position={{ x: CANVAS_OFFSET_X, y: CANVAS_OFFSET_Y }}>
-        {textEmbeddings.map((embed: any) => {
-          const [nx, ny] = embed.point
+        {textEmbeddings.map((embed: any, index: number) => {
+          const [nx, ny] = embed.point ? embed.point : [0, 0]
+          const textKey = String(embed.id ?? embed.text ?? index)
           return (
             <pixiText
-              key={embed.id}
+              key={textKey}
               text={embed.text}
               x={nx * CANVAS_WIDTH}
               y={ny * CANVAS_HEIGHT - 12}
-              rotation={-Math.PI / 4}
+              rotation={projectionSettings.type === 'year' ? -Math.PI / 4 : 0}
               anchor={0.5}
+              eventMode="static"
+              cursor="pointer"
+              pointerover={() => {
+                const state = textSizes.current.get(textKey) || {
+                  current: TEXT_BASE_SIZE,
+                  target: TEXT_BASE_SIZE,
+                }
+                state.target = TEXT_HOVER_SIZE
+                textSizes.current.set(textKey, state)
+              }}
+              pointerout={() => {
+                const state = textSizes.current.get(textKey) || {
+                  current: TEXT_BASE_SIZE,
+                  target: TEXT_BASE_SIZE,
+                }
+                state.target = TEXT_BASE_SIZE
+                textSizes.current.set(textKey, state)
+              }}
+              ref={(node) => {
+                if (node) {
+                  textRefs.current.set(textKey, node)
+                  if (!textSizes.current.has(textKey)) {
+                    textSizes.current.set(textKey, {
+                      current: TEXT_BASE_SIZE,
+                      target: TEXT_BASE_SIZE,
+                    })
+                  }
+                  node.style.fontSize =
+                    textSizes.current.get(textKey)?.current ?? TEXT_BASE_SIZE
+                } else {
+                  textRefs.current.delete(textKey)
+                  textSizes.current.delete(textKey)
+                }
+              }}
               style={{
-                fontSize: 12,
+                fontSize: TEXT_BASE_SIZE,
                 fill: embed.meta.matched ? 0xff5555 : 0xffffff,
                 align: 'center',
               }}
@@ -376,8 +481,18 @@ const ImageDisplayer = () => {
 ///////////////////////////////////////////////////////////////////////////////
 const EmbeddingsCanvas: React.FC<Props> = ({ width = 1920, height = 1200 }) => {
   const dragStart = useRef<PIXI.PointData | null>(null)
+  const selectionStart = useRef<PIXI.PointData | null>(null)
+  const selectionActiveRef = useRef(false)
+  const [selectionRect, setSelectionRect] = useState<PIXI.Rectangle | null>(null)
   const setSelectedEmbedding = useSetAtom(selectedEmbeddingAtom)
+  const setSelectedEmbeddingIds = useSetAtom(selectedEmbeddingIdsAtom)
+  const selectedEmbeddingIds = useAtomValue(selectedEmbeddingIdsAtom)
+  const [selectionHistory, setSelectionHistory] = useAtom(selectionHistoryAtom)
+  const setActiveEmbeddingIds = useSetAtom(activeEmbeddingIdsAtom)
+  const activeEmbeddingIds = useAtomValue(activeEmbeddingIdsAtom)
+  const setProjectionRevision = useSetAtom(projectionRevisionAtom)
   const projectionSettings = useAtomValue(projectionSettingsAtom)
+  const projectionRevision = useAtomValue(projectionRevisionAtom)
   const viewportRef = useRef<Viewport>(null)
   const minimapFrameRef = useRef<PIXI.Graphics>(null)
   const [windowSize, setWindowSize] = useState(() => ({
@@ -413,8 +528,12 @@ const EmbeddingsCanvas: React.FC<Props> = ({ width = 1920, height = 1200 }) => {
     [rawMinimapEmbeddings]
   )
   const projectionKey = useMemo(
-    () => JSON.stringify(projectionSettings),
-    [projectionSettings]
+    () =>
+      JSON.stringify({
+        projectionSettings,
+        projectionRevision,
+      }),
+    [projectionSettings, projectionRevision]
   )
   const minimapTransform = useMemo(() => {
     if (!minimapBounds) {
@@ -442,6 +561,23 @@ const EmbeddingsCanvas: React.FC<Props> = ({ width = 1920, height = 1200 }) => {
     }
   }, [minimapBounds])
   const lastProjectionKeyRef = useRef<string | null>(null)
+
+  const isCanvasEvent = (e: any) => {
+    const target = e?.data?.originalEvent?.target as HTMLElement | null
+    if (!target || typeof target.closest !== 'function') return true
+    return !target.closest('[data-canvas-ui="true"]')
+  }
+
+  const buildSelectionRect = (
+    start: PIXI.PointData,
+    end: PIXI.PointData
+  ) => {
+    const x = Math.min(start.x, end.x)
+    const y = Math.min(start.y, end.y)
+    const width = Math.abs(end.x - start.x)
+    const height = Math.abs(end.y - start.y)
+    return new PIXI.Rectangle(x, y, width, height)
+  }
 
   useEffect(() => {
     const handleResize = () => {
@@ -602,10 +738,64 @@ const EmbeddingsCanvas: React.FC<Props> = ({ width = 1920, height = 1200 }) => {
           height={height}
           events={['move']}
           onPointerDown={(e: any) => {
-            const screen = viewportRef.current?.toScreen(e.data.global)
+            if (!isCanvasEvent(e)) return
+            const viewport = viewportRef.current
+            const isShift = !!e.data?.originalEvent?.shiftKey
+            if (isShift && viewport) {
+              const world = viewport.toWorld(e.data.global)
+              selectionStart.current = world
+              selectionActiveRef.current = true
+              setSelectionRect(new PIXI.Rectangle(world.x, world.y, 0, 0))
+              setSelectedEmbedding(null)
+              setSelectedEmbeddingIds([])
+              viewport.plugins?.pause?.('drag')
+              return
+            }
+            const screen = viewport?.toScreen(e.data.global)
             dragStart.current = screen ?? null
           }}
+          onPointerMove={(e: any) => {
+            if (!isCanvasEvent(e)) return
+            if (!selectionActiveRef.current || !selectionStart.current) return
+            const viewport = viewportRef.current
+            if (!viewport) return
+            const world = viewport.toWorld(e.data.global)
+            setSelectionRect(buildSelectionRect(selectionStart.current, world))
+          }}
           onPointerUp={(e: any) => {
+            if (!isCanvasEvent(e)) return
+            const viewport = viewportRef.current
+            if (selectionActiveRef.current) {
+              const start = selectionStart.current
+              const world = viewport?.toWorld(e.data.global)
+              if (start && world) {
+                const rect = buildSelectionRect(start, world)
+                const selectedIds = rawEmbeddings
+                  .filter((embed: any) => embed.type === 'image' && embed.point)
+                  .filter((embed: any) => {
+                    const [nx, ny] = embed.point
+                    const x = nx * CANVAS_WIDTH
+                    const y = ny * CANVAS_HEIGHT
+                    return (
+                      x >= rect.x &&
+                      x <= rect.x + rect.width &&
+                      y >= rect.y &&
+                      y <= rect.y + rect.height
+                    )
+                  })
+                  .map((embed: any) => String(embed.id))
+                setSelectedEmbeddingIds(selectedIds)
+              } else {
+                setSelectedEmbeddingIds([])
+              }
+              setSelectedEmbedding(null)
+              setSelectionRect(null)
+              selectionStart.current = null
+              selectionActiveRef.current = false
+              viewport?.plugins?.resume?.('drag')
+              return
+            }
+
             const world = viewportRef.current?.toWorld(e.data.global)
             const screen = viewportRef.current?.toScreen(e.data.global)
             if (!screen || !world || !dragStart.current) {
@@ -626,7 +816,13 @@ const EmbeddingsCanvas: React.FC<Props> = ({ width = 1920, height = 1200 }) => {
               world.y,
               particleContainerRefs
             )
-            setSelectedEmbedding(hit ? hit.data.embedding : null)
+            if (hit) {
+              setSelectedEmbedding(hit.data.embedding)
+              setSelectedEmbeddingIds([String(hit.data.embedding.id)])
+            } else {
+              setSelectedEmbedding(null)
+              setSelectedEmbeddingIds([])
+            }
           }}
         >
           {allLoaded && (
@@ -636,6 +832,21 @@ const EmbeddingsCanvas: React.FC<Props> = ({ width = 1920, height = 1200 }) => {
               particleContainerRefs={particleContainerRefs}
             />
           )}
+          <pixiGraphics
+            draw={(g) => {
+              g.clear()
+              if (!selectionRect) return
+              g.rect(
+                selectionRect.x,
+                selectionRect.y,
+                selectionRect.width,
+                selectionRect.height
+              )
+              g.fill({ color: 0x55aaff, alpha: 0.15 })
+              g.stroke({ color: 0x55aaff, width: 2 })
+              g.fill()
+            }}
+          />
         </viewport>
         {allLoaded && (
           <pixiContainer
@@ -672,6 +883,55 @@ const EmbeddingsCanvas: React.FC<Props> = ({ width = 1920, height = 1200 }) => {
           </pixiContainer>
         )}
       </Application>
+      {selectionHistory.length > 0 && (
+        <div className="fixed bottom-6 left-6 z-10000">
+          <button
+            className="rounded-full border border-white/30 bg-black/70 px-3 py-2 text-xs text-white backdrop-blur hover:bg-black/80"
+            onClick={() => {
+              setSelectionHistory((prev) => {
+                if (prev.length === 0) return prev
+                const next = [...prev]
+                const last = next.pop() ?? null
+                setActiveEmbeddingIds(last)
+                setSelectedEmbeddingIds([])
+                setSelectedEmbedding(null)
+                setProjectionRevision((v) => v + 1)
+                return next
+              })
+            }}
+          >
+            Back ({selectionHistory.length})
+          </button>
+        </div>
+      )}
+      {selectedEmbeddingIds.length > 0 && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-10000 flex items-center gap-3 rounded-full border border-white/20 bg-black/70 px-4 py-2 text-sm text-white backdrop-blur">
+          <span>{selectedEmbeddingIds.length} images selected</span>
+          <button
+            className="rounded-full border border-white/30 px-3 py-1 text-xs hover:bg-white/10"
+            onClick={() => {
+              setSelectedEmbeddingIds([])
+              setSelectedEmbedding(null)
+            }}
+          >
+            Deselect
+          </button>
+          <button
+            className="rounded-full bg-white/90 px-3 py-1 text-xs text-black hover:bg-white"
+            onClick={() => {
+              if (selectedEmbeddingIds.length > 0) {
+                setSelectionHistory((prev) => [...prev, activeEmbeddingIds])
+                setActiveEmbeddingIds(selectedEmbeddingIds)
+                setSelectedEmbeddingIds([])
+                setSelectedEmbedding(null)
+                setProjectionRevision((v) => v + 1)
+              }
+            }}
+          >
+            Reproject with selection
+          </button>
+        </div>
+      )}
     </>
   )
 }

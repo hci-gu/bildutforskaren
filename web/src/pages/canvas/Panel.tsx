@@ -1,10 +1,13 @@
 import { Input } from '@/components/ui/input'
+import { Button } from '@/components/ui/button'
 import {
   displaySettingsAtom,
   filterSettingsAtom,
+  hoveredTextAtom,
   projectionSettingsAtom,
   searchQueryAtom,
   searchSettingsAtom,
+  textsAtom,
 } from '@/state'
 import { useAtom } from 'jotai'
 import { useEffect, useState } from 'react'
@@ -264,15 +267,90 @@ const FilterSettings = () => {
   )
 }
 
-export default function Panel() {
+const TextPanel = () => {
+  const [texts, setTexts] = useAtom(textsAtom)
+  const [, setHoveredText] = useAtom(hoveredTextAtom)
+  const [newText, setNewText] = useState('')
+
+  const addText = () => {
+    const trimmed = newText.trim()
+    if (!trimmed) return
+    if (texts.includes(trimmed)) {
+      setNewText('')
+      return
+    }
+    setTexts((prev) => [...prev, trimmed])
+    setNewText('')
+  }
+
+  const removeText = (text: string) => {
+    setTexts((prev) => prev.filter((t) => t !== text))
+  }
+
   return (
-    <Card className="absolute top-4 right-4 z-10 w-1/6 border border-gray-300 shadow-lg">
+    <Card
+      className="absolute top-4 left-4 z-10 w-1/5 border border-gray-300 shadow-lg"
+      data-canvas-ui="true"
+    >
       <CardContent className="px-4">
-        <Search />
-        <ProjectionSettings />
-        <DisplaySettings />
-        <FilterSettings />
+        <CardHeader className="p-0 mt-2">
+          <CardTitle>Ord i rummet</CardTitle>
+          <CardDescription>Lägg till eller ta bort ord</CardDescription>
+        </CardHeader>
+        <div className="flex flex-wrap gap-2 mt-2">
+          {texts.map((text) => (
+            <div
+              key={text}
+              className="flex items-center gap-2 rounded-full border border-gray-300 px-3 py-1 text-sm"
+              onMouseEnter={() => setHoveredText(text)}
+              onMouseLeave={() => setHoveredText(null)}
+            >
+              <span>{text}</span>
+              <button
+                type="button"
+                onClick={() => removeText(text)}
+                className="text-gray-500 hover:text-gray-900"
+                aria-label={`Remove ${text}`}
+              >
+                ×
+              </button>
+            </div>
+          ))}
+        </div>
+        <div className="flex gap-2 mt-4">
+          <Input
+            type="text"
+            placeholder="Lägg till ord..."
+            value={newText}
+            onChange={(e) => setNewText(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') addText()
+            }}
+          />
+          <Button type="button" onClick={addText}>
+            Add
+          </Button>
+        </div>
       </CardContent>
     </Card>
+  )
+}
+
+export default function Panel() {
+  return (
+    <>
+      <TextPanel />
+      <Card
+        className="absolute top-4 right-4 z-10 w-1/6 border border-gray-300 shadow-lg"
+        data-canvas-ui="true"
+      >
+        <CardContent className="px-4">
+          <Search />
+          <ProjectionSettings />
+          <DisplaySettings />
+          <FilterSettings />
+        </CardContent>
+      </Card>
+    </>
   )
 }
