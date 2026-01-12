@@ -4,7 +4,7 @@ import { Application, extend } from '@pixi/react'
 import * as PIXI from 'pixi.js'
 import { useAtomValue, useSetAtom } from 'jotai'
 import {
-  projectedEmbeddingsAtom,
+  loadableProjectedEmbeddingsAtom,
   projectionRevisionAtom,
   projectionSettingsAtom,
   selectedEmbeddingAtom,
@@ -55,8 +55,29 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
     height: typeof window === 'undefined' ? height : window.innerHeight,
   }))
 
-  const rawEmbeddings = useAtomValue(projectedEmbeddingsAtom('main'))
-  const rawMinimapEmbeddings = useAtomValue(projectedEmbeddingsAtom('minimap'))
+  const mainEmbeddingsLoadable = useAtomValue(loadableProjectedEmbeddingsAtom('main'))
+  const minimapEmbeddingsLoadable = useAtomValue(
+    loadableProjectedEmbeddingsAtom('minimap')
+  )
+
+  const [rawEmbeddings, setRawEmbeddings] = useState<any[]>([])
+  const [rawMinimapEmbeddings, setRawMinimapEmbeddings] = useState<any[]>([])
+
+  useEffect(() => {
+    if (mainEmbeddingsLoadable.state === 'hasData') {
+      setRawEmbeddings(mainEmbeddingsLoadable.data as any[])
+    }
+  }, [mainEmbeddingsLoadable])
+
+  useEffect(() => {
+    if (minimapEmbeddingsLoadable.state === 'hasData') {
+      setRawMinimapEmbeddings(minimapEmbeddingsLoadable.data as any[])
+    }
+  }, [minimapEmbeddingsLoadable])
+
+  const isProjecting =
+    mainEmbeddingsLoadable.state === 'loading' ||
+    minimapEmbeddingsLoadable.state === 'loading'
 
   const particleContainerRefs = useMemo(
     () =>
@@ -151,6 +172,14 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
         >
           Laddar...
         </h1>
+      )}
+
+      {isProjecting && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40 backdrop-blur-sm">
+          <div className="rounded-xl border border-white/20 bg-black/70 px-5 py-3 text-sm text-white shadow-lg">
+            Uppdaterar rummet...
+          </div>
+        </div>
       )}
 
       <HUD />

@@ -5,13 +5,7 @@ export const API_URL = 'http://localhost:3000'
 // export const API_URL = 'https://bildutforskaren-api.prod.appadem.in'
 // export const API_URL = 'https://leviathan.itit.gu.se'
 
-export const textsAtom = atom([
-  'Ship',
-  'City view',
-  'Portrait',
-  'Landscape',
-  'Close up photograph of flowers',
-])
+export const textsAtom = atom([])
 export const textItemsAtom = atom((get) => {
   const texts = get(textsAtom)
   return texts.map((text) => ({ text, type: 'text' }))
@@ -200,7 +194,9 @@ export const embeddingProjection = atomFamily((type: string) =>
     const projectionType = type === 'minimap' ? 'umap' : projectionSettings.type
 
     if (projectionType === 'umap') {
-      const imageItems = embeddingsData.filter((item: any) => item.type !== 'text')
+      const imageItems = embeddingsData.filter(
+        (item: any) => item.type !== 'text'
+      )
       const imageIds = imageItems.map((item: any) => item.id)
       const includeTexts = !filterSettings.year && !filterSettings.photographer
       const texts = includeTexts ? get(textsAtom) : []
@@ -399,6 +395,10 @@ export const projectedEmbeddingsAtom = atomFamily((type: string) =>
       }
     })
   })
+)
+
+export const loadableProjectedEmbeddingsAtom = atomFamily((type: string) =>
+  loadable(projectedEmbeddingsAtom(type))
 )
 
 export const selectedEmbeddingAtom = atom(null)
