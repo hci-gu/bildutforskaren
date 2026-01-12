@@ -49,6 +49,7 @@ export const searchImagesAtom = atom(async (get) => {
   const query = get(searchQueryAtom)
   const image = get(searchImageAtom)
   const searchSettings = get(searchSettingsAtom)
+  const activeEmbeddingIds = get(activeEmbeddingIdsAtom)
 
   if (!query && !image) {
     return []
@@ -57,6 +58,10 @@ export const searchImagesAtom = atom(async (get) => {
   if (image) {
     const formData = new FormData()
     formData.append('file', image)
+    formData.append('top_k', String(searchSettings.topK))
+    if (activeEmbeddingIds) {
+      formData.append('image_ids', JSON.stringify(activeEmbeddingIds))
+    }
     console.log('searching by image', formData)
 
     try {
@@ -76,21 +81,31 @@ export const searchImagesAtom = atom(async (get) => {
   }
 
   try {
-    const response = await fetch(
-      `${API_URL}/search?query=${encodeURIComponent(query)}&top_k=${
-        searchSettings.topK
-      }`,
-      {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      }
-    )
+    const payload: any = {
+      query,
+      top_k: searchSettings.topK,
+    }
+    if (activeEmbeddingIds) {
+      payload.image_ids = activeEmbeddingIds
+    }
+
+    const response = await fetch(`${API_URL}/search`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    })
     if (!response.ok) {
       throw new Error('Network response was not ok')
     }
     const data = await response.json()
+
+    if (activeEmbeddingIds) {
+      const activeSet = new Set(activeEmbeddingIds.map(String))
+      return data.filter((item: any) => activeSet.has(String(item.id)))
+    }
+
     return data
   } catch (error) {
     console.error('Failed to fetch search results:', error)

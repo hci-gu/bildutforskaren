@@ -510,9 +510,67 @@ infer_missing_keywords(
     text_prior_weight=0.30,
 )
 
-# ── Routes ────────────────────────────────────────────────────────────────
+
+def _parse_image_ids(raw_ids):
+    """Accept list, JSON string, or comma-separated string; return list[int] or None."""
+    if raw_ids is None:
+        return None
+
+    try:
+        if isinstance(raw_ids, str):
+            raw_ids = raw_ids.strip()
+            if not raw_ids:
+                return None
+            try:
+                parsed = json.loads(raw_ids)
+                if isinstance(parsed, list):
+                    raw_ids = parsed
+                else:
+                    raw_ids = [parsed]
+            except json.JSONDecodeError:
+                raw_ids = [part for part in re.split(r"[\s,]+", raw_ids) if part]
+
+        if isinstance(raw_ids, (list, tuple)):
+            ids: list[int] = []
+            for val in raw_ids:
+                try:
+                    ids.append(int(val))
+                except (TypeError, ValueError):
+                    continue
+            return ids if ids else None
+    except Exception:
+        logging.exception("Failed to parse image_ids")
+        return None
+
+    return None
+
+
+def _search_with_ids(query_vec: np.ndarray, k: int, image_ids: list[int] | None):
+    """Run search globally or limited to provided image ids."""
+    if image_ids:
+        valid_ids = [i for i in image_ids if isinstance(i, int) and 0 <= i < len(image_paths)]
+        if not valid_ids:
+            return []
+        k = max(1, min(k, len(valid_ids)))
+        subset = embeddings[valid_ids].cpu().numpy().astype("float32")
+        q = query_vec.astype("float32").reshape(1, -1)
+        diff = subset - q
+        dists = np.sum(diff * diff, axis=1)
+        order = np.argsort(dists)[:k]
+        return [
+            {"id": int(valid_ids[i]), "distance": float(dists[i])}
+            for i in order
+        ]
+
+    k = max(1, min(k, len(image_paths)))
+    D, I = faiss_index.search(query_vec.reshape(1, -1), k)
+    return [{"id": int(idx), "distance": float(dist)} for idx, dist in zip(I[0], D[0])]
+
+
+#  Routes 
 @app.route("/embeddings", methods=["GET"])
 def get_embeddings():
+
     """
     By default returns PCA embeddings (PCA_DIM) for speed.
     Use ?full=1 to return original embeddings.
@@ -576,15 +634,38 @@ def get_embedding_for_text():
     return jsonify(txt_pca.reshape(-1).tolist())
 
 
-@app.route("/search", methods=["GET"])
+@app.route("/search", methods=["GET", "POST"])
 def search():
-    query = request.args.get("query", "").strip()
-    k = int(request.args.get("top_k", TOP_K))
+    if request.method == "GET":
+        query = request.args.get("query", "").strip()
+        try:
+            k = int(request.args.get("top_k", TOP_K))
+        except ValueError:
+            return jsonify({"error": "'top_k' must be an integer"}), 400
+
+        if not query:
+            return jsonify({"error": "Missing 'query'"}), 400
+
+        inputs = processor(text=[query], return_tensors="pt").to(device)
+        with torch.no_grad():
+            txt = model.get_text_features(**inputs)
+            txt = txt / txt.norm(dim=-1, keepdim=True)
+
+        q = txt.cpu().numpy().reshape(1, -1)
+        results = _search_with_ids(q, k, None)
+        return jsonify(results)
+
+    data = request.get_json(silent=True) or {}
+    query = (data.get("query") or "").strip()
+    try:
+        k = int(data.get("top_k", TOP_K))
+    except (TypeError, ValueError):
+        return jsonify({"error": "'top_k' must be an integer"}), 400
 
     if not query:
         return jsonify({"error": "Missing 'query'"}), 400
 
-    k = max(1, min(k, len(image_paths)))
+    image_ids = _parse_image_ids(data.get("image_ids"))
 
     inputs = processor(text=[query], return_tensors="pt").to(device)
     with torch.no_grad():
@@ -592,9 +673,7 @@ def search():
         txt = txt / txt.norm(dim=-1, keepdim=True)
 
     q = txt.cpu().numpy().reshape(1, -1)
-    D, I = faiss_index.search(q, k)
-
-    results = [{"id": int(idx), "distance": float(dist)} for idx, dist in zip(I[0], D[0])]
+    results = _search_with_ids(q, k, image_ids)
     return jsonify(results)
 
 
@@ -615,17 +694,23 @@ def search_by_image():
         img_feat = model.get_image_features(**inputs)
         img_feat = img_feat / img_feat.norm(dim=-1, keepdim=True)
 
+    image_ids = None
+    if request.is_json:
+        data = request.get_json(silent=True) or {}
+        image_ids = _parse_image_ids(data.get("image_ids"))
+        top_k_raw = data.get("top_k", TOP_K)
+    else:
+        image_ids = _parse_image_ids(request.form.get("image_ids"))
+        top_k_raw = request.form.get("top_k", TOP_K)
+
     try:
-        k = int(request.form.get("top_k", TOP_K))
-    except ValueError:
+        k = int(top_k_raw)
+    except (TypeError, ValueError):
         return jsonify({"error": "'top_k' must be an integer"}), 400
 
-    k = max(1, min(k, len(image_paths)))
-
     q = img_feat.cpu().numpy().astype("float32")
-    D, I = faiss_index.search(q, k)
+    results = _search_with_ids(q, k, image_ids)
 
-    results = [{"id": int(idx), "distance": float(dist)} for idx, dist in zip(I[0], D[0])]
     return jsonify(results)
 
 
