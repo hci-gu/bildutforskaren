@@ -13,7 +13,7 @@ import {
 import { state } from './canvasState'
 import { Viewport } from './ViewPort'
 import Panel from './Panel'
-import { CANVAS_HEIGHT, CANVAS_WIDTH, CLICK_EPS, NUM_ATLASES } from './constants'
+import { CANVAS_HEIGHT, CANVAS_WIDTH, CLICK_EPS } from './constants'
 import { buildSelectionRect, computeProjectionBounds, pointIntersectsParticle } from './utils'
 import { useAtlasLoader } from './hooks/useAtlasLoader'
 import { EmbeddingsLayer } from './components/EmbeddingsLayer'
@@ -79,22 +79,21 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
     mainEmbeddingsLoadable.state === 'loading' ||
     minimapEmbeddingsLoadable.state === 'loading'
 
-  const particleContainerRefs = useMemo(
-    () =>
-      Array.from({ length: NUM_ATLASES }, () =>
-        React.createRef<PIXI.ParticleContainer>()
-      ),
-    []
-  )
-  const minimapParticleContainerRefs = useMemo(
-    () =>
-      Array.from({ length: NUM_ATLASES }, () =>
-        React.createRef<PIXI.ParticleContainer>()
-      ),
-    []
-  )
+  const { allLoaded, masterAtlas, atlasMeta, numSheets } = useAtlasLoader()
 
-  const { allLoaded, masterAtlas } = useAtlasLoader()
+  const particleContainerRefs = useMemo(() => {
+    const count = Math.max(1, numSheets || 1)
+    return Array.from({ length: count }, () =>
+      React.createRef<PIXI.ParticleContainer>()
+    )
+  }, [numSheets])
+
+  const minimapParticleContainerRefs = useMemo(() => {
+    const count = Math.max(1, numSheets || 1)
+    return Array.from({ length: count }, () =>
+      React.createRef<PIXI.ParticleContainer>()
+    )
+  }, [numSheets])
 
   const projectionBounds = useMemo(
     () => computeProjectionBounds(rawEmbeddings),
@@ -288,6 +287,7 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
             <EmbeddingsLayer
               type="main"
               masterAtlas={masterAtlas}
+              atlasMeta={atlasMeta}
               particleContainerRefs={particleContainerRefs}
             />
           )}
@@ -298,6 +298,7 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
           <Minimap
             allLoaded={allLoaded}
             masterAtlas={masterAtlas}
+            atlasMeta={atlasMeta}
             particleContainerRefs={minimapParticleContainerRefs}
             rawEmbeddings={rawMinimapEmbeddings}
             windowSize={windowSize}

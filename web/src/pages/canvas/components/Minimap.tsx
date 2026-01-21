@@ -4,10 +4,12 @@ import type { Viewport } from '../ViewPort'
 import { computeProjectionBounds } from '../utils'
 import { MINIMAP_MARGIN, MINIMAP_PADDING, MINIMAP_SIZE } from '../constants'
 import { EmbeddingsLayer } from './EmbeddingsLayer'
+import type { AtlasMeta } from '../hooks/useAtlasLoader'
 
 export const Minimap: React.FC<{
   allLoaded: boolean
   masterAtlas: Record<number, PIXI.Spritesheet>
+  atlasMeta: AtlasMeta
   particleContainerRefs: React.RefObject<PIXI.ParticleContainer | null>[]
   rawEmbeddings: any[]
   windowSize: { width: number; height: number }
@@ -16,6 +18,7 @@ export const Minimap: React.FC<{
 }> = ({
   allLoaded,
   masterAtlas,
+  atlasMeta,
   particleContainerRefs,
   rawEmbeddings,
   windowSize,
@@ -38,10 +41,7 @@ export const Minimap: React.FC<{
       }
     }
     const innerSize = MINIMAP_SIZE - MINIMAP_PADDING * 2
-    const scale = Math.min(
-      innerSize / minimapBounds.width,
-      innerSize / minimapBounds.height
-    )
+    const scale = Math.min(innerSize / minimapBounds.width, innerSize / minimapBounds.height)
     return {
       scale,
       position: {
@@ -65,9 +65,7 @@ export const Minimap: React.FC<{
         return (viewport as any).getVisibleBounds()
       }
       const topLeft = viewport.toWorld(new PIXI.Point(0, 0))
-      const bottomRight = viewport.toWorld(
-        new PIXI.Point(viewport.screenWidth, viewport.screenHeight)
-      )
+      const bottomRight = viewport.toWorld(new PIXI.Point(viewport.screenWidth, viewport.screenHeight))
       return new PIXI.Rectangle(
         topLeft.x,
         topLeft.y,
@@ -122,6 +120,7 @@ export const Minimap: React.FC<{
         <EmbeddingsLayer
           type="minimap"
           masterAtlas={masterAtlas}
+          atlasMeta={atlasMeta}
           particleContainerRefs={particleContainerRefs}
         />
         {/* @ts-ignore */}

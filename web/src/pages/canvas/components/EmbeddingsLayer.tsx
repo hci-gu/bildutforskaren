@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useRef } from 'react'
 import { useAtomValue } from 'jotai'
 import { useTick } from '@pixi/react'
 import * as PIXI from 'pixi.js'
-import atlasMeta from '@/assets/atlas.json'
 import {
   displaySettingsAtom,
   filterSettingsAtom,
@@ -24,12 +23,14 @@ import {
 } from '../constants'
 import type { CustomParticle } from '../types'
 import { colorForMetadata } from '../utils'
+import type { AtlasMeta } from '../hooks/useAtlasLoader'
 
 export const EmbeddingsLayer: React.FC<{
   type: 'main' | 'minimap'
   masterAtlas: Record<number, PIXI.Spritesheet>
+  atlasMeta: AtlasMeta
   particleContainerRefs: React.RefObject<PIXI.ParticleContainer | null>[]
-}> = ({ type, masterAtlas, particleContainerRefs }) => {
+}> = ({ type, masterAtlas, atlasMeta, particleContainerRefs }) => {
   const searchQuery = useAtomValue(searchQueryAtom)
   const rawEmbeddings = useAtomValue(projectedEmbeddingsAtom(type))
   const displaySettings = useAtomValue(displaySettingsAtom)
@@ -164,8 +165,9 @@ export const EmbeddingsLayer: React.FC<{
     rawEmbeddings.forEach((embed: any) => {
       const atlasInfo = (atlasMeta as any)[embed.id]
       if (!atlasInfo) return
+
       const sheetIndex: number = atlasInfo.sheet
-      const container = particleContainerRefs[sheetIndex].current
+      const container = particleContainerRefs[sheetIndex]?.current
       const texture = masterAtlas[sheetIndex]?.textures[embed.id]
       if (!container || !texture) return
 
@@ -234,6 +236,7 @@ export const EmbeddingsLayer: React.FC<{
     rawEmbeddings,
     particleContainerRefs,
     masterAtlas,
+    atlasMeta,
     displaySettings,
     searchQuery,
     projectionSettings,

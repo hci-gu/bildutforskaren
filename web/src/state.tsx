@@ -5,25 +5,54 @@ export const API_URL = 'http://localhost:3000'
 // export const API_URL = 'https://bildutforskaren-api.prod.appadem.in'
 // export const API_URL = 'https://leviathan.itit.gu.se'
 
-export const textsAtom = atom([])
+export const activeDatasetIdAtom = atom<string | null>(null)
+
+export const datasetsRevisionAtom = atom(0)
+export const embeddingsRevisionAtom = atom(0)
+
+export const datasetsAtom = atom(async (get) => {
+  // Force refresh when revision changes
+  get(datasetsRevisionAtom)
+
+  try {
+    const res = await fetch(`${API_URL}/datasets`)
+    if (!res.ok) throw new Error('Failed to fetch datasets')
+    return await res.json()
+  } catch (error) {
+    console.error('Failed to fetch datasets:', error)
+    return []
+  }
+})
+
+export const datasetApiUrl = (datasetId: string | null, path: string) => {
+  if (!datasetId) {
+    throw new Error('No active dataset selected')
+  }
+  const clean = path.startsWith('/') ? path : `/${path}`
+  return `${API_URL}/datasets/${encodeURIComponent(datasetId)}${clean}`
+}
+
+export const textsAtom = atom<string[]>([])
 export const textItemsAtom = atom((get) => {
   const texts = get(textsAtom)
   return texts.map((text) => ({ text, type: 'text' }))
 })
 
-const getImages = async () => {
-  const response = await fetch(`${API_URL}/images`)
+const getImages = async (datasetId: string) => {
+  const response = await fetch(datasetApiUrl(datasetId, '/images'))
   if (!response.ok) {
     throw new Error('Network response was not ok')
   }
   const data = await response.json()
-
   return data
 }
 
-export const imagesAtom = atom(async (_) => {
+export const imagesAtom = atom(async (get) => {
+  const datasetId = get(activeDatasetIdAtom)
+  if (!datasetId) return []
+
   try {
-    const images = await getImages()
+    const images = await getImages(datasetId)
     return images
   } catch (error) {
     console.error('Failed to fetch images:', error)
@@ -32,7 +61,7 @@ export const imagesAtom = atom(async (_) => {
 })
 
 export const searchQueryAtom = atom('')
-export const searchImageAtom = atom(null)
+export const searchImageAtom = atom<File | null>(null)
 export const hoveredTextAtom = atom<string | null>(null)
 export const searchSettingsAtom = atom({
   topK: 100,
@@ -40,10 +69,15 @@ export const searchSettingsAtom = atom({
 })
 
 export const searchImagesAtom = atom(async (get) => {
+  const datasetId = get(activeDatasetIdAtom)
   const query = get(searchQueryAtom)
   const image = get(searchImageAtom)
   const searchSettings = get(searchSettingsAtom)
   const activeEmbeddingIds = get(activeEmbeddingIdsAtom)
+
+  if (!datasetId) {
+    return []
+  }
 
   if (!query && !image) {
     return []
@@ -56,10 +90,9 @@ export const searchImagesAtom = atom(async (get) => {
     if (activeEmbeddingIds) {
       formData.append('image_ids', JSON.stringify(activeEmbeddingIds))
     }
-    console.log('searching by image', formData)
 
     try {
-      const response = await fetch(`${API_URL}/search-by-image`, {
+      const response = await fetch(datasetApiUrl(datasetId, '/search-by-image'), {
         method: 'POST',
         body: formData,
       })
@@ -83,7 +116,7 @@ export const searchImagesAtom = atom(async (get) => {
       payload.image_ids = activeEmbeddingIds
     }
 
-    const response = await fetch(`${API_URL}/search`, {
+    const response = await fetch(datasetApiUrl(datasetId, '/search'), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -107,7 +140,11 @@ export const searchImagesAtom = atom(async (get) => {
   }
 })
 
-export const embeddingsAtom = atom(async (_) => {
+export const embeddingsAtom = atom(async (get) => {
+  const datasetId = get(activeDatasetIdAtom)
+  get(embeddingsRevisionAtom)
+  if (!datasetId) return []
+
   try {
     const controller = new AbortController()
     const timeout = 60000 // 60s
@@ -115,15 +152,21 @@ export const embeddingsAtom = atom(async (_) => {
 
     let res
     try {
-      res = await fetch(`${API_URL}/embeddings`, { signal: controller.signal })
+      res = await fetch(datasetApiUrl(datasetId, '/embeddings'), {
+        signal: controller.signal,
+      })
     } finally {
       clearTimeout(timeoutId)
     }
-    const embeddingsData = await res.json()
 
+    if (!res.ok) {
+      throw new Error('Network response was not ok')
+    }
+
+    const embeddingsData = await res.json()
     return embeddingsData
   } catch (error) {
-    console.error('Failed to fetch images:', error)
+    console.error('Failed to fetch embeddings:', error)
     return []
   }
 })
@@ -187,21 +230,31 @@ export const projectionRevisionAtom = atom(0)
 
 export const embeddingProjection = atomFamily((type: string) =>
   atom(async (get) => {
+    const datasetId = get(activeDatasetIdAtom)
     const embeddingsData = await get(filteredEmbeddingsAtom)
     const projectionSettings = get(projectionSettingsAtom)
     const filterSettings = get(filterSettingsAtom)
 
+    if (!datasetId) {
+      const gridSize = Math.ceil(Math.sqrt(embeddingsData.length))
+      const embedding2d = []
+      for (let i = 0; i < gridSize; i++) {
+        for (let j = 0; j < gridSize; j++) {
+          embedding2d.push([j / gridSize, i / gridSize])
+        }
+      }
+      return embedding2d
+    }
+
     const projectionType = type === 'minimap' ? 'umap' : projectionSettings.type
 
     if (projectionType === 'umap') {
-      const imageItems = embeddingsData.filter(
-        (item: any) => item.type !== 'text'
-      )
+      const imageItems = embeddingsData.filter((item: any) => item.type !== 'text')
       const imageIds = imageItems.map((item: any) => item.id)
       const includeTexts = !filterSettings.year && !filterSettings.photographer
       const texts = includeTexts ? get(textsAtom) : []
 
-      const res = await fetch(`${API_URL}/umap`, {
+      const res = await fetch(datasetApiUrl(datasetId, '/umap'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -251,8 +304,7 @@ export const embeddingProjection = atomFamily((type: string) =>
       return embedding2d
     } else if (projectionType === 'year') {
       const embeddingsWithYear = embeddingsData.filter(
-        (item: any) =>
-          item.metadata?.year !== undefined && item.metadata.year !== null
+        (item: any) => item.metadata?.year !== undefined && item.metadata.year !== null
       )
 
       const uniqueYears = [
@@ -265,18 +317,14 @@ export const embeddingProjection = atomFamily((type: string) =>
       const rowSpacing = 0.01
 
       // Prepare columns
-      const columns: number[][][] = Array.from(
-        { length: totalColumns },
-        () => []
-      )
+      const columns: number[][][] = Array.from({ length: totalColumns }, () => [])
       embeddingsData.sort((a: any, b: any) => {
-        // sort by metadata.year existing, not estimate
         const aYear = a.metadata?.year
         const bYear = b.metadata?.year
         if (aYear === undefined || aYear === null) {
-          return 1 // a is estimated, b is not
+          return 1
         } else if (bYear === undefined || bYear === null) {
-          return -1 // b is estimated, a is not
+          return -1
         }
         return 0
       })
@@ -285,7 +333,7 @@ export const embeddingProjection = atomFamily((type: string) =>
         let year = item.metadata?.year
         let estimate = 0
         if (year === undefined || year === null) {
-          year = item.metadata?.year_estimate.toString()
+          year = item.metadata?.year_estimate?.toString()
           estimate = 1
         }
         const colIndex = yearToColumn.get(year) ?? totalColumns - 1
@@ -311,6 +359,7 @@ export const embeddingProjection = atomFamily((type: string) =>
     }
   })
 )
+
 export const projectedEmbeddingsAtom = atomFamily((type: string) =>
   atom(async (get) => {
     let embeddingsData = await get(filteredEmbeddingsAtom)
@@ -331,43 +380,39 @@ export const projectedEmbeddingsAtom = atomFamily((type: string) =>
           const bIsCloser = bFound.distance < aFound.distance
           return aIsCloser ? -1 : bIsCloser ? 1 : 0
         } else if (aFound) {
-          return -1 // a is found, b is not
+          return -1
         } else if (bFound) {
-          return 1 // b is found, a is not
+          return 1
         }
-        return 0 // neither are found
+        return 0
       })
     } else if (projectionSettings.type === 'grid') {
-      // sort by id
       embeddingsData = embeddingsData.sort((a: any, b: any) =>
         a.id < b.id ? -1 : a.id > b.id ? 1 : 0
       )
     }
 
-    const projectedEmbeddings = embeddingsData.map(
-      (item: any, index: number) => ({
-        id: item.id,
-        point: projection[index],
-        type: item.type === 'text' ? 'text' : 'image',
-        text: item.text,
-        meta: {
-          ...item.metadata,
-          matched: false,
-        },
-      })
-    )
+    const projectedEmbeddings = embeddingsData.map((item: any, index: number) => ({
+      id: item.id,
+      point: projection[index],
+      type: item.type === 'text' ? 'text' : 'image',
+      text: item.text,
+      meta: {
+        ...item.metadata,
+        matched: false,
+      },
+    }))
 
     if (projectionSettings.type == 'year') {
       const embeddingsWithYear = embeddingsData.filter(
-        (item: any) =>
-          item.metadata?.year !== undefined && item.metadata.year !== null
+        (item: any) => item.metadata?.year !== undefined && item.metadata.year !== null
       )
       const uniqueYears = [
         ...new Set(embeddingsWithYear.map((item: any) => item.metadata.year)),
       ].sort()
 
       const yearToColumn = new Map(uniqueYears.map((year, i) => [year, i]))
-      const totalColumns = uniqueYears.length + 1 // extra column for items without a year
+      const totalColumns = uniqueYears.length + 1
 
       for (let year of uniqueYears) {
         const columnIndex = yearToColumn.get(year)!
@@ -405,17 +450,22 @@ export const selectedEmbeddingAtom = atom(null)
 export const selectedEmbeddingIdsAtom = atom<string[]>([])
 
 export const embeddingAtom = atomFamily((id: string) =>
-  atom(async () => {
+  atom(async (get) => {
+    const datasetId = get(activeDatasetIdAtom)
+    if (!datasetId) return null
+
     try {
-      const response = await fetch(`${API_URL}/embedding/${id}`)
+      const response = await fetch(datasetApiUrl(datasetId, `/embedding/${id}`))
       if (!response.ok) {
         throw new Error('Network response was not ok')
       }
       const data = await response.json()
       return data
     } catch (error) {
-      console.error('Failed to fetch image:', error)
+      console.error('Failed to fetch image embedding:', error)
       return null
     }
   })
 )
+
+export const loadableDatasetsAtom = loadable(datasetsAtom)

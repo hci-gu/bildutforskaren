@@ -2,8 +2,9 @@ import React, { useEffect } from 'react'
 import { PhotoView } from 'react-photo-view'
 import { useAtom, useAtomValue, useSetAtom } from 'jotai'
 import {
-  API_URL,
+  activeDatasetIdAtom,
   activeEmbeddingIdsAtom,
+  datasetApiUrl,
   projectionRevisionAtom,
   selectedEmbeddingAtom,
   selectedEmbeddingIdsAtom,
@@ -13,6 +14,7 @@ import {
 const ImageDisplayer = () => {
   const buttonRef = React.useRef<HTMLButtonElement>(null)
   const selectedEmbedding = useAtomValue<any>(selectedEmbeddingAtom)
+  const datasetId = useAtomValue(activeDatasetIdAtom)
 
   useEffect(() => {
     if (buttonRef.current && selectedEmbedding) {
@@ -20,7 +22,7 @@ const ImageDisplayer = () => {
     }
   }, [selectedEmbedding])
 
-  if (!selectedEmbedding) return null
+  if (!selectedEmbedding || !datasetId) return null
 
   const meta = selectedEmbedding.meta || {}
   Object.keys(meta).forEach((key) => {
@@ -36,7 +38,7 @@ const ImageDisplayer = () => {
     <>
       <PhotoView
         key={`Image_${selectedEmbedding.id}`}
-        src={`${API_URL}/original/${selectedEmbedding.id}`}
+        src={datasetApiUrl(datasetId, `/original/${selectedEmbedding.id}`)}
       >
         <button ref={buttonRef} />
       </PhotoView>
@@ -60,6 +62,7 @@ export const HUD = () => {
   return (
     <>
       <ImageDisplayer />
+
 
       {selectionHistory.length > 0 && (
         <div className="fixed bottom-6 left-6 z-10000">

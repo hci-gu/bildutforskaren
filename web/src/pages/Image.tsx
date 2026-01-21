@@ -1,43 +1,7 @@
-import { API_URL, embeddingAtom } from '@/state'
+import { activeDatasetIdAtom, datasetApiUrl, embeddingAtom } from '@/state'
 import { useAtomValue } from 'jotai'
 import { useParams } from 'react-router'
 
-// function drawEmbeddingColor(embedding: number[], canvas: HTMLCanvasElement) {
-//   const width = 32
-//   const height = 16
-
-//   if (embedding.length !== width * height) {
-//     console.error(`Expected ${width * height} values, got ${embedding.length}`)
-//     return
-//   }
-
-//   const ctx = canvas.getContext('2d')
-//   if (!ctx) return
-
-//   canvas.width = width
-//   canvas.height = height
-
-//   const imageData = ctx.createImageData(width, height)
-//   const data = imageData.data
-
-//   for (let i = 0; i < embedding.length; i++) {
-//     const raw = embedding[i] ?? 0
-
-//     // Normalize from [-1, 1] → [0, 1]
-//     const normalized = (raw + 1) / 2
-//     const color = colorMap(normalized)
-
-//     const pixelIndex = i * 4
-//     data[pixelIndex + 0] = color[0]
-//     data[pixelIndex + 1] = color[1]
-//     data[pixelIndex + 2] = color[2]
-//     data[pixelIndex + 3] = 255
-//   }
-
-//   ctx.putImageData(imageData, 0, 0)
-// }
-
-// Simple Jet-like colormap for demonstration
 function colorMap(value: number): [number, number, number] {
   const clamped = Math.max(0, Math.min(1, value))
   const r = Math.floor(
@@ -51,10 +15,20 @@ function colorMap(value: number): [number, number, number] {
   )
   return [r, g, b]
 }
+
 function ImagePage() {
-  //   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const { id } = useParams<{ id: string }>()
+  const datasetId = useAtomValue(activeDatasetIdAtom)
   const embedding = useAtomValue(embeddingAtom(id ?? ''))
+
+  if (!datasetId) {
+    return <div className="p-4">No dataset selected.</div>
+  }
+
+  if (!embedding || embedding.length === 0) {
+    return <div className="p-4">No embedding available.</div>
+  }
+
   const maxValue = Math.max(...embedding)
   const minValue = Math.min(...embedding)
 
@@ -77,23 +51,10 @@ function ImagePage() {
             </span>
           ))}
         </div>
-        {/* <canvas
-          ref={(canvasRef) => {
-            if (canvasRef && embedding) {
-              drawEmbeddingColor(embedding, canvasRef)
-            }
-          }}
-          className="border border-gray-300"
-          style={{
-            imageRendering: 'pixelated',
-            width: '640px',
-            height: '320px',
-          }}
-        /> */}
       </div>
       <div className="w-1/2 flex flex-col items-center justify-center">
         <img
-          src={`${API_URL}/image/${id}`} // Replace with your image URL
+          src={datasetApiUrl(datasetId, `/image/${id}`)}
           alt={`Image ${id}`}
           className="w-full h-auto max-w-md"
         />

@@ -1,5 +1,6 @@
-import { API_URL } from '@/state'
+import { activeDatasetIdAtom, datasetApiUrl } from '@/state'
 import { Dialog, DialogContent, DialogTrigger } from '@/components/ui/dialog'
+import { useAtomValue } from 'jotai'
 
 export default function Image({
   image,
@@ -8,12 +9,16 @@ export default function Image({
   image: string
   index: number
 }) {
+  const datasetId = useAtomValue(activeDatasetIdAtom)
+
+  if (!datasetId) return null
+
   return (
     <Dialog>
       <DialogTrigger>
         <div className="w-full h-48 bg-gray-200 relative">
           <img
-            src={`${API_URL}/image/${image}`}
+            src={datasetApiUrl(datasetId, `/image/${image}`)}
             alt={`Image ${index}`}
             className="w-full h-full object-cover"
           />
@@ -26,7 +31,7 @@ export default function Image({
         style={{ width: 1024, maxWidth: 1024, height: 600, top: 300 }}
       >
         <img
-          src={`${API_URL}/original/${image}`}
+          src={datasetApiUrl(datasetId, `/original/${image}`)}
           alt={`Full size image ${index}`}
           className="w-full h-full"
         />

@@ -1,5 +1,10 @@
 import { Button } from '@/components/ui/button'
-import { API_URL, searchImageAtom, searchImagesAtom } from '@/state'
+import {
+  activeDatasetIdAtom,
+  datasetApiUrl,
+  searchImageAtom,
+  searchImagesAtom,
+} from '@/state'
 import { GoogleMap, StreetViewPanorama } from '@react-google-maps/api'
 import { useAtomValue, useSetAtom } from 'jotai'
 import { useEffect, useRef, useState } from 'react'
@@ -8,9 +13,11 @@ import { Slider } from '@/components/ui/slider'
 
 const SelectedDraggableImage = ({
   id,
+  datasetId,
   close,
 }: {
   id: string
+  datasetId: string
   close: () => void
 }) => {
   const draggableRef = useRef<any>(null)
@@ -21,7 +28,7 @@ const SelectedDraggableImage = ({
       <div ref={draggableRef} className="relative z-50 w-300">
         <img
           ref={imageRef}
-          src={`${API_URL}/original/${id}`}
+          src={datasetApiUrl(datasetId, `/original/${id}`)}
           className="pointer-events-none select-none w-full h-full object-cover"
           draggable={false}
           alt=""
@@ -73,6 +80,11 @@ function Map() {
   const [position, setPosition] = useState({ lat: 57.6947298, lng: 11.9258134 })
   const setSearchImage = useSetAtom<any>(searchImageAtom)
   const searchResults = useAtomValue(searchImagesAtom)
+  const datasetId = useAtomValue(activeDatasetIdAtom)
+
+  if (!datasetId) {
+    return <div className="p-4">No dataset selected.</div>
+  }
 
   const containerStyle = {
     height: '100vh',
@@ -95,9 +107,7 @@ function Map() {
             const pos = instance.getPosition()
             const lat = pos?.lat() || 0
             const lng = pos?.lng() || 0
-            console.log('Street View position changed:', { lat, lng })
             if (position.lat !== lat || position.lng !== lng) {
-              // Update the position state if it has changed
               setPosition({ lat, lng })
             }
           }
@@ -105,7 +115,6 @@ function Map() {
         visible={true}
         onLoad={(pano) => {
           setInstance(pano)
-          console.log('Street View Panorama loaded:', pano)
         }}
         ononPovChanged={() => {
           console.log('Street View POV changed')
@@ -119,6 +128,7 @@ function Map() {
       {selectedImage && (
         <SelectedDraggableImage
           id={selectedImage}
+          datasetId={datasetId}
           close={() => setSelectedImage(null)}
         />
       )}
@@ -128,10 +138,11 @@ function Map() {
           <div className="grid grid-cols-1 gap-4">
             {searchResults.map(({ id }: { id: number; distance: number }) => (
               <div
+                key={id}
                 onClick={() => setSelectedImage(id.toString())}
                 className="cursor-pointer"
               >
-                <img src={`${API_URL}/image/${id}`} />
+                <img src={datasetApiUrl(datasetId, `/image/${id}`)} />
               </div>
             ))}
           </div>
