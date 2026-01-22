@@ -795,7 +795,7 @@ export const loadableProjectedEmbeddingsAtom = atomFamily((type: string) =>
 
 export const selectedEmbeddingAtom = atom(null)
 export const selectedEmbeddingIdsAtom = atom<string[]>([])
-export const selectedTagAtom = atom<string | null>(null)
+export const selectedTagsAtom = atom<string[]>([])
 
 export const embeddingAtom = atomFamily((id: string) =>
   atom(async (get) => {

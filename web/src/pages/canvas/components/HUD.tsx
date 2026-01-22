@@ -9,7 +9,7 @@ import {
   selectedEmbeddingAtom,
   selectedEmbeddingIdsAtom,
   selectionHistoryAtom,
-  selectedTagAtom,
+  selectedTagsAtom,
 } from '@/state'
 import { TaggerPanel } from './TaggerPanel'
 import { TagResultsPanel } from './TagResultsPanel'
@@ -45,9 +45,21 @@ const ImageDisplayer = () => {
       >
         <button ref={buttonRef} />
       </PhotoView>
-      <div className="fixed bottom-0 left-0 p-2 text-white z-10000 text-xs bg-black/75">
-        <pre>{JSON.stringify(meta, null, 2)}</pre>
-      </div>
+      {Object.keys(meta).length > 0 && (
+        <div className="fixed bottom-4 left-4 z-10000 max-w-sm rounded-lg border border-white/10 bg-black/75 p-3 text-xs text-white backdrop-blur">
+          <div className="mb-2 text-[10px] uppercase tracking-wide text-white/60">
+            From metadata
+          </div>
+          <div className="space-y-1">
+            {Object.entries(meta).map(([key, value]) => (
+              <div key={key} className="flex gap-2">
+                <span className="w-24 shrink-0 text-white/60">{key}</span>
+                <span className="truncate">{String(value)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </>
   )
 }
@@ -61,13 +73,16 @@ export const HUD = () => {
   const setSelectedEmbedding = useSetAtom(selectedEmbeddingAtom)
   const setSelectedEmbeddingIds = useSetAtom(selectedEmbeddingIdsAtom)
   const selectedEmbeddingIds = useAtomValue(selectedEmbeddingIdsAtom)
-  const selectedTag = useAtomValue(selectedTagAtom)
+  const selectedTags = useAtomValue(selectedTagsAtom)
+  const selectedEmbedding = useAtomValue(selectedEmbeddingAtom)
 
   return (
     <>
       <ImageDisplayer />
-      {!selectedTag && <TaggerPanel />}
-      {selectedTag && <TagResultsPanel />}
+      {(selectedTags.length === 0 || selectedEmbedding) && (
+        <TaggerPanel position={selectedTags.length > 0 ? 'left' : 'right'} />
+      )}
+      {selectedTags.length > 0 && <TagResultsPanel />}
 
 
       {selectionHistory.length > 0 && (

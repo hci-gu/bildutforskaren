@@ -1,7 +1,12 @@
 import { useEffect, useState } from 'react'
 import { PhotoView } from 'react-photo-view'
-import { useAtomValue } from 'jotai'
-import { activeDatasetIdAtom, datasetApiUrl, selectedTagAtom } from '@/state'
+import { useAtomValue, useSetAtom } from 'jotai'
+import {
+  activeDatasetIdAtom,
+  datasetApiUrl,
+  selectedTagsAtom,
+  selectedEmbeddingAtom,
+} from '@/state'
 import {
   Card,
   CardContent,
@@ -10,14 +15,16 @@ import {
 } from '@/components/ui/card'
 
 type TagImagesResponse = {
-  label: string
-  tag_id: number | null
+  labels: string[]
+  tag_ids: number[]
   image_ids: number[]
 }
 
 export const TagResultsPanel = () => {
   const datasetId = useAtomValue(activeDatasetIdAtom)
-  const selectedTag = useAtomValue(selectedTagAtom)
+  const selectedTags = useAtomValue(selectedTagsAtom)
+  const setSelectedTags = useSetAtom(selectedTagsAtom)
+  const setSelectedEmbedding = useSetAtom(selectedEmbeddingAtom)
 
   const [loading, setLoading] = useState(false)
   const [imageIds, setImageIds] = useState<number[]>([])
@@ -28,7 +35,7 @@ export const TagResultsPanel = () => {
   const [activeTab, setActiveTab] = useState<'tagged' | 'suggested'>('tagged')
 
   useEffect(() => {
-    if (!datasetId || !selectedTag) {
+    if (!datasetId || selectedTags.length === 0) {
       setImageIds([])
       setSuggestedIds([])
       setSelectedSuggested(new Set())
@@ -40,18 +47,16 @@ export const TagResultsPanel = () => {
       setError(null)
       try {
         const [res, suggestRes] = await Promise.all([
-          fetch(
-            datasetApiUrl(
-              datasetId,
-              `/tags/images?label=${encodeURIComponent(selectedTag)}&limit=48`
-            )
-          ),
-          fetch(
-            datasetApiUrl(
-              datasetId,
-              `/tags/suggestions?label=${encodeURIComponent(selectedTag)}&limit=24`
-            )
-          ),
+          fetch(datasetApiUrl(datasetId, `/tags/images-multi`), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ labels: selectedTags }),
+          }),
+          fetch(datasetApiUrl(datasetId, `/tags/suggestions-multi`), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ labels: selectedTags, limit: 24 }),
+          }),
         ])
         if (!res.ok) throw new Error('Failed to fetch images for tag')
         const data = (await res.json()) as TagImagesResponse
@@ -81,9 +86,9 @@ export const TagResultsPanel = () => {
     return () => {
       cancelled = true
     }
-  }, [datasetId, selectedTag, refreshKey])
+  }, [datasetId, selectedTags, refreshKey])
 
-  if (!datasetId || !selectedTag) return null
+  if (!datasetId || selectedTags.length === 0) return null
 
   const toggleSuggested = (id: number) => {
     setSelectedSuggested((prev) => {
@@ -98,7 +103,8 @@ export const TagResultsPanel = () => {
   }
 
   const addSelectedToTag = async () => {
-    if (!datasetId || !selectedTag || selectedSuggested.size === 0) return
+    if (!datasetId || selectedTags.length === 0 || selectedSuggested.size === 0)
+      return
     setLoading(true)
     setError(null)
     try {
@@ -108,7 +114,7 @@ export const TagResultsPanel = () => {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            label: selectedTag,
+            labels: selectedTags,
             image_ids: Array.from(selectedSuggested),
             source: 'manual',
           }),
@@ -126,15 +132,44 @@ export const TagResultsPanel = () => {
     }
   }
 
+  const openImage = async (id: number) => {
+    if (!datasetId) return
+    setSelectedEmbedding({ id, meta: {} })
+    try {
+      const res = await fetch(
+        datasetApiUrl(datasetId, `/metadata/${encodeURIComponent(String(id))}`)
+      )
+      if (res.ok) {
+        const meta = await res.json()
+        setSelectedEmbedding({ id, meta })
+      }
+    } catch (err) {
+      // Ignore metadata fetch errors.
+    }
+  }
+
   return (
     <Card
       className="fixed inset-y-0 right-0 z-10000 w-[32rem] border border-white/10 bg-black/80 text-white shadow-xl backdrop-blur"
       data-canvas-ui="true"
     >
       <CardHeader className="pb-2">
-        <CardTitle className="text-sm font-semibold">
-          Tagg: {selectedTag}
-        </CardTitle>
+        <CardTitle className="text-sm font-semibold">Valda taggar</CardTitle>
+        <div className="flex flex-wrap gap-2 pt-2">
+          {selectedTags.map((tag) => (
+            <button
+              key={tag}
+              type="button"
+              onClick={() =>
+                setSelectedTags((prev) => prev.filter((t) => t !== tag))
+              }
+              className="flex items-center gap-2 rounded-full border border-white/20 px-3 py-1 text-xs text-white/80 hover:bg-white/10"
+            >
+              {tag}
+              <span className="text-white/50">×</span>
+            </button>
+          ))}
+        </div>
       </CardHeader>
       <CardContent className="flex h-[calc(100vh-4rem)] flex-col space-y-3 overflow-hidden">
         {loading && <div className="text-xs text-white/60">Laddar...</div>}
@@ -163,7 +198,7 @@ export const TagResultsPanel = () => {
                 : 'border border-white/20 text-white/70'
             }`}
           >
-            Förslag ({suggestedIds.length})
+            Förslag
           </button>
         </div>
         <div className="flex-1 overflow-auto pr-1 pb-24">
@@ -177,6 +212,7 @@ export const TagResultsPanel = () => {
                   <img
                     src={datasetApiUrl(datasetId, `/image/${id}`)}
                     className="h-44 w-full rounded object-cover cursor-pointer"
+                    onClick={() => openImage(id)}
                   />
                 </PhotoView>
               ))}
@@ -204,6 +240,10 @@ export const TagResultsPanel = () => {
                         className={`h-full w-full object-cover ${
                           selected ? 'opacity-100' : 'opacity-70'
                         }`}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          openImage(id)
+                        }}
                       />
                     </PhotoView>
                     {selected && (

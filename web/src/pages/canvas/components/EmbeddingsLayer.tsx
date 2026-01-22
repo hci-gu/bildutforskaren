@@ -11,7 +11,7 @@ import {
   searchQueryAtom,
   selectedEmbeddingIdsAtom,
   viewportScaleAtom,
-  selectedTagAtom,
+  selectedTagsAtom,
 } from '@/state'
 import {
   BASE_SCALE,
@@ -42,7 +42,7 @@ export const EmbeddingsLayer: React.FC<{
   const hoveredText = useAtomValue(hoveredTextAtom)
   const selectedEmbeddingIds = useAtomValue(selectedEmbeddingIdsAtom)
   const viewportScale = useAtomValue(viewportScaleAtom)
-  const setSelectedTag = useSetAtom(selectedTagAtom)
+  const setSelectedTags = useSetAtom(selectedTagsAtom)
 
   const textEmbeddings = rawEmbeddings.filter((e: any) => e.type === 'text')
   const shouldCullSao = projectionSettings.type === 'sao' && !projectionSettings.saoOnlyDataset
@@ -294,7 +294,7 @@ export const EmbeddingsLayer: React.FC<{
             40,
             Math.min(120, 160 / Math.max(0.6, viewportScale))
           )
-          const taggedFontSize = 6
+          const taggedFontSize = 8
           return (
             <pixiText
               key={textKey}
@@ -308,7 +308,14 @@ export const EmbeddingsLayer: React.FC<{
               onPointerDown={(e: any) => {
                 if (!isSao && !isTaggedHeaders) return
                 if (typeof embed.text === 'string' && embed.text.trim()) {
-                  setSelectedTag(embed.text.trim())
+                  const label = embed.text.trim()
+                  const isShift = !!e?.data?.originalEvent?.shiftKey
+                  setSelectedTags((prev) => {
+                    if (!isShift) return [label]
+                    const exists = prev.includes(label)
+                    if (exists) return prev.filter((t) => t !== label)
+                    return [...prev, label]
+                  })
                   if (typeof e?.stopPropagation === 'function') {
                     e.stopPropagation()
                   }
@@ -346,6 +353,9 @@ export const EmbeddingsLayer: React.FC<{
                     : isTaggedHeaders
                       ? taggedFontSize
                       : textSizes.current.get(textKey)?.current ?? TEXT_BASE_SIZE
+                  if (isTaggedHeaders) {
+                    node.resolution = 2
+                  }
                 } else {
                   textRefs.current.delete(textKey)
                   textSizes.current.delete(textKey)

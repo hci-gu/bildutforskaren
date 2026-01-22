@@ -9,7 +9,7 @@ import {
   projectionSettingsAtom,
   selectedEmbeddingAtom,
   selectedEmbeddingIdsAtom,
-  selectedTagAtom,
+  selectedTagsAtom,
   viewportScaleAtom,
 } from '@/state'
 import { state } from './canvasState'
@@ -46,7 +46,7 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
 
   const setSelectedEmbedding = useSetAtom(selectedEmbeddingAtom)
   const setSelectedEmbeddingIds = useSetAtom(selectedEmbeddingIdsAtom)
-  const setSelectedTag = useSetAtom(selectedTagAtom)
+  const setSelectedTags = useSetAtom(selectedTagsAtom)
   const setViewportScale = useSetAtom(viewportScaleAtom)
 
   const projectionSettings = useAtomValue(projectionSettingsAtom)
@@ -282,12 +282,6 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
               setSelectedEmbeddingIds([])
               viewport.plugins?.pause?.('drag')
               return
-            }
-            if (
-              projectionSettings.type === 'sao' ||
-              projectionSettings.type === 'tagged'
-            ) {
-              setSelectedTag(null)
             }
             const screen = viewport?.toScreen(e.data.global)
             dragStart.current = screen ?? null

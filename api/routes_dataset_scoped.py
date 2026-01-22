@@ -167,6 +167,14 @@ def get_all_metadata(dataset_id: str):
     return jsonify(ctx.metadata)
 
 
+@bp.route("/datasets/<dataset_id>/metadata/<int:image_id>", methods=["GET"])
+def get_metadata_for_image(dataset_id: str, image_id: int):
+    ctx = _get_context(dataset_id)
+    if 0 <= image_id < len(ctx.metadata):
+        return jsonify(ctx.metadata[image_id])
+    abort(404, description="Image ID not found")
+
+
 @bp.route("/datasets/<dataset_id>/embedding/<int:image_id>", methods=["GET"])
 def get_embedding(dataset_id: str, image_id: int):
     ctx = _get_context(dataset_id)
@@ -738,6 +746,130 @@ def suggested_images_for_tag(dataset_id: str):
         conn.close()
 
 
+def _resolve_tag_ids(conn, labels: list[str]) -> list[int]:
+    if not labels:
+        return []
+    clean = [lbl.strip() for lbl in labels if isinstance(lbl, str) and lbl.strip()]
+    if not clean:
+        return []
+    rows = conn.execute(
+        f"SELECT id, label FROM tags WHERE lower(label) IN ({','.join('?' for _ in clean)})",
+        tuple(lbl.lower() for lbl in clean),
+    ).fetchall()
+    label_to_id = {row["label"].lower(): int(row["id"]) for row in rows}
+    return [label_to_id.get(lbl.lower()) for lbl in clean if label_to_id.get(lbl.lower())]
+
+
+@bp.route("/datasets/<dataset_id>/tags/images-multi", methods=["POST"])
+def images_for_tags_multi(dataset_id: str):
+    conn, _, db_path = _get_dataset_db(dataset_id)
+    if conn is None:
+        return jsonify({"error": f"Dataset DB not found at {db_path}"}), 409
+
+    data = request.get_json(silent=True) or {}
+    labels = data.get("labels") or []
+    raw_limit = data.get("limit")
+    if raw_limit is None:
+        limit = None
+    else:
+        try:
+            limit = int(raw_limit)
+        except (TypeError, ValueError):
+            limit = 48
+        limit = max(1, min(limit, 1000))
+
+    if not isinstance(labels, list) or any(not isinstance(l, str) for l in labels):
+        conn.close()
+        return jsonify({"error": "'labels' must be a list of strings"}), 400
+
+    try:
+        tag_ids = _resolve_tag_ids(conn, labels)
+        if not tag_ids:
+            return jsonify({"labels": labels, "tag_ids": [], "image_ids": []})
+
+        placeholders = ",".join("?" for _ in tag_ids)
+        sql = f"""
+            SELECT image_id
+            FROM image_tags
+            WHERE tag_id IN ({placeholders})
+            GROUP BY image_id
+            HAVING COUNT(DISTINCT tag_id) = ?
+            """
+        params = [*tag_ids, len(tag_ids)]
+        if limit is not None:
+            sql += " LIMIT ?"
+            params.append(limit)
+        rows = conn.execute(sql, tuple(params)).fetchall()
+        image_ids = [int(r["image_id"]) for r in rows]
+        return jsonify({"labels": labels, "tag_ids": tag_ids, "image_ids": image_ids})
+    finally:
+        conn.close()
+
+
+@bp.route("/datasets/<dataset_id>/tags/suggestions-multi", methods=["POST"])
+def suggested_images_for_tags_multi(dataset_id: str):
+    conn, _, db_path = _get_dataset_db(dataset_id)
+    if conn is None:
+        return jsonify({"error": f"Dataset DB not found at {db_path}"}), 409
+
+    data = request.get_json(silent=True) or {}
+    labels = data.get("labels") or []
+    try:
+        limit = int(data.get("limit", 24))
+    except (TypeError, ValueError):
+        limit = 24
+    limit = max(1, min(limit, 1000))
+
+    if not isinstance(labels, list) or any(not isinstance(l, str) for l in labels):
+        conn.close()
+        return jsonify({"error": "'labels' must be a list of strings"}), 400
+
+    try:
+        tag_ids = _resolve_tag_ids(conn, labels)
+        if not tag_ids:
+            return jsonify({"labels": labels, "tag_ids": [], "image_ids": []})
+
+        placeholders = ",".join("?" for _ in tag_ids)
+        rows = conn.execute(
+            f"""
+            SELECT image_id
+            FROM image_tags
+            WHERE tag_id IN ({placeholders})
+            GROUP BY image_id
+            HAVING COUNT(DISTINCT tag_id) = ?
+            """,
+            (*tag_ids, len(tag_ids)),
+        ).fetchall()
+        tagged_ids = [int(r["image_id"]) for r in rows]
+        if not tagged_ids:
+            return jsonify({"labels": labels, "tag_ids": tag_ids, "image_ids": []})
+
+        ctx = _get_context(dataset_id)
+        tagged_vecs = ctx.embeddings[tagged_ids].cpu().numpy().astype("float32")
+        mean_vec = tagged_vecs.mean(axis=0)
+        norm = float((mean_vec * mean_vec).sum()) ** 0.5
+        if norm > 1e-12:
+            mean_vec = mean_vec / norm
+
+        k = min(len(ctx.image_paths), max(limit * 5, limit))
+        D, I = ctx.faiss_index.search(mean_vec.reshape(1, -1), k)
+
+        tagged_set = set(tagged_ids)
+        results: list[int] = []
+        for idx in I[0].tolist():
+            if idx == -1:
+                continue
+            if idx in tagged_set:
+                continue
+            results.append(int(idx))
+            if len(results) >= limit:
+                break
+
+        return jsonify({"labels": labels, "tag_ids": tag_ids, "image_ids": results})
+    finally:
+        conn.close()
+
+
 @bp.route("/datasets/<dataset_id>/tags/assign", methods=["POST", "OPTIONS"])
 def assign_tag_to_images(dataset_id: str):
     if request.method == "OPTIONS":
@@ -749,10 +881,11 @@ def assign_tag_to_images(dataset_id: str):
     data = request.get_json(silent=True) or {}
     tag_id = data.get("tag_id")
     label = (data.get("label") or "").strip()
+    labels = data.get("labels") or []
     image_ids = data.get("image_ids") or []
     source = (data.get("source") or "manual").strip() or "manual"
 
-    if tag_id is None and not label:
+    if tag_id is None and not label and not labels:
         conn.close()
         return jsonify({"error": "Missing 'tag_id' or 'label'"}), 400
     if not isinstance(image_ids, list) or any(not isinstance(i, int) for i in image_ids):
@@ -760,7 +893,11 @@ def assign_tag_to_images(dataset_id: str):
         return jsonify({"error": "'image_ids' must be a list of integers"}), 400
 
     try:
-        if tag_id is None:
+        if labels:
+            tag_ids = _resolve_tag_ids(conn, labels)
+            if not tag_ids:
+                return jsonify({"tag_ids": [], "assigned": 0})
+        elif tag_id is None:
             conn.execute("INSERT OR IGNORE INTO tags (label) VALUES (?)", (label,))
             row = conn.execute(
                 "SELECT id FROM tags WHERE lower(label) = lower(?)", (label,)
@@ -768,19 +905,23 @@ def assign_tag_to_images(dataset_id: str):
             if not row:
                 return jsonify({"error": "Could not resolve tag"}), 400
             tag_id = int(row["id"])
+            tag_ids = [tag_id]
+        else:
+            tag_ids = [int(tag_id)]
 
         if not image_ids:
-            return jsonify({"tag_id": tag_id, "assigned": 0})
+            return jsonify({"tag_ids": tag_ids, "assigned": 0})
 
-        rows = [(img_id, tag_id, source) for img_id in image_ids]
         before = conn.total_changes
-        conn.executemany(
-            "INSERT OR IGNORE INTO image_tags (image_id, tag_id, source) VALUES (?, ?, ?)",
-            rows,
-        )
+        for t_id in tag_ids:
+            rows = [(img_id, t_id, source) for img_id in image_ids]
+            conn.executemany(
+                "INSERT OR IGNORE INTO image_tags (image_id, tag_id, source) VALUES (?, ?, ?)",
+                rows,
+            )
         after = conn.total_changes
         conn.commit()
-        return jsonify({"tag_id": tag_id, "assigned": after - before})
+        return jsonify({"tag_ids": tag_ids, "assigned": after - before})
     finally:
         conn.close()
 
