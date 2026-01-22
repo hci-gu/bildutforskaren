@@ -9,7 +9,10 @@ import {
   selectedEmbeddingAtom,
   selectedEmbeddingIdsAtom,
   selectionHistoryAtom,
+  selectedTagAtom,
 } from '@/state'
+import { TaggerPanel } from './TaggerPanel'
+import { TagResultsPanel } from './TagResultsPanel'
 
 const ImageDisplayer = () => {
   const buttonRef = React.useRef<HTMLButtonElement>(null)
@@ -58,10 +61,13 @@ export const HUD = () => {
   const setSelectedEmbedding = useSetAtom(selectedEmbeddingAtom)
   const setSelectedEmbeddingIds = useSetAtom(selectedEmbeddingIdsAtom)
   const selectedEmbeddingIds = useAtomValue(selectedEmbeddingIdsAtom)
+  const selectedTag = useAtomValue(selectedTagAtom)
 
   return (
     <>
       <ImageDisplayer />
+      {!selectedTag && <TaggerPanel />}
+      {selectedTag && <TagResultsPanel />}
 
 
       {selectionHistory.length > 0 && (

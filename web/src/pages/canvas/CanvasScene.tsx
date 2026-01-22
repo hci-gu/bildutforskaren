@@ -9,6 +9,8 @@ import {
   projectionSettingsAtom,
   selectedEmbeddingAtom,
   selectedEmbeddingIdsAtom,
+  selectedTagAtom,
+  viewportScaleAtom,
 } from '@/state'
 import { state } from './canvasState'
 import { Viewport } from './ViewPort'
@@ -44,6 +46,8 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
 
   const setSelectedEmbedding = useSetAtom(selectedEmbeddingAtom)
   const setSelectedEmbeddingIds = useSetAtom(selectedEmbeddingIdsAtom)
+  const setSelectedTag = useSetAtom(selectedTagAtom)
+  const setViewportScale = useSetAtom(viewportScaleAtom)
 
   const projectionSettings = useAtomValue(projectionSettingsAtom)
   const projectionRevision = useAtomValue(projectionRevisionAtom)
@@ -62,6 +66,7 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
 
   const [rawEmbeddings, setRawEmbeddings] = useState<any[]>([])
   const [rawMinimapEmbeddings, setRawMinimapEmbeddings] = useState<any[]>([])
+  const [visibleBounds, setVisibleBounds] = useState<PIXI.Rectangle | null>(null)
 
   useEffect(() => {
     if (mainEmbeddingsLoadable.state === 'hasData') {
@@ -143,6 +148,76 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
 
   useEffect(() => {
     const viewport = viewportRef.current
+    if (!viewport) return
+    const updateScale = () => {
+      setViewportScale(viewport.scale?.x ?? 1)
+    }
+    const updateBounds = () => {
+      if (typeof (viewport as any).getVisibleBounds === 'function') {
+        setVisibleBounds((viewport as any).getVisibleBounds())
+        return
+      }
+      const topLeft = viewport.toWorld(new PIXI.Point(0, 0))
+      const bottomRight = viewport.toWorld(
+        new PIXI.Point(viewport.screenWidth, viewport.screenHeight)
+      )
+      setVisibleBounds(
+        new PIXI.Rectangle(
+          topLeft.x,
+          topLeft.y,
+          bottomRight.x - topLeft.x,
+          bottomRight.y - topLeft.y
+        )
+      )
+    }
+    updateScale()
+    updateBounds()
+    viewport.on('moved', updateScale)
+    viewport.on('zoomed', updateScale)
+    viewport.on('moved', updateBounds)
+    viewport.on('zoomed', updateBounds)
+    return () => {
+      viewport.off('moved', updateScale)
+      viewport.off('zoomed', updateScale)
+      viewport.off('moved', updateBounds)
+      viewport.off('zoomed', updateBounds)
+    }
+  }, [setViewportScale])
+
+  useEffect(() => {
+    if (projectionSettings.type !== 'sao') return
+    const viewport = viewportRef.current
+    if (!viewport) return
+    let lastScale = viewport.scale?.x ?? 1
+    const tick = () => {
+      const nextScale = viewport.scale?.x ?? 1
+      if (Math.abs(nextScale - lastScale) > 0.01) {
+        lastScale = nextScale
+        setViewportScale(nextScale)
+        if (typeof (viewport as any).getVisibleBounds === 'function') {
+          setVisibleBounds((viewport as any).getVisibleBounds())
+        } else {
+          const topLeft = viewport.toWorld(new PIXI.Point(0, 0))
+          const bottomRight = viewport.toWorld(
+            new PIXI.Point(viewport.screenWidth, viewport.screenHeight)
+          )
+          setVisibleBounds(
+            new PIXI.Rectangle(
+              topLeft.x,
+              topLeft.y,
+              bottomRight.x - topLeft.x,
+              bottomRight.y - topLeft.y
+            )
+          )
+        }
+      }
+    }
+    const interval = setInterval(tick, 150)
+    return () => clearInterval(interval)
+  }, [projectionSettings.type, setViewportScale])
+
+  useEffect(() => {
+    const viewport = viewportRef.current
     if (!viewport || !projectionBounds) return
     if (lastProjectionKeyRef.current === projectionKey) return
     lastProjectionKeyRef.current = projectionKey
@@ -207,6 +282,12 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
               setSelectedEmbeddingIds([])
               viewport.plugins?.pause?.('drag')
               return
+            }
+            if (
+              projectionSettings.type === 'sao' ||
+              projectionSettings.type === 'tagged'
+            ) {
+              setSelectedTag(null)
             }
             const screen = viewport?.toScreen(e.data.global)
             dragStart.current = screen ?? null
@@ -284,12 +365,13 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
           }}
         >
           {allLoaded && (
-            <EmbeddingsLayer
-              type="main"
-              masterAtlas={masterAtlas}
-              atlasMeta={atlasMeta}
-              particleContainerRefs={particleContainerRefs}
-            />
+          <EmbeddingsLayer
+            type="main"
+            masterAtlas={masterAtlas}
+            atlasMeta={atlasMeta}
+            particleContainerRefs={particleContainerRefs}
+            visibleBounds={visibleBounds}
+          />
           )}
           <SelectionRect selectionRect={selectionRect} />
         </viewport>

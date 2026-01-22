@@ -1,6 +1,7 @@
 import { Route, Routes, Navigate, useParams } from 'react-router'
 import IndexPage from './pages'
 import ImagePage from './pages/Image'
+import DatasetPage from './pages/Dataset'
 import EmbeddingsCanvas from './pages/canvas'
 import { PhotoProvider } from 'react-photo-view'
 import { useAtomValue, useSetAtom } from 'jotai'
@@ -31,6 +32,17 @@ const DatasetStreetViewRoute = () => {
   return <StreetViewPage />
 }
 
+const DatasetInfoRoute = () => {
+  const { id } = useParams<{ id: string }>()
+  const setActiveDatasetId = useSetAtom(activeDatasetIdAtom)
+
+  useEffect(() => {
+    if (id) setActiveDatasetId(id)
+  }, [id, setActiveDatasetId])
+
+  return <DatasetPage />
+}
+
 const ActiveDatasetCanvasRedirect = () => {
   const datasetId = useAtomValue(activeDatasetIdAtom)
   if (!datasetId) return <Navigate to="/" replace />
@@ -58,6 +70,7 @@ function App() {
         <Routes>
           <Route path="/" element={<IndexPage />} />
 
+          <Route path="/dataset/:id" element={<DatasetInfoRoute />} />
           <Route path="/dataset/:id/canvas" element={<DatasetCanvasRoute />} />
           <Route path="/dataset/:id/street-view" element={<DatasetStreetViewRoute />} />
 

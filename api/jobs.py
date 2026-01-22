@@ -6,6 +6,7 @@ from PIL import Image
 
 from api import config
 from api import datasets
+from api import dataset_db
 from api import indexing
 from api import atlas
 from api import context
@@ -62,6 +63,16 @@ def process_uploaded_dataset(dataset_id: str) -> None:
             raise RuntimeError("No valid images found in uploaded dataset")
 
         _set_job_state(dataset_id, stage="indexing", progress=0)
+
+        image_paths = indexing.collect_image_paths(cfg.thumb_root)
+        db_path = dataset_db.dataset_db_path(cfg.dataset_dir)
+        if db_path.exists():
+            conn = dataset_db.connect_dataset_db(db_path)
+            try:
+                dataset_db.ensure_images(conn, cfg.dataset_dir, image_paths)
+                conn.commit()
+            finally:
+                conn.close()
 
         runtime.get_context_cache().invalidate(dataset_id)
 

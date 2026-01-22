@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Iterable
 
 from api import config
+from api import dataset_db
 from api.models import DatasetConfig
 
 
@@ -91,6 +92,10 @@ def create_dataset(name: str | None) -> dict:
     (ddir / "thumb").mkdir(parents=True, exist_ok=True)
     (ddir / "cache").mkdir(parents=True, exist_ok=True)
     (ddir / "atlas").mkdir(parents=True, exist_ok=True)
+
+    db_path = dataset_db.dataset_db_path(ddir)
+    conn = dataset_db.init_dataset_db(db_path)
+    conn.close()
 
     write_dataset_json(dataset_id, data)
     return data

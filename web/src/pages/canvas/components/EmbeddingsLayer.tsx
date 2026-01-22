@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef } from 'react'
-import { useAtomValue } from 'jotai'
+import { useAtomValue, useSetAtom } from 'jotai'
 import { useTick } from '@pixi/react'
 import * as PIXI from 'pixi.js'
 import {
@@ -10,6 +10,8 @@ import {
   projectionSettingsAtom,
   searchQueryAtom,
   selectedEmbeddingIdsAtom,
+  viewportScaleAtom,
+  selectedTagAtom,
 } from '@/state'
 import {
   BASE_SCALE,
@@ -30,7 +32,8 @@ export const EmbeddingsLayer: React.FC<{
   masterAtlas: Record<number, PIXI.Spritesheet>
   atlasMeta: AtlasMeta
   particleContainerRefs: React.RefObject<PIXI.ParticleContainer | null>[]
-}> = ({ type, masterAtlas, atlasMeta, particleContainerRefs }) => {
+  visibleBounds?: PIXI.Rectangle | null
+}> = ({ type, masterAtlas, atlasMeta, particleContainerRefs, visibleBounds }) => {
   const searchQuery = useAtomValue(searchQueryAtom)
   const rawEmbeddings = useAtomValue(projectedEmbeddingsAtom(type))
   const displaySettings = useAtomValue(displaySettingsAtom)
@@ -38,8 +41,26 @@ export const EmbeddingsLayer: React.FC<{
   const projectionSettings = useAtomValue(projectionSettingsAtom)
   const hoveredText = useAtomValue(hoveredTextAtom)
   const selectedEmbeddingIds = useAtomValue(selectedEmbeddingIdsAtom)
+  const viewportScale = useAtomValue(viewportScaleAtom)
+  const setSelectedTag = useSetAtom(selectedTagAtom)
 
   const textEmbeddings = rawEmbeddings.filter((e: any) => e.type === 'text')
+  const shouldCullSao = projectionSettings.type === 'sao' && !projectionSettings.saoOnlyDataset
+  const displayedTextEmbeddings =
+    shouldCullSao && visibleBounds
+      ? textEmbeddings.filter((embed: any) => {
+          const [nx, ny] = embed.point ? embed.point : [0, 0]
+          const x = nx * CANVAS_WIDTH + CANVAS_OFFSET_X
+          const y = ny * CANVAS_HEIGHT + CANVAS_OFFSET_Y
+          const margin = 300
+          return (
+            x >= visibleBounds.x - margin &&
+            x <= visibleBounds.x + visibleBounds.width + margin &&
+            y >= visibleBounds.y - margin &&
+            y <= visibleBounds.y + visibleBounds.height + margin
+          )
+        })
+      : textEmbeddings
   const textRefs = useRef(new Map<string, PIXI.Text>())
   const textSizes = useRef(
     new Map<string, { current: number; target: number }>()
@@ -73,17 +94,20 @@ export const EmbeddingsLayer: React.FC<{
       ref.current.update()
     })
 
-    textSizes.current.forEach((state, key) => {
-      const node = textRefs.current.get(key)
-      if (!node) return
-      const next = state.current + (state.target - state.current) * TEXT_LERP
-      state.current = Math.abs(state.target - next) < 0.05 ? state.target : next
-      node.style.fontSize = state.current
-    })
+    if (projectionSettings.type !== 'sao' && projectionSettings.type !== 'tagged') {
+      textSizes.current.forEach((state, key) => {
+        const node = textRefs.current.get(key)
+        if (!node) return
+        const next = state.current + (state.target - state.current) * TEXT_LERP
+        state.current = Math.abs(state.target - next) < 0.05 ? state.target : next
+        node.style.fontSize = state.current
+      })
+    }
   })
 
   useEffect(() => {
-    textEmbeddings.forEach((embed: any, index: number) => {
+    if (projectionSettings.type === 'sao' || projectionSettings.type === 'tagged') return
+    displayedTextEmbeddings.forEach((embed: any, index: number) => {
       const textKey = String(embed.id ?? embed.text ?? index)
       const state = textSizes.current.get(textKey) || {
         current: TEXT_BASE_SIZE,
@@ -96,7 +120,7 @@ export const EmbeddingsLayer: React.FC<{
       }
       textSizes.current.set(textKey, state)
     })
-  }, [hoveredText, textEmbeddings])
+  }, [hoveredText, displayedTextEmbeddings])
 
   useEffect(() => {
     particleContainerRefs.forEach((ref) => {
@@ -261,20 +285,37 @@ export const EmbeddingsLayer: React.FC<{
       ))}
 
       <pixiContainer position={{ x: CANVAS_OFFSET_X, y: CANVAS_OFFSET_Y }}>
-        {textEmbeddings.map((embed: any, index: number) => {
+        {displayedTextEmbeddings.map((embed: any, index: number) => {
           const [nx, ny] = embed.point ? embed.point : [0, 0]
           const textKey = String(embed.id ?? embed.text ?? index)
+          const isSao = projectionSettings.type === 'sao'
+          const isTaggedHeaders = projectionSettings.type === 'tagged'
+          const saoFontSize = Math.max(
+            40,
+            Math.min(120, 160 / Math.max(0.6, viewportScale))
+          )
+          const taggedFontSize = 6
           return (
             <pixiText
               key={textKey}
               text={embed.text}
               x={nx * CANVAS_WIDTH}
-              y={ny * CANVAS_HEIGHT - 12}
+              y={ny * CANVAS_HEIGHT - (isTaggedHeaders ? 0 : 12)}
               rotation={projectionSettings.type === 'year' ? -Math.PI / 4 : 0}
-              anchor={0.5}
-              eventMode="static"
-              cursor="pointer"
+              anchor={isTaggedHeaders ? 0 : 0.5}
+              eventMode={isSao || isTaggedHeaders ? 'static' : 'static'}
+              cursor={isSao || isTaggedHeaders ? 'pointer' : 'pointer'}
+              onPointerDown={(e: any) => {
+                if (!isSao && !isTaggedHeaders) return
+                if (typeof embed.text === 'string' && embed.text.trim()) {
+                  setSelectedTag(embed.text.trim())
+                  if (typeof e?.stopPropagation === 'function') {
+                    e.stopPropagation()
+                  }
+                }
+              }}
               onPointerOver={() => {
+                if (isSao || isTaggedHeaders) return
                 const state = textSizes.current.get(textKey) || {
                   current: TEXT_BASE_SIZE,
                   target: TEXT_BASE_SIZE,
@@ -283,6 +324,7 @@ export const EmbeddingsLayer: React.FC<{
                 textSizes.current.set(textKey, state)
               }}
               onPointerOut={() => {
+                if (isSao || isTaggedHeaders) return
                 const state = textSizes.current.get(textKey) || {
                   current: TEXT_BASE_SIZE,
                   target: TEXT_BASE_SIZE,
@@ -295,19 +337,26 @@ export const EmbeddingsLayer: React.FC<{
                   textRefs.current.set(textKey, node)
                   if (!textSizes.current.has(textKey)) {
                     textSizes.current.set(textKey, {
-                      current: TEXT_BASE_SIZE,
-                      target: TEXT_BASE_SIZE,
+                      current: isTaggedHeaders ? taggedFontSize : TEXT_BASE_SIZE,
+                      target: isTaggedHeaders ? taggedFontSize : TEXT_BASE_SIZE,
                     })
                   }
-                  node.style.fontSize =
-                    textSizes.current.get(textKey)?.current ?? TEXT_BASE_SIZE
+                  node.style.fontSize = isSao
+                    ? saoFontSize
+                    : isTaggedHeaders
+                      ? taggedFontSize
+                      : textSizes.current.get(textKey)?.current ?? TEXT_BASE_SIZE
                 } else {
                   textRefs.current.delete(textKey)
                   textSizes.current.delete(textKey)
                 }
               }}
               style={{
-                fontSize: TEXT_BASE_SIZE,
+                fontSize: isSao
+                  ? saoFontSize
+                  : isTaggedHeaders
+                    ? taggedFontSize
+                    : TEXT_BASE_SIZE,
                 fill: embed.meta.matched ? 0xff5555 : 0xffffff,
                 align: 'center',
               }}
