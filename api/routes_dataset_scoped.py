@@ -660,13 +660,10 @@ def images_for_tag(dataset_id: str):
             return jsonify({"error": "Missing 'label' or 'tag_id'"}), 400
 
         if tag_id is None:
-            row = conn.execute(
-                "SELECT id FROM tags WHERE lower(label) = lower(?)",
-                (label,),
-            ).fetchone()
-            if not row:
+            resolved = _resolve_tag_ids(conn, [label])
+            if not resolved:
                 return jsonify({"label": label, "tag_id": None, "image_ids": []})
-            tag_id = int(row["id"])
+            tag_id = int(resolved[0])
 
         rows = conn.execute(
             "SELECT image_id FROM image_tags WHERE tag_id = ? LIMIT ?",
@@ -704,13 +701,10 @@ def suggested_images_for_tag(dataset_id: str):
             return jsonify({"error": "Missing 'label' or 'tag_id'"}), 400
 
         if tag_id is None:
-            row = conn.execute(
-                "SELECT id FROM tags WHERE lower(label) = lower(?)",
-                (label,),
-            ).fetchone()
-            if not row:
+            resolved = _resolve_tag_ids(conn, [label])
+            if not resolved:
                 return jsonify({"label": label, "tag_id": None, "image_ids": []})
-            tag_id = int(row["id"])
+            tag_id = int(resolved[0])
 
         tagged_rows = conn.execute(
             "SELECT image_id FROM image_tags WHERE tag_id = ?",
@@ -752,12 +746,25 @@ def _resolve_tag_ids(conn, labels: list[str]) -> list[int]:
     clean = [lbl.strip() for lbl in labels if isinstance(lbl, str) and lbl.strip()]
     if not clean:
         return []
-    rows = conn.execute(
-        f"SELECT id, label FROM tags WHERE lower(label) IN ({','.join('?' for _ in clean)})",
-        tuple(lbl.lower() for lbl in clean),
-    ).fetchall()
-    label_to_id = {row["label"].lower(): int(row["id"]) for row in rows}
-    return [label_to_id.get(lbl.lower()) for lbl in clean if label_to_id.get(lbl.lower())]
+
+    from api import sao_terms
+
+    rows = conn.execute("SELECT id, label FROM tags").fetchall()
+    norm_to_id = {}
+    for row in rows:
+        label = row["label"]
+        if not label:
+            continue
+        norm = sao_terms.normalize_label(label)
+        norm_to_id.setdefault(norm, int(row["id"]))
+
+    resolved = []
+    for lbl in clean:
+        norm = sao_terms.normalize_label(lbl)
+        tag_id = norm_to_id.get(norm)
+        if tag_id is not None:
+            resolved.append(tag_id)
+    return resolved
 
 
 @bp.route("/datasets/<dataset_id>/tags/images-multi", methods=["POST"])

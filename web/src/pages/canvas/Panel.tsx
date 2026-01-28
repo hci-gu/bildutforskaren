@@ -1,6 +1,8 @@
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import {
+  activeDatasetIdAtom,
+  datasetApiUrl,
   displaySettingsAtom,
   filterSettingsAtom,
   hoveredTextAtom,
@@ -9,7 +11,7 @@ import {
   searchSettingsAtom,
   textsAtom,
 } from '@/state'
-import { useAtom } from 'jotai'
+import { useAtom, useAtomValue } from 'jotai'
 import { useEffect, useState } from 'react'
 import {
   Card,
@@ -380,10 +382,76 @@ const TextPanel = () => {
   )
 }
 
+const TaggedInfoPanel = () => {
+  const datasetId = useAtomValue(activeDatasetIdAtom)
+  const [stats, setStats] = useState<{
+    total_images: number
+    tagged_images: number
+    tagged_percent: number
+  } | null>(null)
+
+  useEffect(() => {
+    if (!datasetId) {
+      setStats(null)
+      return
+    }
+    let cancelled = false
+    const load = async () => {
+      try {
+        const res = await fetch(datasetApiUrl(datasetId, '/tag-stats'))
+        if (!res.ok) throw new Error('Failed to fetch tag stats')
+        const data = await res.json()
+        if (!cancelled) {
+          setStats({
+            total_images: data.total_images ?? 0,
+            tagged_images: data.tagged_images ?? 0,
+            tagged_percent: data.tagged_percent ?? 0,
+          })
+        }
+      } catch (err) {
+        if (!cancelled) setStats(null)
+      }
+    }
+    load()
+    return () => {
+      cancelled = true
+    }
+  }, [datasetId])
+
+  return (
+    <Card
+      className="absolute top-4 left-4 z-10 w-64 border border-gray-300 shadow-lg"
+      data-canvas-ui="true"
+    >
+      <CardContent className="px-4 py-1 text-sm text-white">
+        <div className="mb-2 text-xs font-semibold text-white/80">
+          Datasetstatus
+        </div>
+        <div className="space-y-1 text-xs text-white/80">
+          <div className="flex justify-between">
+            <span>Antal bilder</span>
+            <span>{stats ? stats.total_images : '-'}</span>
+          </div>
+          <div className="flex justify-between">
+            <span>Taggade</span>
+            <span>
+              {stats
+                ? `${stats.tagged_images} (${stats.tagged_percent}%)`
+                : '-'}
+            </span>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
 export default function Panel() {
+  const settings = useAtomValue(projectionSettingsAtom)
+
   return (
     <>
-      <TextPanel />
+      {settings.type === 'tagged' ? <TaggedInfoPanel /> : <TextPanel />}
       <Card
         className="absolute top-4 right-4 z-10 w-1/6 border border-gray-300 shadow-lg"
         data-canvas-ui="true"

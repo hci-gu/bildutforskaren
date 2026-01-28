@@ -40,11 +40,12 @@ const ImageDisplayer = () => {
   return (
     <>
       <PhotoView
-        key={`Image_${selectedEmbedding.id}`}
+        key="active-photo"
         src={datasetApiUrl(datasetId, `/original/${selectedEmbedding.id}`)}
       >
         <button ref={buttonRef} />
       </PhotoView>
+      <div className="metadata-panel-anchor" data-has-meta={Object.keys(meta).length > 0 ? '1' : '0'} />
       {Object.keys(meta).length > 0 && (
         <div className="fixed bottom-4 left-4 z-10000 max-w-sm rounded-lg border border-white/10 bg-black/75 p-3 text-xs text-white backdrop-blur">
           <div className="mb-2 text-[10px] uppercase tracking-wide text-white/60">
@@ -75,12 +76,19 @@ export const HUD = () => {
   const selectedEmbeddingIds = useAtomValue(selectedEmbeddingIdsAtom)
   const selectedTags = useAtomValue(selectedTagsAtom)
   const selectedEmbedding = useAtomValue(selectedEmbeddingAtom)
+  const hasMeta =
+    !!selectedEmbedding &&
+    selectedEmbedding.meta &&
+    Object.keys(selectedEmbedding.meta).length > 0
 
   return (
     <>
       <ImageDisplayer />
       {(selectedTags.length === 0 || selectedEmbedding) && (
-        <TaggerPanel position={selectedTags.length > 0 ? 'left' : 'right'} />
+        <TaggerPanel
+          position={selectedTags.length > 0 ? 'left' : 'right'}
+          offsetBottom={selectedEmbedding && hasMeta ? 220 : 24}
+        />
       )}
       {selectedTags.length > 0 && <TagResultsPanel />}
 

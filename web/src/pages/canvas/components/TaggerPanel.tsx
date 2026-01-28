@@ -39,9 +39,13 @@ type TagSuggestion = {
 
 type TaggerPanelProps = {
   position?: 'right' | 'left'
+  offsetBottom?: number
 }
 
-export const TaggerPanel = ({ position = 'right' }: TaggerPanelProps) => {
+export const TaggerPanel = ({
+  position = 'right',
+  offsetBottom = 24,
+}: TaggerPanelProps) => {
   const datasetId = useAtomValue(activeDatasetIdAtom)
   const selectedEmbedding = useAtomValue<any>(selectedEmbeddingAtom)
   const selectedEmbeddingIds = useAtomValue(selectedEmbeddingIdsAtom)
@@ -228,9 +232,10 @@ export const TaggerPanel = ({ position = 'right' }: TaggerPanelProps) => {
 
   return (
     <Card
-      className={`fixed bottom-6 z-10000 flex h-[32rem] max-h-[calc(100vh-3rem)] w-96 flex-col border border-white/10 bg-black/70 text-white shadow-xl backdrop-blur ${
+      className={`fixed z-10000 flex h-[32rem] max-h-[calc(100vh-3rem)] w-96 flex-col border border-white/10 bg-black/70 text-white shadow-xl backdrop-blur ${
         position === 'left' ? 'left-6' : 'right-6'
       }`}
+      style={{ bottom: offsetBottom }}
       data-canvas-ui="true"
     >
       <CardHeader className="pb-2">

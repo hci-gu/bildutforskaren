@@ -5,7 +5,7 @@ import DatasetPage from './pages/Dataset'
 import EmbeddingsCanvas from './pages/canvas'
 import { PhotoProvider } from 'react-photo-view'
 import { useAtomValue, useSetAtom } from 'jotai'
-import { activeDatasetIdAtom, selectedEmbeddingAtom } from './state'
+import { activeDatasetIdAtom, selectedEmbeddingAtom, API_URL } from './state'
 import StreetViewPage from './pages/streetview'
 import { ThemeProvider } from './components/ThemeProvider'
 import { useEffect } from 'react'
@@ -64,6 +64,31 @@ function App() {
         onVisibleChange={(visible) => {
           if (!visible) {
             setSelectedEmbedding(null)
+          }
+        }}
+        onIndexChange={(index: number, state: any) => {
+          try {
+            const item = state?.images?.[index]
+            const src = item?.src as string | undefined
+            if (!src) return
+            const match = src.match(/\/datasets\/([^/]+)\/original\/(\d+)/)
+            if (!match) return
+            const datasetId = match[1]
+            const imageId = Number(match[2])
+            if (!datasetId || Number.isNaN(imageId)) return
+            setSelectedEmbedding({ id: imageId, meta: {} })
+            void fetch(
+              `${API_URL}/datasets/${encodeURIComponent(datasetId)}/metadata/${imageId}`
+            )
+              .then((res) => (res.ok ? res.json() : null))
+              .then((meta) => {
+                if (meta) {
+                  setSelectedEmbedding({ id: imageId, meta })
+                }
+              })
+              .catch(() => {})
+          } catch (err) {
+            // Ignore handler errors.
           }
         }}
       >
