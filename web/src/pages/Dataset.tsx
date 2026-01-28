@@ -17,6 +17,7 @@ type DatasetStatus = {
   status?: string
   metadata_source?: string
   has_metadata_xlsx?: boolean
+  embeddings_cached?: boolean
   created_at?: string
   error?: string | null
   job?: {
@@ -44,6 +45,8 @@ export default function DatasetPage() {
   const [seedResult, setSeedResult] = useState<string | null>(null)
   const [seedError, setSeedError] = useState<string | null>(null)
   const [seeding, setSeeding] = useState(false)
+  const [resumeError, setResumeError] = useState<string | null>(null)
+  const [resuming, setResuming] = useState(false)
 
   const statusValue = dataset?.status
   const isPending =
@@ -57,6 +60,46 @@ export default function DatasetPage() {
   const embeddingProgress = showEmbeddingProgress
     ? Math.round((dataset?.job?.progress ?? 0) * 100)
     : 0
+  const jobStage = dataset?.job?.stage
+  const isJobActive =
+    jobStage === 'queued' ||
+    jobStage === 'thumbnails' ||
+    jobStage === 'indexing' ||
+    jobStage === 'embeddings' ||
+    jobStage === 'atlas'
+  const canResume =
+    !!dataset && !isJobActive && (!dataset.embeddings_cached || isPending)
+
+  const reloadStatus = async (isCancelled?: () => boolean) => {
+    if (!id) return
+    setLoading(true)
+    try {
+      const [statusRes, statsRes] = await Promise.all([
+        fetch(`${API_URL}/datasets/${encodeURIComponent(id)}/status`),
+        fetch(`${API_URL}/datasets/${encodeURIComponent(id)}/tag-stats`),
+      ])
+
+      if (!statusRes.ok) throw new Error('Failed to fetch dataset status')
+      const data = (await statusRes.json()) as DatasetStatus
+      if (isCancelled?.()) return
+      setDataset(data)
+
+      if (statsRes.ok) {
+        const stats = (await statsRes.json()) as TagStats
+        if (isCancelled?.()) return
+        setTagStats(stats)
+      } else {
+        if (isCancelled?.()) return
+        setTagStats(null)
+      }
+    } catch (err) {
+      if (isCancelled?.()) return
+      setDataset(null)
+    } finally {
+      if (isCancelled?.()) return
+      setLoading(false)
+    }
+  }
 
   useEffect(() => {
     if (id) setActiveDatasetId(id)
@@ -66,30 +109,9 @@ export default function DatasetPage() {
     if (!id) return
     let cancelled = false
     const load = async () => {
-      setLoading(true)
-      try {
-        const [statusRes, statsRes] = await Promise.all([
-          fetch(`${API_URL}/datasets/${encodeURIComponent(id)}/status`),
-          fetch(`${API_URL}/datasets/${encodeURIComponent(id)}/tag-stats`),
-        ])
-
-        if (!statusRes.ok) throw new Error('Failed to fetch dataset status')
-        const data = (await statusRes.json()) as DatasetStatus
-        if (!cancelled) setDataset(data)
-
-        if (statsRes.ok) {
-          const stats = (await statsRes.json()) as TagStats
-          if (!cancelled) setTagStats(stats)
-        } else if (!cancelled) {
-          setTagStats(null)
-        }
-      } catch (err) {
-        if (!cancelled) setDataset(null)
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
+      await reloadStatus(() => cancelled)
     }
-    load()
+    load().catch(() => {})
     return () => {
       cancelled = true
     }
@@ -119,6 +141,27 @@ export default function DatasetPage() {
       setSeedError('Kunde inte skapa taggar från metadata.')
     } finally {
       setSeeding(false)
+    }
+  }
+
+  const handleResume = async () => {
+    if (!id || !canResume) return
+    setResuming(true)
+    setResumeError(null)
+    try {
+      const res = await fetch(
+        `${API_URL}/datasets/${encodeURIComponent(id)}/resume-processing`,
+        { method: 'POST' }
+      )
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data?.error ?? 'Kunde inte starta bearbetning.')
+      }
+      await reloadStatus()
+    } catch (err) {
+      setResumeError(String(err))
+    } finally {
+      setResuming(false)
     }
   }
 
@@ -228,6 +271,25 @@ export default function DatasetPage() {
                         </div>
                       </div>
                     )}
+                  </div>
+                )}
+                {canResume && (
+                  <div className="sm:col-span-2 rounded-xl border border-white/10 bg-white/5 p-3 text-xs text-white/70">
+                    Det verkar inte finnas någon aktiv bearbetning just nu.
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="secondary"
+                        onClick={handleResume}
+                        disabled={resuming}
+                      >
+                        {resuming ? 'Startar…' : 'Starta om bearbetning'}
+                      </Button>
+                      {resumeError && (
+                        <span className="text-red-300">{resumeError}</span>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>

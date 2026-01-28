@@ -1,9 +1,9 @@
 import { atom } from 'jotai'
 import { atomFamily, loadable } from 'jotai/utils'
 
-export const API_URL = 'http://localhost:3000'
+// export const API_URL = 'http://localhost:3000'
 // export const API_URL = 'https://bildutforskaren-api.prod.appadem.in'
-// export const API_URL = 'https://leviathan.itit.gu.se'
+export const API_URL = 'http://130.241.23.169:3000'
 
 export const activeDatasetIdAtom = atom<string | null>(null)
 
@@ -210,10 +210,13 @@ export const searchImagesAtom = atom(async (get) => {
     }
 
     try {
-      const response = await fetch(datasetApiUrl(datasetId, '/search-by-image'), {
-        method: 'POST',
-        body: formData,
-      })
+      const response = await fetch(
+        datasetApiUrl(datasetId, '/search-by-image'),
+        {
+          method: 'POST',
+          body: formData,
+        }
+      )
       if (!response.ok) {
         throw new Error('Network response was not ok')
       }
@@ -355,7 +358,10 @@ type TaggedProjectionCacheEntry = {
 
 const taggedProjectionCache = new Map<string, TaggedProjectionCacheEntry>()
 
-const setTaggedProjectionCache = (key: string, entry: TaggedProjectionCacheEntry) => {
+const setTaggedProjectionCache = (
+  key: string,
+  entry: TaggedProjectionCacheEntry
+) => {
   taggedProjectionCache.set(key, entry)
   if (taggedProjectionCache.size > 5) {
     const firstKey = taggedProjectionCache.keys().next().value
@@ -427,7 +433,8 @@ export const embeddingProjection = atomFamily((type: string) =>
         list.forEach((item: any, index: number) => {
           const row = Math.floor(index / gridSize)
           const col = index % gridSize
-          const x = originX + (denomX === 0 ? width / 2 : (col / denomX) * width)
+          const x =
+            originX + (denomX === 0 ? width / 2 : (col / denomX) * width)
           const y = denomY === 0 ? 0.5 : row / denomY
           positions.set(item.id, [x, y])
         })
@@ -442,7 +449,9 @@ export const embeddingProjection = atomFamily((type: string) =>
     }
 
     if (projectionType === 'umap') {
-      const imageItems = embeddingsData.filter((item: any) => item.type !== 'text')
+      const imageItems = embeddingsData.filter(
+        (item: any) => item.type !== 'text'
+      )
       const imageIds = imageItems.map((item: any) => item.id)
       const includeTexts = !filterSettings.year && !filterSettings.photographer
       const texts = includeTexts ? get(textsAtom) : []
@@ -497,7 +506,8 @@ export const embeddingProjection = atomFamily((type: string) =>
       return embedding2d
     } else if (projectionType === 'year') {
       const embeddingsWithYear = embeddingsData.filter(
-        (item: any) => item.metadata?.year !== undefined && item.metadata.year !== null
+        (item: any) =>
+          item.metadata?.year !== undefined && item.metadata.year !== null
       )
 
       const uniqueYears = [
@@ -510,7 +520,10 @@ export const embeddingProjection = atomFamily((type: string) =>
       const rowSpacing = 0.01
 
       // Prepare columns
-      const columns: number[][][] = Array.from({ length: totalColumns }, () => [])
+      const columns: number[][][] = Array.from(
+        { length: totalColumns },
+        () => []
+      )
       embeddingsData.sort((a: any, b: any) => {
         const aYear = a.metadata?.year
         const bYear = b.metadata?.year
@@ -606,27 +619,37 @@ export const projectedEmbeddingsAtom = atomFamily((type: string) =>
       }))
     }
 
-    if (projectionSettings.type === 'tagged' && projectionSettings.groupTaggedByTag) {
+    if (
+      projectionSettings.type === 'tagged' &&
+      projectionSettings.groupTaggedByTag
+    ) {
       const items = embeddingsData.filter((item: any) => item.type !== 'text')
       const tagsWithImages = await get(tagsWithImagesAtom)
       const itemById = new Map<number, any>(
         items.map((item: any) => [Number(item.id), item])
       )
-      const taggedMap: Array<{ label: string; image_ids: number[] }> = tagsWithImages
-        .map((entry: any) => ({
-          label: entry.label,
-          image_ids: Array.isArray(entry.image_ids) ? entry.image_ids : [],
-        }))
-        .filter((entry) => entry.image_ids.length > 0)
+      const taggedMap: Array<{ label: string; image_ids: number[] }> =
+        tagsWithImages
+          .map((entry: any) => ({
+            label: entry.label,
+            image_ids: Array.isArray(entry.image_ids) ? entry.image_ids : [],
+          }))
+          .filter((entry) => entry.image_ids.length > 0)
 
       const taggedSet = new Set<number>()
       taggedMap.forEach((entry) => {
         entry.image_ids.forEach((id) => taggedSet.add(Number(id)))
       })
-      const untagged = items.filter((item: any) => !taggedSet.has(Number(item.id)))
+      const untagged = items.filter(
+        (item: any) => !taggedSet.has(Number(item.id))
+      )
 
       const positions = new Map<number, [number, number]>()
-      const textHeaders: { id: string; point: [number, number]; text: string }[] = []
+      const textHeaders: {
+        id: string
+        point: [number, number]
+        text: string
+      }[] = []
 
       const gutter = 0.05
       const taggedWidth = 0.7
@@ -652,9 +675,12 @@ export const projectedEmbeddingsAtom = atomFamily((type: string) =>
       const padY = 0.01
       const headerH = 0.035
 
-      const columns: Array<{ height: number }> = Array.from({ length: groupCols }, () => ({
-        height: 0,
-      }))
+      const columns: Array<{ height: number }> = Array.from(
+        { length: groupCols },
+        () => ({
+          height: 0,
+        })
+      )
 
       const assigned = new Set<number>()
 
@@ -709,7 +735,9 @@ export const projectedEmbeddingsAtom = atomFamily((type: string) =>
         untagged.forEach((item: any, index: number) => {
           const r = Math.floor(index / gridSize)
           const c = index % gridSize
-          const x = untaggedX + (denomX === 0 ? untaggedWidth * 0.1 : (c / denomX) * untaggedWidth)
+          const x =
+            untaggedX +
+            (denomX === 0 ? untaggedWidth * 0.1 : (c / denomX) * untaggedWidth)
           const y = denomY === 0 ? 0.1 : r * dy
           positions.set(Number(item.id), [x, y])
         })
@@ -770,23 +798,28 @@ export const projectedEmbeddingsAtom = atomFamily((type: string) =>
         a.id < b.id ? -1 : a.id > b.id ? 1 : 0
       )
     } else if (projectionSettings.type === 'tagged') {
-      embeddingsData = embeddingsData.filter((item: any) => item.type !== 'text')
+      embeddingsData = embeddingsData.filter(
+        (item: any) => item.type !== 'text'
+      )
     }
 
-    const projectedEmbeddings = embeddingsData.map((item: any, index: number) => ({
-      id: item.id,
-      point: projection[index],
-      type: item.type === 'text' ? 'text' : 'image',
-      text: item.text,
-      meta: {
-        ...item.metadata,
-        matched: false,
-      },
-    }))
+    const projectedEmbeddings = embeddingsData.map(
+      (item: any, index: number) => ({
+        id: item.id,
+        point: projection[index],
+        type: item.type === 'text' ? 'text' : 'image',
+        text: item.text,
+        meta: {
+          ...item.metadata,
+          matched: false,
+        },
+      })
+    )
 
     if (projectionSettings.type == 'year') {
       const embeddingsWithYear = embeddingsData.filter(
-        (item: any) => item.metadata?.year !== undefined && item.metadata.year !== null
+        (item: any) =>
+          item.metadata?.year !== undefined && item.metadata.year !== null
       )
       const uniqueYears = [
         ...new Set(embeddingsWithYear.map((item: any) => item.metadata.year)),

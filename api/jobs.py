@@ -121,3 +121,18 @@ def submit_processing(dataset_id: str) -> None:
     datasets.write_dataset_json(dataset_id, meta)
 
     runtime.get_job_manager().submit(process_uploaded_dataset, dataset_id)
+
+
+def resume_pending_jobs() -> None:
+    pending_statuses = {"uploaded", "processing"}
+    job_manager = runtime.get_job_manager()
+    for data in datasets.list_datasets():
+        dataset_id = data.get("dataset_id")
+        status = data.get("status")
+        if not dataset_id or status not in pending_statuses:
+            continue
+        state = job_manager.get_state(dataset_id)
+        if state:
+            continue
+        logging.info("Resuming processing for dataset %s (status=%s)", dataset_id, status)
+        submit_processing(dataset_id)

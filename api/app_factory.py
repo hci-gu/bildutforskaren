@@ -11,6 +11,7 @@ from api.routes_datasets import bp as datasets_bp
 from api.routes_dataset_scoped import bp as dataset_scoped_bp
 from api.routes_terms import bp as terms_bp
 from api import sao_terms
+from api import jobs
 
 
 def create_app() -> Flask:
@@ -21,6 +22,7 @@ def create_app() -> Flask:
 
     config.ensure_runtime_dirs()
     init_runtime()
+    jobs.resume_pending_jobs()
     try:
         sao_terms.ensure_embeddings()
     except Exception as exc:

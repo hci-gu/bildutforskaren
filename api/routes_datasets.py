@@ -32,6 +32,11 @@ def dataset_status(dataset_id: str):
     meta = dict(meta)
     meta.setdefault("metadata_source", "none")
     meta["has_metadata_xlsx"] = (config.DATASETS_ROOT / dataset_id / "metadata.xlsx").exists()
+    try:
+        cfg = datasets.get_dataset_config(dataset_id)
+        meta["embeddings_cached"] = cfg.cache_file.exists()
+    except Exception:
+        meta["embeddings_cached"] = False
 
     job = runtime.get_job_manager().get_state(dataset_id)
     if job:
@@ -118,3 +123,32 @@ def upload_zip(dataset_id: str):
     jobs.submit_processing(dataset_id)
 
     return jsonify({"dataset_id": dataset_id, "status": "processing", "extracted": extracted}), 202
+
+
+@bp.route("/datasets/<dataset_id>/resume-processing", methods=["POST"])
+def resume_processing(dataset_id: str):
+    if not datasets.is_safe_dataset_id(dataset_id):
+        return jsonify({"error": "Invalid dataset_id"}), 400
+
+    try:
+        meta = datasets.read_dataset_json(dataset_id)
+    except FileNotFoundError:
+        return jsonify({"error": "Dataset not found"}), 404
+
+    status = meta.get("status")
+    cfg = datasets.get_dataset_config(dataset_id)
+    embeddings_cached = cfg.cache_file.exists()
+
+    job_state = runtime.get_job_manager().get_state(dataset_id)
+    active_stages = {"queued", "thumbnails", "indexing", "embeddings", "atlas"}
+    if job_state.get("stage") in active_stages:
+        return jsonify({"error": "Processing already running"}), 409
+
+    if status == "created":
+        return jsonify({"error": "Dataset has no uploaded images yet"}), 409
+
+    if status == "ready" and embeddings_cached:
+        return jsonify({"error": "Dataset already processed"}), 409
+
+    jobs.submit_processing(dataset_id)
+    return jsonify({"status": "queued"}), 202
