@@ -150,7 +150,7 @@ export const TagResultsPanel = () => {
 
   return (
     <Card
-      className="fixed inset-y-0 right-0 z-10000 w-[32rem] border border-white/10 bg-black/80 text-white shadow-xl backdrop-blur"
+      className="glass-panel fixed inset-y-0 right-0 z-10000 w-[32rem] text-white shadow-xl"
       data-canvas-ui="true"
     >
       <CardHeader className="pb-2">
@@ -263,7 +263,7 @@ export const TagResultsPanel = () => {
           )}
         </div>
         {activeTab === 'suggested' && (
-          <div className="sticky bottom-0 left-0 right-0 border-t border-white/10 bg-black/85 p-3">
+          <div className="glass-panel sticky bottom-0 left-0 right-0 p-3">
             <div className="flex items-center justify-between text-xs text-white/70">
               <span>{selectedSuggested.size} valda</span>
               <button

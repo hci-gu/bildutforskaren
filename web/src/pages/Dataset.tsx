@@ -108,7 +108,7 @@ export default function DatasetPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#0b0b0c] text-white">
+    <div className="min-h-screen text-white">
       <div className="mx-auto w-full max-w-4xl px-6 py-10">
         <div className="mb-6 flex items-center justify-between">
           <div>
@@ -133,7 +133,7 @@ export default function DatasetPage() {
           </div>
         </div>
 
-        <Card className="border border-white/10 bg-black/60 text-white">
+        <Card className="glass-panel text-white">
           <CardHeader>
             <CardTitle>Översikt</CardTitle>
             <CardDescription className="text-white/60">
@@ -190,7 +190,7 @@ export default function DatasetPage() {
           </CardContent>
         </Card>
 
-        <Card className="mt-6 border border-white/10 bg-black/60 text-white">
+        <Card className="glass-panel mt-6 text-white">
           <CardHeader>
             <CardTitle>Metadata → Taggar</CardTitle>
             <CardDescription className="text-white/60">

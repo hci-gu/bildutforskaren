@@ -45,6 +45,12 @@
   --radius: 0.625rem;
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
+  --app-gradient: linear-gradient(135deg, #020617 0%, #0f172a 45%, #1f2937 100%);
+  --glass-bg: rgba(8, 12, 20, 0.55);
+  --glass-bg-strong: rgba(5, 8, 14, 0.7);
+  --glass-border: rgba(255, 255, 255, 0.22);
+  --glass-border-strong: rgba(255, 255, 255, 0.35);
+  --glass-hover: rgba(255, 255, 255, 0.08);
   --card: oklch(1 0 0);
   --card-foreground: oklch(0.145 0 0);
   --popover: oklch(1 0 0);
@@ -79,6 +85,12 @@
 .dark {
   --background: oklch(0.145 0 0);
   --foreground: oklch(0.985 0 0);
+  --app-gradient: linear-gradient(135deg, #020617 0%, #0f172a 45%, #1f2937 100%);
+  --glass-bg: rgba(8, 12, 20, 0.6);
+  --glass-bg-strong: rgba(5, 8, 14, 0.75);
+  --glass-border: rgba(255, 255, 255, 0.24);
+  --glass-border-strong: rgba(255, 255, 255, 0.38);
+  --glass-hover: rgba(255, 255, 255, 0.1);
   --card: oklch(0.205 0 0);
   --card-foreground: oklch(0.985 0 0);
   --popover: oklch(0.205 0 0);
@@ -116,6 +128,11 @@
   }
   body {
     @apply bg-background text-foreground;
+    background-image: var(--app-gradient);
+    background-attachment: fixed;
+    background-repeat: no-repeat;
+    background-size: cover;
+    min-height: 100vh;
   }
 }
 
@@ -126,5 +143,30 @@
   .no-scrollbar {
     -ms-overflow-style: none;
     scrollbar-width: none;
+  }
+}
+
+/* React Photo View backdrop should match app gradient */
+.PhotoView-Slider__Backdrop {
+  background: var(--app-gradient);
+  background-attachment: fixed;
+  background-repeat: no-repeat;
+  background-size: cover;
+}
+
+@layer utilities {
+  .glass-panel {
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    backdrop-filter: blur(16px);
+  }
+  .glass-panel-strong {
+    background: var(--glass-bg-strong);
+    border: 1px solid var(--glass-border-strong);
+    backdrop-filter: blur(18px);
+  }
+  .glass-panel-hover:hover {
+    background: var(--glass-hover);
+    border-color: var(--glass-border-strong);
   }
 }

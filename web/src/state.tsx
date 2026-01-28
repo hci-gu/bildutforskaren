@@ -348,12 +348,30 @@ export const activeEmbeddingIdsAtom = atom<string[] | null>(null)
 export const selectionHistoryAtom = atom<(string[] | null)[]>([])
 export const projectionRevisionAtom = atom(0)
 
+type TaggedProjectionCacheEntry = {
+  points: [number, number][]
+  count: number
+}
+
+const taggedProjectionCache = new Map<string, TaggedProjectionCacheEntry>()
+
+const setTaggedProjectionCache = (key: string, entry: TaggedProjectionCacheEntry) => {
+  taggedProjectionCache.set(key, entry)
+  if (taggedProjectionCache.size > 5) {
+    const firstKey = taggedProjectionCache.keys().next().value
+    if (firstKey) taggedProjectionCache.delete(firstKey)
+  }
+}
+
 export const embeddingProjection = atomFamily((type: string) =>
   atom(async (get) => {
     const datasetId = get(activeDatasetIdAtom)
     const embeddingsData = await get(filteredEmbeddingsAtom)
     const projectionSettings = get(projectionSettingsAtom)
     const filterSettings = get(filterSettingsAtom)
+    const taggedRevision = get(taggedImagesRevisionAtom)
+    const embeddingsRevision = get(embeddingsRevisionAtom)
+    const activeEmbeddingIds = get(activeEmbeddingIdsAtom)
 
     if (!datasetId) {
       const gridSize = Math.ceil(Math.sqrt(embeddingsData.length))
@@ -370,6 +388,20 @@ export const embeddingProjection = atomFamily((type: string) =>
 
     if (projectionType === 'tagged') {
       const items = embeddingsData.filter((item: any) => item.type !== 'text')
+      const cacheKey = [
+        datasetId ?? 'none',
+        taggedRevision,
+        embeddingsRevision,
+        filterSettings.year ?? 'all',
+        filterSettings.photographer ?? 'all',
+        activeEmbeddingIds?.join(',') ?? 'all',
+      ].join('|')
+
+      const cached = taggedProjectionCache.get(cacheKey)
+      if (cached && cached.count === items.length) {
+        return cached.points
+      }
+
       const tagInfo = await get(taggedImagesAtom)
       const taggedSet = new Set(tagInfo.tagged.map(String))
 
@@ -404,7 +436,9 @@ export const embeddingProjection = atomFamily((type: string) =>
       placeGrid(tagged, leftX, blockWidth)
       placeGrid(untagged, rightX, blockWidth)
 
-      return items.map((item: any) => positions.get(item.id) ?? [0, 0])
+      const points = items.map((item: any) => positions.get(item.id) ?? [0, 0])
+      setTaggedProjectionCache(cacheKey, { points, count: items.length })
+      return points
     }
 
     if (projectionType === 'umap') {

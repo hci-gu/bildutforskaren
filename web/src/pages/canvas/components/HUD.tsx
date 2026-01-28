@@ -47,7 +47,7 @@ const ImageDisplayer = () => {
       </PhotoView>
       <div className="metadata-panel-anchor" data-has-meta={Object.keys(meta).length > 0 ? '1' : '0'} />
       {Object.keys(meta).length > 0 && (
-        <div className="fixed bottom-4 left-4 z-10000 max-w-sm rounded-lg border border-white/10 bg-black/75 p-3 text-xs text-white backdrop-blur">
+      <div className="glass-panel fixed bottom-4 left-4 z-10000 max-w-sm rounded-lg p-3 text-xs text-white">
           <div className="mb-2 text-[10px] uppercase tracking-wide text-white/60">
             From metadata
           </div>
@@ -96,7 +96,7 @@ export const HUD = () => {
       {selectionHistory.length > 0 && (
         <div className="fixed bottom-6 left-6 z-10000">
           <button
-            className="rounded-full border border-white/30 bg-black/70 px-3 py-2 text-xs text-white backdrop-blur hover:bg-black/80"
+            className="glass-panel rounded-full px-3 py-2 text-xs text-white transition hover:bg-white/15"
             onClick={() => {
               setSelectionHistory((prev) => {
                 if (prev.length === 0) return prev
@@ -116,7 +116,7 @@ export const HUD = () => {
       )}
 
       {selectedEmbeddingIds.length > 0 && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-10000 flex items-center gap-3 rounded-full border border-white/20 bg-black/70 px-4 py-2 text-sm text-white backdrop-blur">
+        <div className="glass-panel fixed bottom-6 left-1/2 z-10000 flex -translate-x-1/2 items-center gap-3 rounded-full px-4 py-2 text-sm text-white">
           <span>{selectedEmbeddingIds.length} images selected</span>
           <button
             className="rounded-full border border-white/30 px-3 py-1 text-xs hover:bg-white/10"

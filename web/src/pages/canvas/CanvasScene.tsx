@@ -249,8 +249,8 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
       )}
 
       {isProjecting && (
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40 backdrop-blur-sm">
-          <div className="rounded-xl border border-white/20 bg-black/70 px-5 py-3 text-sm text-white shadow-lg">
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/30 backdrop-blur-sm">
+          <div className="glass-panel-strong rounded-xl px-5 py-3 text-sm text-white shadow-lg">
             Uppdaterar rummet...
           </div>
         </div>
@@ -262,6 +262,7 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
       <Application
         width={windowSize.width}
         height={windowSize.height}
+        backgroundAlpha={0}
         onInit={(app) => (state.pixiApp = app)}
       >
         <viewport
@@ -370,7 +371,7 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
           <SelectionRect selectionRect={selectionRect} />
         </viewport>
 
-        {allLoaded && (
+        {allLoaded && projectionSettings.type === 'umap' && (
           <Minimap
             allLoaded={allLoaded}
             masterAtlas={masterAtlas}

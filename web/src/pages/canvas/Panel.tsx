@@ -62,7 +62,7 @@ const Search = () => {
           placeholder="Skriv något..."
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          className="border border-gray-300 rounded-md shadow-sm focus:ring focus:ring-blue-500 focus:border-blue-500 p-2"
+          className="border border-white/20 bg-white/10 text-white placeholder:text-white/40 shadow-sm focus-visible:ring-white/30"
         />
       </div>
       <div className="flex flex-col gap-2 flex-1">
@@ -75,7 +75,7 @@ const Search = () => {
           onChange={handleChange}
           placeholder="topK"
           step={1}
-          className="border border-gray-300 rounded-md shadow-sm focus:ring focus:ring-blue-500 focus:border-blue-500 p-2 flex-1"
+          className="flex-1 border border-white/20 bg-white/10 text-white placeholder:text-white/40 shadow-sm focus-visible:ring-white/30"
         />
       </div>
     </div>
@@ -103,7 +103,7 @@ const ProjectionSettings = () => {
           setSettings((prev) => ({ ...prev, type: value }))
         }
       >
-        <SelectTrigger className="w-[180px]">
+        <SelectTrigger className="w-[180px] border-white/20 bg-white/10 text-white">
           <SelectValue placeholder="Type" />
         </SelectTrigger>
         <SelectContent>
@@ -131,7 +131,7 @@ const ProjectionSettings = () => {
               onChange={handleChange}
               placeholder="minDist"
               step={0.1}
-              className="border border-gray-300 rounded-md shadow-sm focus:ring focus:ring-blue-500 focus:border-blue-500 p-2"
+              className="border border-white/20 bg-white/10 text-white placeholder:text-white/40 shadow-sm focus-visible:ring-white/30"
             />
           </div>
           <div className="flex items-center space-x-2">
@@ -146,7 +146,7 @@ const ProjectionSettings = () => {
               onChange={handleChange}
               placeholder="nNeighbors"
               step={1}
-              className="border border-gray-300 rounded-md shadow-sm focus:ring focus:ring-blue-500 focus:border-blue-500 p-2"
+              className="border border-white/20 bg-white/10 text-white placeholder:text-white/40 shadow-sm focus-visible:ring-white/30"
             />
           </div>
           <div className="flex items-center space-x-2">
@@ -161,7 +161,7 @@ const ProjectionSettings = () => {
               onChange={handleChange}
               placeholder="spread"
               step={0.25}
-              className="border border-gray-300 rounded-md shadow-sm focus:ring focus:ring-blue-500 focus:border-blue-500 p-2"
+              className="border border-white/20 bg-white/10 text-white placeholder:text-white/40 shadow-sm focus-visible:ring-white/30"
             />
           </div>
           {/* <div className="flex items-center space-x-2">
@@ -269,7 +269,7 @@ const DisplaySettings = () => {
         }
         placeholder="Scale"
         step={0.25}
-        className="border border-gray-300 rounded-md shadow-sm focus:ring focus:ring-blue-500 focus:border-blue-500 p-2"
+        className="border border-white/20 bg-white/10 text-white placeholder:text-white/40 shadow-sm focus-visible:ring-white/30"
       />
     </div>
   )
@@ -297,9 +297,9 @@ const FilterSettings = () => {
           setSettings((prev: any) => ({ ...prev, photographer: value }))
         }
       >
-        <SelectTrigger className="w-[180px]">
-          <SelectValue placeholder="Fotograf" />
-        </SelectTrigger>
+      <SelectTrigger className="w-[180px] border-white/20 bg-white/10 text-white">
+        <SelectValue placeholder="Fotograf" />
+      </SelectTrigger>
         <SelectContent>
           {/* @ts-ignore */}
           <SelectItem value={null}>Ingen</SelectItem>
@@ -335,7 +335,7 @@ const TextPanel = () => {
 
   return (
     <Card
-      className="absolute top-4 left-4 z-10 w-1/5 border border-gray-300 shadow-lg"
+      className="glass-panel absolute top-4 left-4 z-10 w-1/5 text-white shadow-lg"
       data-canvas-ui="true"
     >
       <CardContent className="px-4">
@@ -347,7 +347,7 @@ const TextPanel = () => {
           {texts.map((text) => (
             <div
               key={text}
-              className="flex items-center gap-2 rounded-full border border-gray-300 px-3 py-1 text-sm"
+              className="flex items-center gap-2 rounded-full border border-white/20 px-3 py-1 text-sm"
               onMouseEnter={() => setHoveredText(text)}
               onMouseLeave={() => setHoveredText(null)}
             >
@@ -355,7 +355,7 @@ const TextPanel = () => {
               <button
                 type="button"
                 onClick={() => removeText(text)}
-                className="text-gray-500 hover:text-gray-900"
+                className="text-white/60 hover:text-white"
                 aria-label={`Remove ${text}`}
               >
                 ×
@@ -420,7 +420,7 @@ const TaggedInfoPanel = () => {
 
   return (
     <Card
-      className="absolute top-4 left-4 z-10 w-64 border border-gray-300 shadow-lg"
+      className="glass-panel absolute top-4 left-4 z-10 w-64 shadow-lg"
       data-canvas-ui="true"
     >
       <CardContent className="px-4 py-1 text-sm text-white">
@@ -453,7 +453,7 @@ export default function Panel() {
     <>
       {settings.type === 'tagged' ? <TaggedInfoPanel /> : <TextPanel />}
       <Card
-        className="absolute top-4 right-4 z-10 w-1/6 border border-gray-300 shadow-lg"
+        className="glass-panel absolute top-4 right-4 z-10 w-1/6 text-white shadow-lg"
         data-canvas-ui="true"
       >
         <CardContent className="px-4">

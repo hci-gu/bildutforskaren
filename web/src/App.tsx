@@ -96,6 +96,7 @@ function App() {
           <Route path="/" element={<IndexPage />} />
 
           <Route path="/dataset/:id" element={<DatasetInfoRoute />} />
+          <Route path="/datset/:id" element={<DatasetInfoRoute />} />
           <Route path="/dataset/:id/canvas" element={<DatasetCanvasRoute />} />
           <Route path="/dataset/:id/street-view" element={<DatasetStreetViewRoute />} />
 

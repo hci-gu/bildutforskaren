@@ -33,13 +33,13 @@ function ImagePage() {
   const minValue = Math.min(...embedding)
 
   return (
-    <div className="flex h-screen">
-      <div className="w-1/2 border-r border-gray-300 flex items-center justify-center overflow-y-scroll h-300">
+    <div className="flex min-h-screen text-white">
+      <div className="glass-panel w-1/2 border-r border-white/20 p-6">
         <div className="grid grid-cols-12 gap-2">
           {embedding.map((value: number, index: number) => (
             <span
               key={index}
-              className="w-12 h-4 border border-gray-300 text-sm text-center"
+              className="h-4 w-12 border border-white/20 text-center text-xs"
               style={{
                 backgroundColor: `rgb(${colorMap(
                   (value - minValue) / (maxValue - minValue)
@@ -52,12 +52,14 @@ function ImagePage() {
           ))}
         </div>
       </div>
-      <div className="w-1/2 flex flex-col items-center justify-center">
-        <img
-          src={datasetApiUrl(datasetId, `/image/${id}`)}
-          alt={`Image ${id}`}
-          className="w-full h-auto max-w-md"
-        />
+      <div className="flex w-1/2 items-center justify-center p-6">
+        <div className="glass-panel rounded-2xl p-6 shadow-lg">
+          <img
+            src={datasetApiUrl(datasetId, `/image/${id}`)}
+            alt={`Image ${id}`}
+            className="w-full max-w-md"
+          />
+        </div>
       </div>
     </div>
   )

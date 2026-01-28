@@ -133,14 +133,14 @@ function Map() {
         />
       )}
       {!selectedImage && searchResults.length > 0 && (
-        <div className="absolute top-20 left-4 bg-white p-2 rounded shadow z-50 w-75 h-full overflow-y-scroll no-scrollbar">
-          <h2 className="text-lg font-bold">Search Results</h2>
+        <div className="glass-panel absolute top-20 left-4 z-50 h-full w-75 overflow-y-scroll rounded-xl p-3 text-white shadow-lg no-scrollbar">
+          <h2 className="text-lg font-semibold">Search Results</h2>
           <div className="grid grid-cols-1 gap-4">
             {searchResults.map(({ id }: { id: number; distance: number }) => (
               <div
                 key={id}
                 onClick={() => setSelectedImage(id.toString())}
-                className="cursor-pointer"
+                className="glass-panel glass-panel-hover cursor-pointer rounded-lg p-2 transition"
               >
                 <img src={datasetApiUrl(datasetId, `/image/${id}`)} />
               </div>

@@ -110,7 +110,7 @@ def _require_image_id(conn, image_id: int):
     return row is not None
 
 
-def _resolve_tag_ids(conn, *, tag_ids: list[int] | None, labels: list[str] | None):
+def _resolve_tag_ids_or_labels(conn, *, tag_ids: list[int] | None, labels: list[str] | None):
     resolved: set[int] = set()
     if tag_ids:
         rows = conn.execute(
@@ -376,7 +376,7 @@ def image_tags(dataset_id: str, image_id: int):
         ):
             return jsonify({"error": "'labels' must be a list of strings"}), 400
 
-        resolved, missing = _resolve_tag_ids(conn, tag_ids=tag_ids or [], labels=labels or [])
+        resolved, missing = _resolve_tag_ids_or_labels(conn, tag_ids=tag_ids or [], labels=labels or [])
         if missing:
             return jsonify({"error": "Unknown tag_ids", "missing": missing}), 400
         if not resolved:
@@ -660,7 +660,7 @@ def images_for_tag(dataset_id: str):
             return jsonify({"error": "Missing 'label' or 'tag_id'"}), 400
 
         if tag_id is None:
-            resolved = _resolve_tag_ids(conn, [label])
+            resolved = _resolve_existing_tag_ids(conn, [label])
             if not resolved:
                 return jsonify({"label": label, "tag_id": None, "image_ids": []})
             tag_id = int(resolved[0])
@@ -701,7 +701,7 @@ def suggested_images_for_tag(dataset_id: str):
             return jsonify({"error": "Missing 'label' or 'tag_id'"}), 400
 
         if tag_id is None:
-            resolved = _resolve_tag_ids(conn, [label])
+            resolved = _resolve_existing_tag_ids(conn, [label])
             if not resolved:
                 return jsonify({"label": label, "tag_id": None, "image_ids": []})
             tag_id = int(resolved[0])
@@ -740,7 +740,7 @@ def suggested_images_for_tag(dataset_id: str):
         conn.close()
 
 
-def _resolve_tag_ids(conn, labels: list[str]) -> list[int]:
+def _resolve_existing_tag_ids(conn, labels: list[str]) -> list[int]:
     if not labels:
         return []
     clean = [lbl.strip() for lbl in labels if isinstance(lbl, str) and lbl.strip()]
@@ -790,7 +790,7 @@ def images_for_tags_multi(dataset_id: str):
         return jsonify({"error": "'labels' must be a list of strings"}), 400
 
     try:
-        tag_ids = _resolve_tag_ids(conn, labels)
+        tag_ids = _resolve_existing_tag_ids(conn, labels)
         if not tag_ids:
             return jsonify({"labels": labels, "tag_ids": [], "image_ids": []})
 
@@ -832,7 +832,7 @@ def suggested_images_for_tags_multi(dataset_id: str):
         return jsonify({"error": "'labels' must be a list of strings"}), 400
 
     try:
-        tag_ids = _resolve_tag_ids(conn, labels)
+        tag_ids = _resolve_existing_tag_ids(conn, labels)
         if not tag_ids:
             return jsonify({"labels": labels, "tag_ids": [], "image_ids": []})
 
@@ -901,7 +901,7 @@ def assign_tag_to_images(dataset_id: str):
 
     try:
         if labels:
-            tag_ids = _resolve_tag_ids(conn, labels)
+            tag_ids = _resolve_existing_tag_ids(conn, labels)
             if not tag_ids:
                 return jsonify({"tag_ids": [], "assigned": 0})
         elif tag_id is None:
