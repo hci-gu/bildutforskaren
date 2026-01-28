@@ -26,6 +26,15 @@ UMAP_CACHE_VERSION = 5
 
 
 def _get_context(dataset_id: str):
+    try:
+        meta = datasets.read_dataset_json(dataset_id)
+    except FileNotFoundError:
+        abort(404, description="Dataset not found")
+
+    status = meta.get("status")
+    if status != "ready":
+        abort(409, description=f"Dataset not ready (status: {status})")
+
     context_cache = runtime.get_context_cache()
 
     def _builder(ds_id: str):

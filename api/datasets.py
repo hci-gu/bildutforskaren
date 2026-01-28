@@ -12,6 +12,7 @@ from typing import Iterable
 
 from api import config
 from api import dataset_db
+from api import runtime
 from api.models import DatasetConfig
 
 
@@ -68,6 +69,9 @@ def list_datasets() -> list[dict]:
             data = dict(data)
             data.setdefault("metadata_source", "none")
             data["has_metadata_xlsx"] = (entry / "metadata.xlsx").exists()
+            job = runtime.get_job_manager().get_state(dataset_id)
+            if job:
+                data["job"] = job
             datasets.append(data)
         except Exception:
             logging.exception("Failed to read dataset.json for %s", dataset_id)

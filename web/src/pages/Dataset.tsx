@@ -45,6 +45,19 @@ export default function DatasetPage() {
   const [seedError, setSeedError] = useState<string | null>(null)
   const [seeding, setSeeding] = useState(false)
 
+  const statusValue = dataset?.status
+  const isPending =
+    statusValue === 'created' || statusValue === 'uploaded' || statusValue === 'processing'
+  const isReady = statusValue === 'ready'
+  const statusLabel = isPending ? 'pending' : statusValue || '-'
+  const showEmbeddingProgress =
+    isPending &&
+    dataset?.job?.stage === 'embeddings' &&
+    typeof dataset?.job?.progress === 'number'
+  const embeddingProgress = showEmbeddingProgress
+    ? Math.round((dataset?.job?.progress ?? 0) * 100)
+    : 0
+
   useEffect(() => {
     if (id) setActiveDatasetId(id)
   }, [id, setActiveDatasetId])
@@ -83,7 +96,9 @@ export default function DatasetPage() {
   }, [id])
 
   const canSeed =
-    !!dataset?.has_metadata_xlsx && (dataset?.metadata_source || 'none') !== 'none'
+    isReady &&
+    !!dataset?.has_metadata_xlsx &&
+    (dataset?.metadata_source || 'none') !== 'none'
 
   const handleSeed = async () => {
     if (!id || !canSeed) return
@@ -118,16 +133,29 @@ export default function DatasetPage() {
           <div className="flex gap-2">
             {id && (
               <>
-                <Link to={`/dataset/${id}/canvas`}>
-                  <Button variant="secondary" size="sm">
-                    Canvas
-                  </Button>
-                </Link>
-                <Link to={`/dataset/${id}/street-view`}>
-                  <Button variant="secondary" size="sm">
-                    Street View
-                  </Button>
-                </Link>
+                {isReady ? (
+                  <>
+                    <Link to={`/dataset/${id}/canvas`}>
+                      <Button variant="secondary" size="sm">
+                        Canvas
+                      </Button>
+                    </Link>
+                    <Link to={`/dataset/${id}/street-view`}>
+                      <Button variant="secondary" size="sm">
+                        Street View
+                      </Button>
+                    </Link>
+                  </>
+                ) : (
+                  <>
+                    <Button variant="secondary" size="sm" disabled>
+                      Canvas
+                    </Button>
+                    <Button variant="secondary" size="sm" disabled>
+                      Street View
+                    </Button>
+                  </>
+                )}
               </>
             )}
           </div>
@@ -153,7 +181,7 @@ export default function DatasetPage() {
                 </div>
                 <div>
                   <div className="text-white/50">Status</div>
-                  <div>{dataset.status || '-'}</div>
+                  <div>{statusLabel}</div>
                 </div>
                 <div>
                   <div className="text-white/50">Antal bilder</div>
@@ -183,6 +211,23 @@ export default function DatasetPage() {
                   <div className="sm:col-span-2">
                     <div className="text-white/50">Fel</div>
                     <div className="text-red-300">{dataset.error}</div>
+                  </div>
+                )}
+                {isPending && (
+                  <div className="sm:col-span-2 rounded-xl border border-white/10 bg-white/5 p-3 text-xs text-white/70">
+                    Datasetet bearbetas. Canvas och Street View blir tillgängliga när
+                    statusen är klar.
+                    {showEmbeddingProgress && (
+                      <div className="mt-3">
+                        <div>Embeddings {embeddingProgress}%</div>
+                        <div className="mt-2 h-2 w-full rounded-full bg-white/10">
+                          <div
+                            className="h-2 rounded-full bg-amber-400"
+                            style={{ width: `${embeddingProgress}%` }}
+                          />
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

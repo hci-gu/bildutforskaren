@@ -21,6 +21,9 @@ function IndexPage() {
   const [zipFile, setZipFile] = useState<File | null>(null)
   const [uploadStatus, setUploadStatus] = useState<string | null>(null)
   const [uploading, setUploading] = useState(false)
+  const [uploadPhase, setUploadPhase] = useState<'idle' | 'creating' | 'uploading'>(
+    'idle'
+  )
 
   const canCreate = newDatasetName.trim().length > 0 && !!zipFile && !uploading
 
@@ -29,6 +32,7 @@ function IndexPage() {
     if (!name || !zipFile) return
 
     setUploading(true)
+    setUploadPhase('creating')
     setUploadStatus(null)
 
     try {
@@ -51,6 +55,8 @@ function IndexPage() {
 
       setDatasetId(newId)
       bumpDatasetsRevision((v) => v + 1)
+      setUploadPhase('uploading')
+      setUploadStatus('Dataset created. Uploading images…')
 
       // 2) Upload zip
       const formData = new FormData()
@@ -78,6 +84,7 @@ function IndexPage() {
       setUploadStatus(String(e))
     } finally {
       setUploading(false)
+      setUploadPhase('idle')
     }
   }
 
@@ -85,8 +92,25 @@ function IndexPage() {
     datasetsLoadable.state === 'hasData' ? (datasetsLoadable.data as any[]) : []
 
   return (
-    <div className="min-h-svh">
-      <div className="mx-auto flex w-full max-w-6xl flex-col gap-10 px-6 pb-16 pt-12">
+    <div className="relative min-h-svh">
+      {uploading && (
+        <div className="absolute inset-0 z-20 flex items-center justify-center bg-slate-950/50 backdrop-blur-sm">
+          <div className="glass-panel flex items-center gap-4 rounded-2xl px-6 py-4 text-slate-100">
+            <span className="h-5 w-5 animate-spin rounded-full border-2 border-slate-200 border-t-transparent" />
+            <div className="text-sm">
+              {uploadPhase === 'creating'
+                ? 'Skapar dataset…'
+                : 'Laddar upp bilder…'}
+            </div>
+          </div>
+        </div>
+      )}
+      <div
+        className={`mx-auto flex w-full max-w-6xl flex-col gap-10 px-6 pb-16 pt-12 ${
+          uploading ? 'pointer-events-none opacity-60' : ''
+        }`}
+        aria-busy={uploading}
+      >
         <header className="glass-panel flex flex-col gap-6 rounded-2xl p-8 shadow-lg shadow-black/20">
           <div className="flex flex-wrap items-center justify-between gap-6">
             <div>
@@ -128,6 +152,7 @@ function IndexPage() {
                   placeholder="My dataset"
                   value={newDatasetName}
                   onChange={(e) => setNewDatasetName(e.target.value)}
+                  disabled={uploading}
                 />
               </div>
 
@@ -140,6 +165,7 @@ function IndexPage() {
                   type="file"
                   accept=".zip"
                   onChange={(e) => setZipFile(e.target.files?.[0] ?? null)}
+                  disabled={uploading}
                 />
               </div>
             </div>
@@ -201,6 +227,17 @@ function IndexPage() {
               {datasets.map((dataset) => {
                 const isActive = datasetId === dataset.dataset_id
                 const label = dataset.name ?? dataset.dataset_id
+                const status = dataset.status ?? 'unknown'
+                const isPending = ['created', 'uploaded', 'processing'].includes(status)
+                const isError = status === 'error'
+                const job = dataset.job
+                const showEmbeddingProgress =
+                  isPending &&
+                  job?.stage === 'embeddings' &&
+                  typeof job?.progress === 'number'
+                const progressPct = showEmbeddingProgress
+                  ? Math.round(job.progress * 100)
+                  : 0
                 return (
                   <button
                     key={dataset.dataset_id}
@@ -215,14 +252,35 @@ function IndexPage() {
                       navigate(`/datset/${dataset.dataset_id}`)
                     }}
                   >
-                    <div>
+                    <div className="min-w-0 flex-1">
                       <div className="text-sm font-semibold">{label}</div>
                       <div className="text-xs text-slate-400">
                         {dataset.dataset_id}
                       </div>
+                      {showEmbeddingProgress && (
+                        <div className="mt-2">
+                          <div className="text-[11px] text-slate-400">
+                            Embeddings {progressPct}%
+                          </div>
+                          <div className="mt-1 h-1 w-full rounded-full bg-white/10">
+                            <div
+                              className="h-1 rounded-full bg-amber-400"
+                              style={{ width: `${progressPct}%` }}
+                            />
+                          </div>
+                        </div>
+                      )}
                     </div>
-                    <span className="text-xs uppercase tracking-[0.2em] text-slate-400">
-                      Open
+                    <span
+                      className={`text-xs uppercase tracking-[0.2em] ${
+                        isPending
+                          ? 'text-amber-300'
+                          : isError
+                          ? 'text-rose-300'
+                          : 'text-slate-400'
+                      }`}
+                    >
+                      {isPending ? 'Pending' : isError ? 'Error' : 'Open'}
                     </span>
                   </button>
                 )

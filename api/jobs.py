@@ -77,7 +77,19 @@ def process_uploaded_dataset(dataset_id: str) -> None:
         runtime.get_context_cache().invalidate(dataset_id)
 
         # Build caches (embeddings/PCA/FAISS)
-        ctx = context.build_context(cfg)
+        _set_job_state(dataset_id, stage="embeddings", progress=0, processed=0)
+
+        def _embedding_progress(done: int, total: int) -> None:
+            if total <= 0:
+                return
+            _set_job_state(
+                dataset_id,
+                stage="embeddings",
+                progress=min(1.0, done / total),
+                processed=done,
+            )
+
+        ctx = context.build_context(cfg, progress_cb=_embedding_progress)
 
         _set_job_state(dataset_id, stage="atlas", progress=0)
         atlas.ensure_atlas(cfg, ctx.image_paths)

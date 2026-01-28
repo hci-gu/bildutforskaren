@@ -4,6 +4,7 @@ import logging
 import pickle
 import re
 
+from typing import Callable
 from api.models import DatasetConfig, DatasetContext
 from api import indexing
 from api import clip_service
@@ -137,7 +138,11 @@ def seed_metadata_keywords(
         conn.close()
 
 
-def build_context(cfg: DatasetConfig) -> DatasetContext:
+def build_context(
+    cfg: DatasetConfig,
+    *,
+    progress_cb: Callable[[int, int], None] | None = None,
+) -> DatasetContext:
     logging.info("Loading dataset %s", cfg.dataset_id)
 
     image_paths = indexing.collect_image_paths(cfg.thumb_root)
@@ -168,13 +173,15 @@ def build_context(cfg: DatasetConfig) -> DatasetContext:
 
     if cached_paths == [str(p) for p in image_paths] and embeddings is not None:
         logging.info("Using cached embeddings for dataset %s", cfg.dataset_id)
+        if progress_cb is not None:
+            progress_cb(len(image_paths), len(image_paths))
     else:
         if cached_paths is None:
             logging.info("No cache present — embedding images for dataset %s …", cfg.dataset_id)
         else:
             logging.info("Image set changed — re-embedding dataset %s …", cfg.dataset_id)
 
-        embeddings = clip_service.embed_images(image_paths)
+        embeddings = clip_service.embed_images(image_paths, progress_cb=progress_cb)
         indexing.save_cache(cfg.cache_file, embeddings, image_paths)
 
     pca_embeddings_np = indexing.get_or_build_pca_embeddings(cfg, embeddings, image_paths)
