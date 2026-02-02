@@ -886,6 +886,106 @@ def suggested_images_for_tags_multi(dataset_id: str):
         conn.close()
 
 
+@bp.route("/datasets/<dataset_id>/tags/suggestions-steered", methods=["POST"])
+def suggested_images_for_tags_steered(dataset_id: str):
+    conn, _, db_path = _get_dataset_db(dataset_id)
+    if conn is None:
+        return jsonify({"error": f"Dataset DB not found at {db_path}"}), 409
+
+    data = request.get_json(silent=True) or {}
+    labels = data.get("labels") or []
+    seed_image_ids = data.get("seed_image_ids") or []
+    blend_alpha = data.get("blend_alpha")
+    try:
+        limit = int(data.get("limit", 24))
+    except (TypeError, ValueError):
+        limit = 24
+    limit = max(1, min(limit, 1000))
+
+    if not isinstance(labels, list) or any(not isinstance(l, str) for l in labels):
+        conn.close()
+        return jsonify({"error": "'labels' must be a list of strings"}), 400
+    if not isinstance(seed_image_ids, list) or any(
+        not isinstance(i, int) for i in seed_image_ids
+    ):
+        conn.close()
+        return jsonify({"error": "'seed_image_ids' must be a list of integers"}), 400
+
+    try:
+        tag_ids = _resolve_existing_tag_ids(conn, labels) if labels else []
+        alpha: float | None = None
+        if blend_alpha is not None:
+            try:
+                alpha = float(blend_alpha)
+            except (TypeError, ValueError):
+                alpha = None
+        if alpha is not None:
+            alpha = max(0.0, min(2.0, alpha))
+        tagged_ids: list[int] = []
+        if tag_ids:
+            placeholders = ",".join("?" for _ in tag_ids)
+            rows = conn.execute(
+                f"""
+                SELECT image_id
+                FROM image_tags
+                WHERE tag_id IN ({placeholders})
+                GROUP BY image_id
+                HAVING COUNT(DISTINCT tag_id) = ?
+                """,
+                (*tag_ids, len(tag_ids)),
+            ).fetchall()
+            tagged_ids = [int(r["image_id"]) for r in rows]
+            if not tagged_ids and alpha is not None:
+                rows = conn.execute(
+                    f"""
+                    SELECT DISTINCT image_id
+                    FROM image_tags
+                    WHERE tag_id IN ({placeholders})
+                    """,
+                    tuple(tag_ids),
+                ).fetchall()
+                tagged_ids = [int(r["image_id"]) for r in rows]
+
+        ctx = _get_context(dataset_id)
+        valid_seed_ids = [
+            int(i)
+            for i in seed_image_ids
+            if 0 <= int(i) < len(ctx.embeddings)
+        ]
+        if not valid_seed_ids:
+            return jsonify({"labels": labels, "tag_ids": tag_ids, "image_ids": []})
+
+        seed_vecs = ctx.embeddings[valid_seed_ids].cpu().numpy().astype("float32")
+        mean_vec = seed_vecs.mean(axis=0)
+
+        if alpha is not None and tagged_ids:
+            tagged_vecs = ctx.embeddings[tagged_ids].cpu().numpy().astype("float32")
+            tagged_mean = tagged_vecs.mean(axis=0)
+            mean_vec = (1 - alpha) * tagged_mean + alpha * mean_vec
+        norm = float((mean_vec * mean_vec).sum()) ** 0.5
+        if norm > 1e-12:
+            mean_vec = mean_vec / norm
+
+        k = min(len(ctx.image_paths), max(limit * 5, limit))
+        D, I = ctx.faiss_index.search(mean_vec.reshape(1, -1), k)
+
+        exclude = set(tagged_ids)
+        exclude.update(valid_seed_ids)
+        results: list[int] = []
+        for idx in I[0].tolist():
+            if idx == -1:
+                continue
+            if idx in exclude:
+                continue
+            results.append(int(idx))
+            if len(results) >= limit:
+                break
+
+        return jsonify({"labels": labels, "tag_ids": tag_ids, "image_ids": results})
+    finally:
+        conn.close()
+
+
 @bp.route("/datasets/<dataset_id>/tags/assign", methods=["POST", "OPTIONS"])
 def assign_tag_to_images(dataset_id: str):
     if request.method == "OPTIONS":

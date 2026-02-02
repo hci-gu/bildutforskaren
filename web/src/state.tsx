@@ -871,6 +871,15 @@ export type SelectedEmbedding = {
 export const selectedEmbeddingAtom = atom<SelectedEmbedding | null>(null)
 export const selectedEmbeddingIdsAtom = atom<string[]>([])
 export const selectedTagsAtom = atom<string[]>([])
+export const steerSuggestionsAtom = atom(false)
+export const steerTaggedIdsAtom = atom<number[]>([])
+export const steerSuggestedIdsAtom = atom<number[]>([])
+export const steerTargetPointAtom = atom<{ x: number; y: number } | null>(null)
+export const steerSeedIdsAtom = atom<number[]>([])
+export const steerSuggestedResultsAtom = atom<number[] | null>(null)
+export const steerSeedCountAtom = atom(32)
+export const steerRadiusAtom = atom<number | null>(null)
+export const steerBlendAlphaAtom = atom(0.7)
 
 export const embeddingAtom = atomFamily((id: string) =>
   atom(async (get) => {

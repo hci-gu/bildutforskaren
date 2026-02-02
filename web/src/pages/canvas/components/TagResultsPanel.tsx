@@ -1,13 +1,23 @@
 import { useEffect, useRef, useState } from 'react'
 import type { MouseEvent } from 'react'
 import { PhotoView } from 'react-photo-view'
-import { useAtomValue, useSetAtom } from 'jotai'
+import { useAtom, useAtomValue, useSetAtom } from 'jotai'
 import {
   activeDatasetIdAtom,
   datasetApiUrl,
+  projectionSettingsAtom,
   projectionRevisionAtom,
   selectedTagsAtom,
   selectedEmbeddingAtom,
+  steerBlendAlphaAtom,
+  steerSuggestionsAtom,
+  steerSuggestedResultsAtom,
+  steerSuggestedIdsAtom,
+  steerTaggedIdsAtom,
+  steerSeedCountAtom,
+  steerSeedIdsAtom,
+  steerRadiusAtom,
+  steerTargetPointAtom,
   tagRefreshTriggerAtom,
   taggedImagesRevisionAtom,
 } from '@/state'
@@ -31,11 +41,26 @@ export const TagResultsPanel = () => {
   const selectedTags = useAtomValue(selectedTagsAtom)
   const selectedEmbedding = useAtomValue(selectedEmbeddingAtom)
   const tagRefreshTrigger = useAtomValue(tagRefreshTriggerAtom)
+  const [projectionSettings, setProjectionSettings] = useAtom(
+    projectionSettingsAtom
+  )
+  const [steerSuggestions, setSteerSuggestions] = useAtom(steerSuggestionsAtom)
+  const [steerSuggestedResults, setSteerSuggestedResults] = useAtom(
+    steerSuggestedResultsAtom
+  )
+  const [steerSeedCount, setSteerSeedCount] = useAtom(steerSeedCountAtom)
+  const [steerRadius, setSteerRadius] = useAtom(steerRadiusAtom)
+  const [steerBlendAlpha, setSteerBlendAlpha] = useAtom(steerBlendAlphaAtom)
   const setSelectedTags = useSetAtom(selectedTagsAtom)
   const setSelectedEmbedding = useSetAtom(selectedEmbeddingAtom)
   const bumpTaggedRevision = useSetAtom(taggedImagesRevisionAtom)
   const bumpProjectionRevision = useSetAtom(projectionRevisionAtom)
   const bumpTagRefreshTrigger = useSetAtom(tagRefreshTriggerAtom)
+  const setSteerTaggedIds = useSetAtom(steerTaggedIdsAtom)
+  const setSteerSuggestedIds = useSetAtom(steerSuggestedIdsAtom)
+  const steerSeedIds = useAtomValue(steerSeedIdsAtom)
+  const setSteerSeedIds = useSetAtom(steerSeedIdsAtom)
+  const setSteerTargetPoint = useSetAtom(steerTargetPointAtom)
 
   const [loading, setLoading] = useState(false)
   const [imageIds, setImageIds] = useState<number[]>([])
@@ -45,6 +70,7 @@ export const TagResultsPanel = () => {
   const [showRefresh, setShowRefresh] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<'tagged' | 'suggested'>('tagged')
+  const previousProjectionTypeRef = useRef<string | null>(null)
 
   useEffect(() => {
     if (!tagRefreshTrigger) return
@@ -78,26 +104,54 @@ export const TagResultsPanel = () => {
       setLoading(true)
       setError(null)
       try {
-        const [res, suggestRes] = await Promise.all([
-          fetch(datasetApiUrl(datasetId, `/tags/images-multi`), {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ labels: selectedTags }),
-          }),
-          fetch(datasetApiUrl(datasetId, `/tags/suggestions-multi`), {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ labels: selectedTags, limit: 24 }),
-          }),
-        ])
+        const res = await fetch(datasetApiUrl(datasetId, `/tags/images-multi`), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ labels: selectedTags }),
+        })
+        let suggestRes: Response | null = null
+        if (steerSuggestions && steerSeedIds.length > 0) {
+          suggestRes = await fetch(
+            datasetApiUrl(datasetId, `/tags/suggestions-steered`),
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                labels: selectedTags,
+                seed_image_ids: steerSeedIds,
+                blend_alpha: steerBlendAlpha,
+                limit: 24,
+              }),
+            }
+          )
+        } else {
+          suggestRes = await fetch(
+            datasetApiUrl(datasetId, `/tags/suggestions-multi`),
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ labels: selectedTags, limit: 24 }),
+            }
+          )
+        }
         if (!res.ok) throw new Error('Failed to fetch images for tag')
         const data = (await res.json()) as TagImagesResponse
         if (!cancelled) setImageIds(data.image_ids || [])
-        if (suggestRes.ok) {
+        if (suggestRes && suggestRes.ok) {
           const suggestData = (await suggestRes.json()) as TagImagesResponse
-          if (!cancelled) setSuggestedIds(suggestData.image_ids || [])
+          if (!cancelled) {
+            setSuggestedIds(suggestData.image_ids || [])
+            if (steerSuggestions) {
+              setSteerSuggestedResults(suggestData.image_ids || [])
+            } else if (steerSuggestedResults) {
+              setSteerSuggestedResults(null)
+            }
+          }
         } else if (!cancelled) {
           setSuggestedIds([])
+          if (steerSuggestions) {
+            setSteerSuggestedResults([])
+          }
         }
         if (!cancelled) {
           setActiveTab((prev) => {
@@ -118,9 +172,63 @@ export const TagResultsPanel = () => {
     return () => {
       cancelled = true
     }
-  }, [datasetId, selectedTags, refreshKey])
+  }, [
+    datasetId,
+    refreshKey,
+    selectedTags,
+    steerBlendAlpha,
+    steerSeedIds,
+    steerSuggestions,
+    setSteerSuggestedResults,
+  ])
+
+  useEffect(() => {
+    setSteerTaggedIds(imageIds)
+  }, [imageIds, setSteerTaggedIds])
+
+  useEffect(() => {
+    if (steerSuggestions && steerSuggestedResults) {
+      setSteerSuggestedIds(steerSuggestedResults)
+      return
+    }
+    setSteerSuggestedIds(suggestedIds)
+  }, [
+    setSteerSuggestedIds,
+    steerSuggestedResults,
+    steerSuggestions,
+    suggestedIds,
+  ])
+
+  useEffect(() => {
+    return () => {
+      if (previousProjectionTypeRef.current) {
+        const previous = previousProjectionTypeRef.current
+        previousProjectionTypeRef.current = null
+        setProjectionSettings((current) => ({
+          ...current,
+          type: previous,
+        }))
+      }
+      setSteerSuggestions(false)
+      setSteerTaggedIds([])
+      setSteerSuggestedIds([])
+      setSteerSeedIds([])
+      setSteerTargetPoint(null)
+      setSteerSuggestedResults(null)
+    }
+  }, [
+    setProjectionSettings,
+    setSteerSeedIds,
+    setSteerSuggestedResults,
+    setSteerSuggestions,
+    setSteerTargetPoint,
+    setSteerTaggedIds,
+    setSteerSuggestedIds,
+  ])
 
   if (!datasetId || selectedTags.length === 0) return null
+  const effectiveSuggestedIds =
+    steerSuggestions && steerSuggestedResults ? steerSuggestedResults : suggestedIds
 
   const toggleSuggested = (id: number) => {
     setSelectedSuggested((prev) => {
@@ -210,6 +318,37 @@ export const TagResultsPanel = () => {
     openImage(id)
   }
 
+  const toggleSteerSuggestions = () => {
+    setSteerSuggestions((prev) => {
+      const next = !prev
+      if (next) {
+        if (!previousProjectionTypeRef.current) {
+          previousProjectionTypeRef.current = projectionSettings.type
+        }
+        setProjectionSettings((current) => ({
+          ...current,
+          type: 'umap',
+        }))
+        setSteerSeedIds([])
+        setSteerTargetPoint(null)
+        setSteerSuggestedResults(null)
+      } else {
+        if (previousProjectionTypeRef.current) {
+          const previous = previousProjectionTypeRef.current
+          previousProjectionTypeRef.current = null
+          setProjectionSettings((current) => ({
+            ...current,
+            type: previous,
+          }))
+        }
+        setSteerSeedIds([])
+        setSteerTargetPoint(null)
+        setSteerSuggestedResults(null)
+      }
+      return next
+    })
+  }
+
   return (
     <Card
       className="glass-panel fixed inset-y-0 right-0 z-10000 w-[32rem] text-white shadow-xl"
@@ -239,16 +378,17 @@ export const TagResultsPanel = () => {
         {!loading && !error && imageIds.length === 0 && (
           <div className="text-xs text-white/60">Inga bilder för denna tagg.</div>
         )}
-        <div className="flex items-center gap-2 text-xs">
-          <button
-            type="button"
-            onClick={() => setActiveTab('tagged')}
-            className={`rounded-full px-3 py-1 ${
-              activeTab === 'tagged'
-                ? 'bg-white text-black'
-                : 'border border-white/20 text-white/70'
-            }`}
-          >
+        <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setActiveTab('tagged')}
+              className={`rounded-full px-3 py-1 ${
+                activeTab === 'tagged'
+                  ? 'bg-white text-black'
+                  : 'border border-white/20 text-white/70'
+              }`}
+            >
             Taggade ({imageIds.length})
           </button>
           <button
@@ -260,9 +400,78 @@ export const TagResultsPanel = () => {
                 : 'border border-white/20 text-white/70'
             }`}
           >
-            Förslag
+            Förslag ({effectiveSuggestedIds.length})
           </button>
         </div>
+          <button
+            type="button"
+            onClick={toggleSteerSuggestions}
+            className={`rounded-full px-3 py-1 ${
+              steerSuggestions
+                ? 'bg-emerald-300 text-black'
+                : 'border border-white/20 text-white/70'
+            }`}
+          >
+            Styr förslag
+          </button>
+        </div>
+        {steerSuggestions && (
+          <div className="space-y-2 text-[11px] text-white/60">
+            <div>Visar UMAP: taggade i grönt, förslag i gult.</div>
+            <div className="space-y-1">
+              <label className="block text-[10px] uppercase tracking-wide text-white/50">
+                Seed count
+              </label>
+              <input
+                type="range"
+                min={4}
+                max={128}
+                step={4}
+                value={steerSeedCount}
+                onChange={(e) => setSteerSeedCount(Number(e.target.value))}
+                className="w-full accent-emerald-300"
+              />
+              <div className="text-[10px] text-white/50">{steerSeedCount}</div>
+            </div>
+            <div className="space-y-1">
+              <label className="block text-[10px] uppercase tracking-wide text-white/50">
+                Radius (UMAP)
+              </label>
+              <input
+                type="range"
+                min={0}
+                max={10}
+                step={0.1}
+                value={steerRadius ?? 0}
+                onChange={(e) => {
+                  const next = Number(e.target.value)
+                  setSteerRadius(next <= 0 ? null : next)
+                }}
+                className="w-full accent-emerald-300"
+              />
+              <div className="text-[10px] text-white/50">
+                {steerRadius ? steerRadius.toFixed(1) : 'off'}
+              </div>
+            </div>
+            <div className="space-y-1">
+              <label className="block text-[10px] uppercase tracking-wide text-white/50">
+                Blend α
+              </label>
+              <input
+                type="range"
+                min={0}
+                max={2}
+                step={0.05}
+                value={steerBlendAlpha}
+                onChange={(e) => setSteerBlendAlpha(Number(e.target.value))}
+                className="w-full accent-emerald-300"
+              />
+              <div className="text-[10px] text-white/50">
+                {steerBlendAlpha.toFixed(2)} (0=tag mean, 1=centroid, 2=push)
+              </div>
+            </div>
+          </div>
+        )}
         <div className="text-[11px] text-white/50">
           Högerklicka på en bild för att visa i helskärm.
         </div>
@@ -294,7 +503,7 @@ export const TagResultsPanel = () => {
           )}
           {activeTab === 'suggested' && (
             <div className="grid grid-cols-2 gap-3 pr-2">
-              {suggestedIds.map((id) => {
+              {effectiveSuggestedIds.map((id) => {
                 const selected = selectedSuggested.has(id)
                 return (
                   <button
@@ -324,7 +533,7 @@ export const TagResultsPanel = () => {
                   </button>
                 )
               })}
-              {suggestedIds.length === 0 && (
+              {effectiveSuggestedIds.length === 0 && (
                 <div className="text-xs text-white/60">Inga förslag.</div>
               )}
             </div>

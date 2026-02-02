@@ -157,6 +157,7 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
   useEffect(() => {
     const viewport = viewportRef.current
     if (!viewport) return
+    state.viewport = viewport
     if (typeof (viewport as any).resize === 'function') {
       ;(viewport as any).resize(
         windowSize.width,
@@ -169,6 +170,17 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
       viewport.screenHeight = windowSize.height
     }
   }, [windowSize.width, windowSize.height, width, height])
+
+  useEffect(() => {
+    const viewport = viewportRef.current
+    if (!viewport) return
+    state.viewport = viewport
+    return () => {
+      if (state.viewport === viewport) {
+        state.viewport = null
+      }
+    }
+  }, [])
 
   useEffect(() => {
     const viewport = viewportRef.current

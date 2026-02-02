@@ -14,7 +14,7 @@ spec:
     spec:
       containers:
         - name: bildutforskaren
-          image: 'registry.k8s.gu.se/appademin/bildutforskaren:0.0.11'
+          image: 'registry.k8s.gu.se/appademin/bildutforskaren:0.1.1'
           ports:
             - containerPort: 8080
               name: web
