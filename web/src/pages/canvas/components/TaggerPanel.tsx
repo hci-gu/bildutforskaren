@@ -6,6 +6,7 @@ import {
   datasetApiUrl,
   selectedEmbeddingAtom,
   selectedEmbeddingIdsAtom,
+  tagRefreshTriggerAtom,
   taggedImagesRevisionAtom,
 } from '@/state'
 import {
@@ -50,6 +51,7 @@ export const TaggerPanel = ({
   const selectedEmbedding = useAtomValue<any>(selectedEmbeddingAtom)
   const selectedEmbeddingIds = useAtomValue(selectedEmbeddingIdsAtom)
   const bumpTaggedRevision = useSetAtom(taggedImagesRevisionAtom)
+  const bumpTagRefreshTrigger = useSetAtom(tagRefreshTriggerAtom)
 
   const imageId = useMemo(() => {
     if (selectedEmbedding?.id !== undefined && selectedEmbedding?.id !== null) {
@@ -180,6 +182,7 @@ export const TaggerPanel = ({
       setSuggestions([])
       setRefreshKey((v) => v + 1)
       bumpTaggedRevision((v) => v + 1)
+      bumpTagRefreshTrigger((v) => v + 1)
     } catch (err) {
       setError('Kunde inte lägga till tagg.')
     } finally {
@@ -202,6 +205,7 @@ export const TaggerPanel = ({
       if (!res.ok) throw new Error('Failed to remove tag')
       setRefreshKey((v) => v + 1)
       bumpTaggedRevision((v) => v + 1)
+      bumpTagRefreshTrigger((v) => v + 1)
     } catch (err) {
       setError('Kunde inte ta bort tagg.')
     } finally {

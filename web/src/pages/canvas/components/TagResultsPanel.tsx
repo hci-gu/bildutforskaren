@@ -1,11 +1,15 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import type { MouseEvent } from 'react'
 import { PhotoView } from 'react-photo-view'
 import { useAtomValue, useSetAtom } from 'jotai'
 import {
   activeDatasetIdAtom,
   datasetApiUrl,
+  projectionRevisionAtom,
   selectedTagsAtom,
   selectedEmbeddingAtom,
+  tagRefreshTriggerAtom,
+  taggedImagesRevisionAtom,
 } from '@/state'
 import {
   Card,
@@ -21,18 +25,46 @@ type TagImagesResponse = {
 }
 
 export const TagResultsPanel = () => {
+  const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const refreshUntilRef = useRef(0)
   const datasetId = useAtomValue(activeDatasetIdAtom)
   const selectedTags = useAtomValue(selectedTagsAtom)
+  const selectedEmbedding = useAtomValue(selectedEmbeddingAtom)
+  const tagRefreshTrigger = useAtomValue(tagRefreshTriggerAtom)
   const setSelectedTags = useSetAtom(selectedTagsAtom)
   const setSelectedEmbedding = useSetAtom(selectedEmbeddingAtom)
+  const bumpTaggedRevision = useSetAtom(taggedImagesRevisionAtom)
+  const bumpProjectionRevision = useSetAtom(projectionRevisionAtom)
+  const bumpTagRefreshTrigger = useSetAtom(tagRefreshTriggerAtom)
 
   const [loading, setLoading] = useState(false)
   const [imageIds, setImageIds] = useState<number[]>([])
   const [suggestedIds, setSuggestedIds] = useState<number[]>([])
   const [selectedSuggested, setSelectedSuggested] = useState<Set<number>>(new Set())
   const [refreshKey, setRefreshKey] = useState(0)
+  const [showRefresh, setShowRefresh] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<'tagged' | 'suggested'>('tagged')
+
+  useEffect(() => {
+    if (!tagRefreshTrigger) return
+    const minDurationMs = 1200
+    const now = Date.now()
+    refreshUntilRef.current = Math.max(refreshUntilRef.current, now + minDurationMs)
+    setShowRefresh(true)
+    if (refreshTimerRef.current) {
+      clearTimeout(refreshTimerRef.current)
+    }
+    const remaining = Math.max(0, refreshUntilRef.current - Date.now())
+    refreshTimerRef.current = setTimeout(() => {
+      setShowRefresh(false)
+    }, remaining)
+    return () => {
+      if (refreshTimerRef.current) {
+        clearTimeout(refreshTimerRef.current)
+      }
+    }
+  }, [tagRefreshTrigger])
 
   useEffect(() => {
     if (!datasetId || selectedTags.length === 0) {
@@ -102,6 +134,21 @@ export const TagResultsPanel = () => {
     })
   }
 
+  const refreshSelectedEmbeddingMeta = async (id: number) => {
+    if (!datasetId) return
+    try {
+      const res = await fetch(
+        datasetApiUrl(datasetId, `/metadata/${encodeURIComponent(String(id))}`)
+      )
+      if (res.ok) {
+        const meta = await res.json()
+        setSelectedEmbedding({ id, meta })
+      }
+    } catch (err) {
+      // Ignore metadata fetch errors.
+    }
+  }
+
   const addSelectedToTag = async () => {
     if (!datasetId || selectedTags.length === 0 || selectedSuggested.size === 0)
       return
@@ -123,8 +170,17 @@ export const TagResultsPanel = () => {
       if (!resAssign.ok) {
         throw new Error('Failed to assign tags')
       }
+      bumpTaggedRevision((v) => v + 1)
+      bumpProjectionRevision((v) => v + 1)
+      bumpTagRefreshTrigger((v) => v + 1)
       setSelectedSuggested(new Set())
       setRefreshKey((v) => v + 1)
+      if (
+        selectedEmbedding &&
+        selectedSuggested.has(Number(selectedEmbedding.id))
+      ) {
+        await refreshSelectedEmbeddingMeta(Number(selectedEmbedding.id))
+      }
     } catch (err) {
       setError('Kunde inte lägga till taggar.')
     } finally {
@@ -146,6 +202,12 @@ export const TagResultsPanel = () => {
     } catch (err) {
       // Ignore metadata fetch errors.
     }
+  }
+
+  const handleSuggestedContextMenu = (event: MouseEvent, id: number) => {
+    event.preventDefault()
+    event.stopPropagation()
+    openImage(id)
   }
 
   return (
@@ -201,6 +263,15 @@ export const TagResultsPanel = () => {
             Förslag
           </button>
         </div>
+        <div className="text-[11px] text-white/50">
+          Högerklicka på en bild för att visa i helskärm.
+        </div>
+        {showRefresh && (
+          <div className="flex items-center gap-2 text-[11px] text-white/60">
+            <span className="inline-block h-3 w-3 animate-spin rounded-full border border-white/40 border-t-transparent" />
+            Uppdaterar…
+          </div>
+        )}
         <div className="flex-1 overflow-auto pr-1 pb-24">
           {activeTab === 'tagged' && (
             <div className="grid grid-cols-2 gap-3 pr-2">
@@ -230,22 +301,19 @@ export const TagResultsPanel = () => {
                     key={`suggested_${id}`}
                     type="button"
                     onClick={() => toggleSuggested(id)}
+                    onContextMenu={(event) =>
+                      handleSuggestedContextMenu(event, id)
+                    }
                     className={`relative h-44 w-full overflow-hidden rounded border ${
                       selected ? 'border-white' : 'border-white/10'
                     }`}
                   >
-                    <PhotoView src={datasetApiUrl(datasetId, `/original/${id}`)}>
-                      <img
-                        src={datasetApiUrl(datasetId, `/image/${id}`)}
-                        className={`h-full w-full object-cover ${
-                          selected ? 'opacity-100' : 'opacity-70'
-                        }`}
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          openImage(id)
-                        }}
-                      />
-                    </PhotoView>
+                    <img
+                      src={datasetApiUrl(datasetId, `/image/${id}`)}
+                      className={`h-full w-full object-cover ${
+                        selected ? 'opacity-100' : 'opacity-70'
+                      }`}
+                    />
                     {selected && (
                       <div className="absolute inset-0 bg-white/10">
                         <div className="absolute right-2 top-2 rounded-full bg-white/90 px-2 py-1 text-[10px] text-black">

@@ -9,7 +9,7 @@ import {
   projectionSettingsAtom,
   selectedEmbeddingAtom,
   selectedEmbeddingIdsAtom,
-  selectedTagsAtom,
+  tagRefreshTriggerAtom,
   viewportScaleAtom,
 } from '@/state'
 import { state } from './canvasState'
@@ -43,14 +43,18 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
   const selectionStart = useRef<PIXI.PointData | null>(null)
   const selectionActiveRef = useRef(false)
   const [selectionRect, setSelectionRect] = useState<PIXI.Rectangle | null>(null)
+  const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const refreshUntilRef = useRef(0)
 
   const setSelectedEmbedding = useSetAtom(selectedEmbeddingAtom)
   const setSelectedEmbeddingIds = useSetAtom(selectedEmbeddingIdsAtom)
-  const setSelectedTags = useSetAtom(selectedTagsAtom)
   const setViewportScale = useSetAtom(viewportScaleAtom)
 
   const projectionSettings = useAtomValue(projectionSettingsAtom)
   const projectionRevision = useAtomValue(projectionRevisionAtom)
+  const tagRefreshTrigger = useAtomValue(tagRefreshTriggerAtom)
+
+  const [showTagRefresh, setShowTagRefresh] = useState(false)
 
   const viewportRef = useRef<Viewport>(null)
 
@@ -79,6 +83,26 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
       setRawMinimapEmbeddings(minimapEmbeddingsLoadable.data as any[])
     }
   }, [minimapEmbeddingsLoadable])
+
+  useEffect(() => {
+    if (!tagRefreshTrigger) return
+    const minDurationMs = 1200
+    const now = Date.now()
+    refreshUntilRef.current = Math.max(refreshUntilRef.current, now + minDurationMs)
+    setShowTagRefresh(true)
+    if (refreshTimerRef.current) {
+      clearTimeout(refreshTimerRef.current)
+    }
+    const remaining = Math.max(0, refreshUntilRef.current - Date.now())
+    refreshTimerRef.current = setTimeout(() => {
+      setShowTagRefresh(false)
+    }, remaining)
+    return () => {
+      if (refreshTimerRef.current) {
+        clearTimeout(refreshTimerRef.current)
+      }
+    }
+  }, [tagRefreshTrigger])
 
   const isProjecting =
     mainEmbeddingsLoadable.state === 'loading' ||
@@ -252,6 +276,15 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
         <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/30 backdrop-blur-sm">
           <div className="glass-panel-strong rounded-xl px-5 py-3 text-sm text-white shadow-lg">
             Uppdaterar rummet...
+          </div>
+        </div>
+      )}
+
+      {showTagRefresh && !isProjecting && (
+        <div className="fixed top-6 left-1/2 z-[9998] -translate-x-1/2">
+          <div className="glass-panel-strong flex items-center gap-2 rounded-full px-4 py-2 text-xs text-white shadow-lg">
+            <span className="inline-block h-3 w-3 animate-spin rounded-full border border-white/40 border-t-transparent" />
+            Uppdaterar…
           </div>
         </div>
       )}

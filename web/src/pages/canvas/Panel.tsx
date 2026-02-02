@@ -9,10 +9,12 @@ import {
   projectionSettingsAtom,
   searchQueryAtom,
   searchSettingsAtom,
+  tagRefreshTriggerAtom,
+  taggedImagesRevisionAtom,
   textsAtom,
 } from '@/state'
 import { useAtom, useAtomValue } from 'jotai'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   Card,
   CardContent,
@@ -383,12 +385,17 @@ const TextPanel = () => {
 }
 
 const TaggedInfoPanel = () => {
+  const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const refreshUntilRef = useRef(0)
   const datasetId = useAtomValue(activeDatasetIdAtom)
+  const taggedRevision = useAtomValue(taggedImagesRevisionAtom)
+  const tagRefreshTrigger = useAtomValue(tagRefreshTriggerAtom)
   const [stats, setStats] = useState<{
     total_images: number
     tagged_images: number
     tagged_percent: number
   } | null>(null)
+  const [showRefresh, setShowRefresh] = useState(false)
 
   useEffect(() => {
     if (!datasetId) {
@@ -416,7 +423,27 @@ const TaggedInfoPanel = () => {
     return () => {
       cancelled = true
     }
-  }, [datasetId])
+  }, [datasetId, taggedRevision])
+
+  useEffect(() => {
+    if (!tagRefreshTrigger) return
+    const minDurationMs = 1200
+    const now = Date.now()
+    refreshUntilRef.current = Math.max(refreshUntilRef.current, now + minDurationMs)
+    setShowRefresh(true)
+    if (refreshTimerRef.current) {
+      clearTimeout(refreshTimerRef.current)
+    }
+    const remaining = Math.max(0, refreshUntilRef.current - Date.now())
+    refreshTimerRef.current = setTimeout(() => {
+      setShowRefresh(false)
+    }, remaining)
+    return () => {
+      if (refreshTimerRef.current) {
+        clearTimeout(refreshTimerRef.current)
+      }
+    }
+  }, [tagRefreshTrigger])
 
   return (
     <Card
@@ -427,6 +454,12 @@ const TaggedInfoPanel = () => {
         <div className="mb-2 text-xs font-semibold text-white/80">
           Datasetstatus
         </div>
+        {showRefresh && (
+          <div className="mb-2 flex items-center gap-2 text-[11px] text-white/60">
+            <span className="inline-block h-3 w-3 animate-spin rounded-full border border-white/40 border-t-transparent" />
+            Uppdaterar…
+          </div>
+        )}
         <div className="space-y-1 text-xs text-white/80">
           <div className="flex justify-between">
             <span>Antal bilder</span>

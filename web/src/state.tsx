@@ -1,15 +1,16 @@
 import { atom } from 'jotai'
 import { atomFamily, loadable } from 'jotai/utils'
 
-// export const API_URL = 'http://localhost:3000'
+export const API_URL = 'http://localhost:3000'
 // export const API_URL = 'https://bildutforskaren-api.prod.appadem.in'
-export const API_URL = 'http://130.241.23.169:3000'
+// export const API_URL = 'https://leviathan.itit.gu.se'
 
 export const activeDatasetIdAtom = atom<string | null>(null)
 
 export const datasetsRevisionAtom = atom(0)
 export const embeddingsRevisionAtom = atom(0)
 export const taggedImagesRevisionAtom = atom(0)
+export const tagRefreshTriggerAtom = atom(0)
 export const viewportScaleAtom = atom(1)
 
 export const datasetsAtom = atom(async (get) => {
@@ -128,11 +129,13 @@ export const saoTermsUmapAtom = atom(async () => {
     }
     const data = await response.json()
     const items = Array.isArray(data.items) ? data.items : []
-    const mapped = items.map((item: any, index: number) => ({
-      id: item.id ?? `sao_${index}`,
-      text: item.label,
-      point: item.point as [number, number],
-    }))
+    const mapped: SaoUmapData['items'] = items.map(
+      (item: any, index: number) => ({
+        id: item.id ?? `sao_${index}`,
+        text: item.label,
+        point: item.point as [number, number],
+      })
+    )
 
     if (mapped.length === 0) {
       return { items: [], bins: {} } as SaoUmapData
@@ -860,7 +863,12 @@ export const loadableProjectedEmbeddingsAtom = atomFamily((type: string) =>
   loadable(projectedEmbeddingsAtom(type))
 )
 
-export const selectedEmbeddingAtom = atom(null)
+export type SelectedEmbedding = {
+  id: number
+  meta: Record<string, unknown>
+}
+
+export const selectedEmbeddingAtom = atom<SelectedEmbedding | null>(null)
 export const selectedEmbeddingIdsAtom = atom<string[]>([])
 export const selectedTagsAtom = atom<string[]>([])
 
