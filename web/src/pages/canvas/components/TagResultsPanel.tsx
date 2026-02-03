@@ -34,6 +34,11 @@ type TagImagesResponse = {
   image_ids: number[]
 }
 
+type TagCooccurrenceResponse = {
+  labels: string[]
+  items: Array<{ label: string; count: number }>
+}
+
 export const TagResultsPanel = () => {
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const refreshUntilRef = useRef(0)
@@ -70,6 +75,10 @@ export const TagResultsPanel = () => {
   const [showRefresh, setShowRefresh] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<'tagged' | 'suggested'>('tagged')
+  const [cooccurrence, setCooccurrence] = useState<
+    Array<{ label: string; count: number }>
+  >([])
+  const [cooccurrenceLoading, setCooccurrenceLoading] = useState(false)
   const previousProjectionTypeRef = useRef<string | null>(null)
 
   useEffect(() => {
@@ -97,6 +106,7 @@ export const TagResultsPanel = () => {
       setImageIds([])
       setSuggestedIds([])
       setSelectedSuggested(new Set())
+      setCooccurrence([])
       return
     }
     let cancelled = false
@@ -181,6 +191,40 @@ export const TagResultsPanel = () => {
     steerSuggestions,
     setSteerSuggestedResults,
   ])
+
+  useEffect(() => {
+    if (!datasetId || selectedTags.length === 0) {
+      setCooccurrence([])
+      return
+    }
+    let cancelled = false
+    const load = async () => {
+      setCooccurrenceLoading(true)
+      try {
+        const res = await fetch(
+          datasetApiUrl(datasetId, `/tags/cooccurrence`),
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ labels: selectedTags, limit: 20 }),
+          }
+        )
+        if (!res.ok) throw new Error('Failed to fetch cooccurrence')
+        const data = (await res.json()) as TagCooccurrenceResponse
+        if (!cancelled) {
+          setCooccurrence(data.items || [])
+        }
+      } catch (err) {
+        if (!cancelled) setCooccurrence([])
+      } finally {
+        if (!cancelled) setCooccurrenceLoading(false)
+      }
+    }
+    load()
+    return () => {
+      cancelled = true
+    }
+  }, [datasetId, selectedTags, refreshKey])
 
   useEffect(() => {
     setSteerTaggedIds(imageIds)
@@ -375,6 +419,38 @@ export const TagResultsPanel = () => {
       <CardContent className="flex h-[calc(100vh-4rem)] flex-col space-y-3 overflow-hidden">
         {loading && <div className="text-xs text-white/60">Laddar...</div>}
         {error && <div className="text-xs text-red-300">{error}</div>}
+        <div className="space-y-2 rounded-lg border border-white/10 bg-white/5 p-2">
+          <div className="text-[11px] font-semibold text-white/70">
+            Förekomst av andra taggar
+          </div>
+          {cooccurrenceLoading && (
+            <div className="text-[11px] text-white/50">Laddar…</div>
+          )}
+          {!cooccurrenceLoading && cooccurrence.length === 0 && (
+            <div className="text-[11px] text-white/50">Inga träffar.</div>
+          )}
+          {!cooccurrenceLoading && cooccurrence.length > 0 && (
+            <div className="flex max-h-32 flex-wrap gap-1 overflow-auto pr-1">
+              {cooccurrence.map((item) => (
+                <button
+                  key={item.label}
+                  type="button"
+                  onClick={() =>
+                    setSelectedTags((prev) =>
+                      prev.includes(item.label)
+                        ? prev
+                        : [...prev, item.label]
+                    )
+                  }
+                  className="rounded-full border border-white/10 bg-white/10 px-2 py-1 text-[11px] text-white/70 hover:bg-white/20"
+                  title={`${item.label} (${item.count})`}
+                >
+                  {item.label} ({item.count})
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
         {!loading && !error && imageIds.length === 0 && (
           <div className="text-xs text-white/60">Inga bilder för denna tagg.</div>
         )}

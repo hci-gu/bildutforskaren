@@ -986,6 +986,68 @@ def suggested_images_for_tags_steered(dataset_id: str):
         conn.close()
 
 
+@bp.route("/datasets/<dataset_id>/tags/cooccurrence", methods=["POST"])
+def tag_cooccurrence_for_selected(dataset_id: str):
+    conn, _, db_path = _get_dataset_db(dataset_id)
+    if conn is None:
+        return jsonify({"error": f"Dataset DB not found at {db_path}"}), 409
+
+    data = request.get_json(silent=True) or {}
+    labels = data.get("labels") or []
+    try:
+        limit = int(data.get("limit", 20))
+    except (TypeError, ValueError):
+        limit = 20
+    limit = max(1, min(limit, 1000))
+
+    if not isinstance(labels, list) or any(not isinstance(l, str) for l in labels):
+        conn.close()
+        return jsonify({"error": "'labels' must be a list of strings"}), 400
+
+    try:
+        tag_ids = _resolve_existing_tag_ids(conn, labels)
+        if not tag_ids:
+            return jsonify({"labels": labels, "items": []})
+
+        placeholders = ",".join("?" for _ in tag_ids)
+        image_rows = conn.execute(
+            f"""
+            SELECT image_id
+            FROM image_tags
+            WHERE tag_id IN ({placeholders})
+            GROUP BY image_id
+            HAVING COUNT(DISTINCT tag_id) = ?
+            """,
+            (*tag_ids, len(tag_ids)),
+        ).fetchall()
+        image_ids = [int(r["image_id"]) for r in image_rows]
+        if not image_ids:
+            return jsonify({"labels": labels, "items": []})
+
+        image_placeholders = ",".join("?" for _ in image_ids)
+        exclude_placeholders = ",".join("?" for _ in tag_ids)
+        rows = conn.execute(
+            f"""
+            SELECT t.label AS label, COUNT(DISTINCT it.image_id) AS count
+            FROM image_tags it
+            JOIN tags t ON t.id = it.tag_id
+            WHERE it.image_id IN ({image_placeholders})
+              AND it.tag_id NOT IN ({exclude_placeholders})
+            GROUP BY t.id
+            ORDER BY count DESC, lower(t.label)
+            LIMIT ?
+            """,
+            (*image_ids, *tag_ids, limit),
+        ).fetchall()
+
+        items = [
+            {"label": row["label"], "count": int(row["count"])} for row in rows
+        ]
+        return jsonify({"labels": labels, "items": items})
+    finally:
+        conn.close()
+
+
 @bp.route("/datasets/<dataset_id>/tags/assign", methods=["POST", "OPTIONS"])
 def assign_tag_to_images(dataset_id: str):
     if request.method == "OPTIONS":
