@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { fetchDatasetStatus } from '@/features/datasets/api'
+import { fetchDatasetStatus } from '@/shared/lib/api'
 import type { DatasetStatus } from '@/features/datasets/types/datasets'
 
 export const useDatasetStatus = (datasetId?: string | null) => {

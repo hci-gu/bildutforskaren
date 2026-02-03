@@ -1,9 +1,18 @@
 import { atom } from 'jotai'
 import { atomFamily, loadable } from 'jotai/utils'
-
-export const API_URL = 'http://localhost:3000'
-// export const API_URL = 'https://bildutforskaren-api.prod.appadem.in'
-// export const API_URL = 'https://leviathan.itit.gu.se'
+import {
+  fetchDatasetImages,
+  fetchDatasetTags,
+  fetchDatasets,
+  fetchEmbeddingById,
+  fetchEmbeddings,
+  fetchSaoTermsUmap,
+  fetchTaggedImages,
+  fetchTagsWithImages,
+  fetchUmapProjection,
+  searchByImage,
+  searchByText,
+} from '@/shared/lib/api'
 
 export const activeDatasetIdAtom = atom<string | null>(null)
 
@@ -18,22 +27,12 @@ export const datasetsAtom = atom(async (get) => {
   get(datasetsRevisionAtom)
 
   try {
-    const res = await fetch(`${API_URL}/datasets`)
-    if (!res.ok) throw new Error('Failed to fetch datasets')
-    return await res.json()
+    return await fetchDatasets()
   } catch (error) {
     console.error('Failed to fetch datasets:', error)
     return []
   }
 })
-
-export const datasetApiUrl = (datasetId: string | null, path: string) => {
-  if (!datasetId) {
-    throw new Error('No active dataset selected')
-  }
-  const clean = path.startsWith('/') ? path : `/${path}`
-  return `${API_URL}/datasets/${encodeURIComponent(datasetId)}${clean}`
-}
 
 export const textsAtom = atom<string[]>([])
 export const textItemsAtom = atom((get) => {
@@ -42,12 +41,7 @@ export const textItemsAtom = atom((get) => {
 })
 
 const getImages = async (datasetId: string) => {
-  const response = await fetch(datasetApiUrl(datasetId, '/images'))
-  if (!response.ok) {
-    throw new Error('Network response was not ok')
-  }
-  const data = await response.json()
-  return data
+  return await fetchDatasetImages(datasetId)
 }
 
 export const imagesAtom = atom(async (get) => {
@@ -69,11 +63,7 @@ export const taggedImagesAtom = atom(async (get) => {
   if (!datasetId) return { tagged: [], untagged: [] }
 
   try {
-    const response = await fetch(datasetApiUrl(datasetId, '/tagged-images'))
-    if (!response.ok) {
-      throw new Error('Network response was not ok')
-    }
-    const data = await response.json()
+    const data = await fetchTaggedImages(datasetId)
     return {
       tagged: Array.isArray(data.tagged) ? data.tagged : [],
       untagged: Array.isArray(data.untagged) ? data.untagged : [],
@@ -88,11 +78,7 @@ export const datasetTagsAtom = atom(async (get) => {
   const datasetId = get(activeDatasetIdAtom)
   if (!datasetId) return []
   try {
-    const response = await fetch(datasetApiUrl(datasetId, '/tags'))
-    if (!response.ok) {
-      throw new Error('Network response was not ok')
-    }
-    const data = await response.json()
+    const data = await fetchDatasetTags(datasetId)
     return Array.isArray(data) ? data : []
   } catch (error) {
     console.error('Failed to fetch dataset tags:', error)
@@ -104,11 +90,7 @@ export const tagsWithImagesAtom = atom(async (get) => {
   const datasetId = get(activeDatasetIdAtom)
   if (!datasetId) return []
   try {
-    const response = await fetch(datasetApiUrl(datasetId, '/tags/with-images'))
-    if (!response.ok) {
-      throw new Error('Network response was not ok')
-    }
-    const data = await response.json()
+    const data = await fetchTagsWithImages(datasetId)
     return Array.isArray(data) ? data : []
   } catch (error) {
     console.error('Failed to fetch tags with images:', error)
@@ -123,11 +105,7 @@ type SaoUmapData = {
 
 export const saoTermsUmapAtom = atom(async () => {
   try {
-    const response = await fetch(`${API_URL}/terms/sao/umap`)
-    if (!response.ok) {
-      throw new Error('Network response was not ok')
-    }
-    const data = await response.json()
+    const data = await fetchSaoTermsUmap()
     const items = Array.isArray(data.items) ? data.items : []
     const mapped: SaoUmapData['items'] = items.map(
       (item: any, index: number) => ({
@@ -205,25 +183,13 @@ export const searchImagesAtom = atom(async (get) => {
   }
 
   if (image) {
-    const formData = new FormData()
-    formData.append('file', image)
-    formData.append('top_k', String(searchSettings.topK))
-    if (activeEmbeddingIds) {
-      formData.append('image_ids', JSON.stringify(activeEmbeddingIds))
-    }
-
     try {
-      const response = await fetch(
-        datasetApiUrl(datasetId, '/search-by-image'),
-        {
-          method: 'POST',
-          body: formData,
-        }
+      const data = await searchByImage(
+        datasetId,
+        image,
+        searchSettings.topK,
+        activeEmbeddingIds
       )
-      if (!response.ok) {
-        throw new Error('Network response was not ok')
-      }
-      const data = await response.json()
       return data
     } catch (error) {
       console.error('Failed to fetch search results by image:', error)
@@ -232,25 +198,12 @@ export const searchImagesAtom = atom(async (get) => {
   }
 
   try {
-    const payload: any = {
+    const data = await searchByText(
+      datasetId,
       query,
-      top_k: searchSettings.topK,
-    }
-    if (activeEmbeddingIds) {
-      payload.image_ids = activeEmbeddingIds
-    }
-
-    const response = await fetch(datasetApiUrl(datasetId, '/search'), {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(payload),
-    })
-    if (!response.ok) {
-      throw new Error('Network response was not ok')
-    }
-    const data = await response.json()
+      searchSettings.topK,
+      activeEmbeddingIds
+    )
 
     if (activeEmbeddingIds) {
       const activeSet = new Set(activeEmbeddingIds.map(String))
@@ -270,25 +223,7 @@ export const embeddingsAtom = atom(async (get) => {
   if (!datasetId) return []
 
   try {
-    const controller = new AbortController()
-    const timeout = 60000 // 60s
-    const timeoutId = setTimeout(() => controller.abort(), timeout)
-
-    let res
-    try {
-      res = await fetch(datasetApiUrl(datasetId, '/embeddings'), {
-        signal: controller.signal,
-      })
-    } finally {
-      clearTimeout(timeoutId)
-    }
-
-    if (!res.ok) {
-      throw new Error('Network response was not ok')
-    }
-
-    const embeddingsData = await res.json()
-    return embeddingsData
+    return await fetchEmbeddings(datasetId, 60000)
   } catch (error) {
     console.error('Failed to fetch embeddings:', error)
     return []
@@ -459,29 +394,13 @@ export const embeddingProjection = atomFamily((type: string) =>
       const includeTexts = !filterSettings.year && !filterSettings.photographer
       const texts = includeTexts ? get(textsAtom) : []
 
-      const res = await fetch(datasetApiUrl(datasetId, '/umap'), {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          image_ids: imageIds,
-          texts,
-          params: {
-            n_neighbors: projectionSettings.nNeighbors,
-            min_dist: projectionSettings.minDist,
-            n_components: 2,
-            spread: projectionSettings.spread,
-            seed: projectionSettings.seed,
-          },
-        }),
+      const data = await fetchUmapProjection(datasetId, imageIds, texts, {
+        n_neighbors: projectionSettings.nNeighbors,
+        min_dist: projectionSettings.minDist,
+        n_components: 2,
+        spread: projectionSettings.spread,
+        seed: projectionSettings.seed,
       })
-
-      if (!res.ok) {
-        throw new Error('UMAP request failed')
-      }
-
-      const data = await res.json()
       const imagePointsById = new Map<number, [number, number]>()
       for (let i = 0; i < data.image_ids.length; i++) {
         imagePointsById.set(data.image_ids[i], data.image_points[i])
@@ -887,12 +806,7 @@ export const embeddingAtom = atomFamily((id: string) =>
     if (!datasetId) return null
 
     try {
-      const response = await fetch(datasetApiUrl(datasetId, `/embedding/${id}`))
-      if (!response.ok) {
-        throw new Error('Network response was not ok')
-      }
-      const data = await response.json()
-      return data
+      return await fetchEmbeddingById(datasetId, id)
     } catch (error) {
       console.error('Failed to fetch image embedding:', error)
       return null

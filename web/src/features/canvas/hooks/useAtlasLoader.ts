@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import * as PIXI from 'pixi.js'
-import { activeDatasetIdAtom, datasetApiUrl } from '@/store'
+import { activeDatasetIdAtom } from '@/store'
+import { datasetApiUrl, fetchAtlasMeta } from '@/shared/lib/api'
 import { useAtomValue } from 'jotai'
 
 export type AtlasMetaEntry = {
@@ -49,11 +50,7 @@ export const useAtlasLoader = () => {
     }
 
     const load = async () => {
-      const metaRes = await fetch(datasetApiUrl(datasetId, '/atlas/meta'))
-      if (!metaRes.ok) {
-        throw new Error('Failed to load atlas metadata')
-      }
-      const meta = (await metaRes.json()) as AtlasMeta
+      const meta = (await fetchAtlasMeta(datasetId)) as AtlasMeta
       if (cancelled) return
 
       setAtlasMeta(meta)

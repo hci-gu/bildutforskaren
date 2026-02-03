@@ -17,7 +17,7 @@ import {
   fetchTagStats,
   resumeProcessing,
   seedTagsFromMetadata,
-} from '@/features/datasets/api'
+} from '@/shared/lib/api'
 import type { DatasetStatus, TagStats } from '@/features/datasets/types/datasets'
 
 export default function DatasetPage() {

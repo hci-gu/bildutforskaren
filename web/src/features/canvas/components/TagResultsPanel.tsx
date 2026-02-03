@@ -4,7 +4,6 @@ import { PhotoView } from 'react-photo-view'
 import { useAtom, useAtomValue, useSetAtom } from 'jotai'
 import {
   activeDatasetIdAtom,
-  datasetApiUrl,
   projectionSettingsAtom,
   projectionRevisionAtom,
   selectedTagsAtom,
@@ -21,6 +20,15 @@ import {
   tagRefreshTriggerAtom,
   taggedImagesRevisionAtom,
 } from '@/store'
+import {
+  assignTagsToImages,
+  datasetApiUrl,
+  fetchImageMetadata,
+  fetchTagSuggestionsMulti,
+  fetchTagSuggestionsSteered,
+  fetchTagsCooccurrence,
+  fetchTagsImagesMulti,
+} from '@/shared/lib/api'
 import {
   Card,
   CardContent,
@@ -114,53 +122,38 @@ export const TagResultsPanel = () => {
       setLoading(true)
       setError(null)
       try {
-        const res = await fetch(datasetApiUrl(datasetId, `/tags/images-multi`), {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ labels: selectedTags }),
-        })
-        let suggestRes: Response | null = null
-        if (steerSuggestions && steerSeedIds.length > 0) {
-          suggestRes = await fetch(
-            datasetApiUrl(datasetId, `/tags/suggestions-steered`),
-            {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                labels: selectedTags,
-                seed_image_ids: steerSeedIds,
-                blend_alpha: steerBlendAlpha,
-                limit: 24,
-              }),
-            }
-          )
-        } else {
-          suggestRes = await fetch(
-            datasetApiUrl(datasetId, `/tags/suggestions-multi`),
-            {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ labels: selectedTags, limit: 24 }),
-            }
-          )
-        }
-        if (!res.ok) throw new Error('Failed to fetch images for tag')
-        const data = (await res.json()) as TagImagesResponse
-        if (!cancelled) setImageIds(data.image_ids || [])
-        if (suggestRes && suggestRes.ok) {
-          const suggestData = (await suggestRes.json()) as TagImagesResponse
-          if (!cancelled) {
-            setSuggestedIds(suggestData.image_ids || [])
-            if (steerSuggestions) {
-              setSteerSuggestedResults(suggestData.image_ids || [])
-            } else if (steerSuggestedResults) {
-              setSteerSuggestedResults(null)
-            }
+        const data = (await fetchTagsImagesMulti(
+          datasetId,
+          selectedTags
+        )) as TagImagesResponse
+        let suggestData: TagImagesResponse | null = null
+        try {
+          if (steerSuggestions && steerSeedIds.length > 0) {
+            suggestData = (await fetchTagSuggestionsSteered(
+              datasetId,
+              selectedTags,
+              steerSeedIds,
+              steerBlendAlpha,
+              24
+            )) as TagImagesResponse
+          } else {
+            suggestData = (await fetchTagSuggestionsMulti(
+              datasetId,
+              selectedTags,
+              24
+            )) as TagImagesResponse
           }
-        } else if (!cancelled) {
-          setSuggestedIds([])
+        } catch (suggestError) {
+          suggestData = null
+        }
+        if (!cancelled) setImageIds(data.image_ids || [])
+        if (!cancelled) {
+          const nextSuggested = suggestData?.image_ids || []
+          setSuggestedIds(nextSuggested)
           if (steerSuggestions) {
-            setSteerSuggestedResults([])
+            setSteerSuggestedResults(nextSuggested)
+          } else if (steerSuggestedResults) {
+            setSteerSuggestedResults(null)
           }
         }
         if (!cancelled) {
@@ -201,16 +194,11 @@ export const TagResultsPanel = () => {
     const load = async () => {
       setCooccurrenceLoading(true)
       try {
-        const res = await fetch(
-          datasetApiUrl(datasetId, `/tags/cooccurrence`),
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ labels: selectedTags, limit: 20 }),
-          }
-        )
-        if (!res.ok) throw new Error('Failed to fetch cooccurrence')
-        const data = (await res.json()) as TagCooccurrenceResponse
+        const data = (await fetchTagsCooccurrence(
+          datasetId,
+          selectedTags,
+          20
+        )) as TagCooccurrenceResponse
         if (!cancelled) {
           setCooccurrence(data.items || [])
         }
@@ -289,13 +277,8 @@ export const TagResultsPanel = () => {
   const refreshSelectedEmbeddingMeta = async (id: number) => {
     if (!datasetId) return
     try {
-      const res = await fetch(
-        datasetApiUrl(datasetId, `/metadata/${encodeURIComponent(String(id))}`)
-      )
-      if (res.ok) {
-        const meta = await res.json()
-        setSelectedEmbedding({ id, meta })
-      }
+      const meta = await fetchImageMetadata(datasetId, id)
+      setSelectedEmbedding({ id, meta })
     } catch (err) {
       // Ignore metadata fetch errors.
     }
@@ -307,21 +290,12 @@ export const TagResultsPanel = () => {
     setLoading(true)
     setError(null)
     try {
-      const resAssign = await fetch(
-        datasetApiUrl(datasetId, `/tags/assign`),
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            labels: selectedTags,
-            image_ids: Array.from(selectedSuggested),
-            source: 'manual',
-          }),
-        }
+      await assignTagsToImages(
+        datasetId,
+        selectedTags,
+        Array.from(selectedSuggested),
+        'manual'
       )
-      if (!resAssign.ok) {
-        throw new Error('Failed to assign tags')
-      }
       bumpTaggedRevision((v) => v + 1)
       bumpProjectionRevision((v) => v + 1)
       bumpTagRefreshTrigger((v) => v + 1)
@@ -344,13 +318,8 @@ export const TagResultsPanel = () => {
     if (!datasetId) return
     setSelectedEmbedding({ id, meta: {} })
     try {
-      const res = await fetch(
-        datasetApiUrl(datasetId, `/metadata/${encodeURIComponent(String(id))}`)
-      )
-      if (res.ok) {
-        const meta = await res.json()
-        setSelectedEmbedding({ id, meta })
-      }
+      const meta = await fetchImageMetadata(datasetId, id)
+      setSelectedEmbedding({ id, meta })
     } catch (err) {
       // Ignore metadata fetch errors.
     }

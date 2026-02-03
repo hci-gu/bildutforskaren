@@ -9,7 +9,7 @@ import { Input } from '@/shared/ui/input'
 import { Label } from '@/shared/ui/label'
 import { Button } from '@/shared/ui/button'
 import { useNavigate } from 'react-router'
-import { createDataset, uploadDatasetZip } from '@/features/datasets/api'
+import { createDataset, uploadDatasetZip } from '@/shared/lib/api'
 import { EmbeddingProgressBar } from '@/features/datasets/components/EmbeddingProgressBar'
 import { StatusMessage } from '@/shared/components/StatusMessage'
 

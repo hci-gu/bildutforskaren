@@ -1,12 +1,12 @@
 import { useAtom, useAtomValue, useSetAtom } from 'jotai'
 import {
   activeDatasetIdAtom,
-  datasetApiUrl,
   datasetsRevisionAtom,
   embeddingsRevisionAtom,
   loadableDatasetsAtom,
 } from '@/store'
 import { useEffect, useState } from 'react'
+import { updateMetadataSource } from '@/shared/lib/api'
 
 export const DatasetPicker = () => {
   const [datasetId, setDatasetId] = useAtom(activeDatasetIdAtom)
@@ -47,18 +47,7 @@ export const DatasetPicker = () => {
     setUseLegacyMetadata(enabled)
 
     try {
-      const res = await fetch(datasetApiUrl(datasetId, '/metadata-source'), {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ source: next }),
-      })
-
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}))
-        throw new Error(data?.error ?? 'Failed to update metadata source')
-      }
+      await updateMetadataSource(datasetId, next)
 
       bumpDatasetsRevision((v) => v + 1)
       bumpEmbeddingsRevision((v) => v + 1)

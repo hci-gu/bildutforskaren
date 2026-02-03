@@ -1,4 +1,5 @@
-import { activeDatasetIdAtom, datasetApiUrl } from '@/store'
+import { activeDatasetIdAtom } from '@/store'
+import { datasetApiUrl } from '@/shared/lib/api'
 import { Dialog, DialogContent, DialogTrigger } from '@/shared/ui/dialog'
 import { useAtomValue } from 'jotai'
 

@@ -4,13 +4,13 @@ import { useAtom, useAtomValue, useSetAtom } from 'jotai'
 import {
   activeDatasetIdAtom,
   activeEmbeddingIdsAtom,
-  datasetApiUrl,
   projectionRevisionAtom,
   selectedEmbeddingAtom,
   selectedEmbeddingIdsAtom,
   selectionHistoryAtom,
   selectedTagsAtom,
 } from '@/store'
+import { datasetApiUrl } from '@/shared/lib/api'
 import { TaggerPanel } from './TaggerPanel'
 import { TagResultsPanel } from './TagResultsPanel'
 

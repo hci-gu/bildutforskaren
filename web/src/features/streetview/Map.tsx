@@ -1,10 +1,10 @@
 import { Button } from '@/shared/ui/button'
 import {
   activeDatasetIdAtom,
-  datasetApiUrl,
   searchImageAtom,
   searchImagesAtom,
 } from '@/store'
+import { datasetApiUrl, fetchBlob } from '@/shared/lib/api'
 import { GoogleMap, StreetViewPanorama } from '@react-google-maps/api'
 import { useAtomValue, useSetAtom } from 'jotai'
 import { useEffect, useRef, useState } from 'react'
@@ -160,8 +160,7 @@ function Map() {
               import.meta.env.VITE_GOOGLE_API_KEY || ''
             }`
 
-            const response = await fetch(url)
-            const blob = await response.blob()
+            const blob = await fetchBlob(url)
             setSearchImage(blob)
           }
         }}

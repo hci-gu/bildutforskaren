@@ -1,4 +1,5 @@
-import { activeDatasetIdAtom, datasetApiUrl, embeddingAtom } from '@/store'
+import { activeDatasetIdAtom, embeddingAtom } from '@/store'
+import { datasetApiUrl } from '@/shared/lib/api'
 import { useAtomValue } from 'jotai'
 import { useParams } from 'react-router'
 

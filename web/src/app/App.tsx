@@ -11,7 +11,7 @@ import { ThemeProvider } from '@/shared/components/ThemeProvider'
 import { useEffect, useMemo } from 'react'
 import { Button } from '@/shared/ui/button'
 import { useDatasetStatus } from '@/features/datasets/hooks/useDatasetStatus'
-import { fetchImageMetadata } from '@/features/datasets/api'
+import { fetchImageMetadata } from '@/shared/lib/api'
 import { DatasetStatusPanel } from '@/features/datasets/components/DatasetStatusPanel'
 import { StatusMessage } from '@/shared/components/StatusMessage'
 

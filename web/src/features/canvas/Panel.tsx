@@ -2,7 +2,6 @@ import { Input } from '@/shared/ui/input'
 import { Button } from '@/shared/ui/button'
 import {
   activeDatasetIdAtom,
-  datasetApiUrl,
   displaySettingsAtom,
   filterSettingsAtom,
   hoveredTextAtom,
@@ -13,6 +12,7 @@ import {
   taggedImagesRevisionAtom,
   textsAtom,
 } from '@/store'
+import { fetchTagStats } from '@/shared/lib/api'
 import { useAtom, useAtomValue } from 'jotai'
 import { useEffect, useRef, useState } from 'react'
 import {
@@ -405,9 +405,7 @@ const TaggedInfoPanel = () => {
     let cancelled = false
     const load = async () => {
       try {
-        const res = await fetch(datasetApiUrl(datasetId, '/tag-stats'))
-        if (!res.ok) throw new Error('Failed to fetch tag stats')
-        const data = await res.json()
+        const data = await fetchTagStats(datasetId)
         if (!cancelled) {
           setStats({
             total_images: data.total_images ?? 0,

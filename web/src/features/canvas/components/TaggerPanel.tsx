@@ -1,14 +1,19 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useAtomValue, useSetAtom } from 'jotai'
 import {
-  API_URL,
   activeDatasetIdAtom,
-  datasetApiUrl,
   selectedEmbeddingAtom,
   selectedEmbeddingIdsAtom,
   tagRefreshTriggerAtom,
   taggedImagesRevisionAtom,
 } from '@/store'
+import {
+  addImageTags,
+  fetchImageTagSuggestions,
+  fetchImageTags,
+  removeImageTags,
+  searchSaoTerms,
+} from '@/shared/lib/api'
 import {
   Card,
   CardContent,
@@ -88,11 +93,7 @@ export const TaggerPanel = ({
     const loadTags = async () => {
       setError(null)
       try {
-        const res = await fetch(
-          datasetApiUrl(datasetId, `/images/${imageId}/tags`)
-        )
-        if (!res.ok) throw new Error('Failed to load tags')
-        const data = (await res.json()) as ImageTag[]
+        const data = (await fetchImageTags(datasetId, imageId)) as ImageTag[]
         if (!cancelled) setTags(data)
       } catch (err) {
         if (!cancelled) setError('Kunde inte läsa taggar.')
@@ -115,11 +116,11 @@ export const TaggerPanel = ({
     const loadAuto = async () => {
       setLoadingAuto(true)
       try {
-        const res = await fetch(
-          datasetApiUrl(datasetId, `/images/${imageId}/tag-suggestions?limit=3`)
-        )
-        if (!res.ok) throw new Error('Failed to load suggestions')
-        const data = (await res.json()) as TagSuggestion[]
+        const data = (await fetchImageTagSuggestions(
+          datasetId,
+          imageId,
+          3
+        )) as TagSuggestion[]
         if (!cancelled) setAutoSuggestions(data)
       } catch (err) {
         if (!cancelled) setAutoSuggestions([])
@@ -144,11 +145,7 @@ export const TaggerPanel = ({
     const handle = setTimeout(async () => {
       setLoading(true)
       try {
-        const res = await fetch(
-          `${API_URL}/terms/sao?q=${encodeURIComponent(query.trim())}&limit=20`
-        )
-        if (!res.ok) throw new Error('Search failed')
-        const data = (await res.json()) as SaoTerm[]
+        const data = (await searchSaoTerms(query.trim(), 20)) as SaoTerm[]
         if (!cancelled) setSuggestions(data)
       } catch (err) {
         if (!cancelled) setSuggestions([])
@@ -169,15 +166,7 @@ export const TaggerPanel = ({
 
     setSaving(label)
     try {
-      const res = await fetch(
-        datasetApiUrl(datasetId, `/images/${imageId}/tags`),
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ labels: [label], source: 'manual' }),
-        }
-      )
-      if (!res.ok) throw new Error('Failed to add tag')
+      await addImageTags(datasetId, imageId, [label], 'manual')
       setQuery('')
       setSuggestions([])
       setRefreshKey((v) => v + 1)
@@ -194,15 +183,7 @@ export const TaggerPanel = ({
     if (!datasetId || imageId === null || Number.isNaN(imageId)) return
     setSaving(String(tagId))
     try {
-      const res = await fetch(
-        datasetApiUrl(datasetId, `/images/${imageId}/tags`),
-        {
-          method: 'DELETE',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ tag_ids: [tagId], source: 'manual' }),
-        }
-      )
-      if (!res.ok) throw new Error('Failed to remove tag')
+      await removeImageTags(datasetId, imageId, [tagId], 'manual')
       setRefreshKey((v) => v + 1)
       bumpTaggedRevision((v) => v + 1)
       bumpTagRefreshTrigger((v) => v + 1)
