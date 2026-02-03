@@ -1,6 +1,5 @@
 import { useAtom, useAtomValue, useSetAtom } from 'jotai'
 import {
-  API_URL,
   activeDatasetIdAtom,
   datasetsRevisionAtom,
   loadableDatasetsAtom,
@@ -10,6 +9,9 @@ import { Input } from '../components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
 import { useNavigate } from 'react-router'
+import { createDataset, uploadDatasetZip } from '@/lib/api'
+import { EmbeddingProgressBar } from '@/components/EmbeddingProgressBar'
+import { StatusMessage } from '@/components/StatusMessage'
 
 function IndexPage() {
   const [datasetId, setDatasetId] = useAtom(activeDatasetIdAtom)
@@ -37,20 +39,7 @@ function IndexPage() {
 
     try {
       // 1) Create dataset
-      const createRes = await fetch(`${API_URL}/datasets`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ name }),
-      })
-
-      if (!createRes.ok) {
-        const data = await createRes.json().catch(() => ({}))
-        throw new Error(data?.error ?? 'Failed to create dataset')
-      }
-
-      const created = await createRes.json()
+      const created = await createDataset(name)
       const newId = created.dataset_id as string
 
       setDatasetId(newId)
@@ -59,18 +48,7 @@ function IndexPage() {
       setUploadStatus('Dataset created. Uploading images…')
 
       // 2) Upload zip
-      const formData = new FormData()
-      formData.append('file', zipFile)
-
-      const uploadRes = await fetch(`${API_URL}/datasets/${newId}/upload-zip`, {
-        method: 'POST',
-        body: formData,
-      })
-
-      const uploadData = await uploadRes.json().catch(() => ({}))
-      if (!uploadRes.ok) {
-        throw new Error(uploadData?.error ?? 'Upload failed')
-      }
+      const uploadData = await uploadDatasetZip(newId, zipFile)
 
       bumpDatasetsRevision((v) => v + 1)
       setUploadStatus(
@@ -207,21 +185,19 @@ function IndexPage() {
 
             <div className="mt-5 flex flex-col gap-3">
               {datasetsLoadable.state === 'loading' && (
-                <div className="glass-panel rounded-xl p-4 text-sm text-slate-200">
-                  Laddar datasets…
-                </div>
+                <StatusMessage>Laddar datasets…</StatusMessage>
               )}
 
               {datasetsLoadable.state === 'hasError' && (
-                <div className="rounded-xl border border-rose-500/50 bg-rose-500/10 p-4 text-sm text-rose-200 backdrop-blur">
+                <StatusMessage variant="error">
                   Kunde inte läsa datasets just nu.
-                </div>
+                </StatusMessage>
               )}
 
               {datasetsLoadable.state === 'hasData' && datasets.length === 0 && (
-                <div className="glass-panel rounded-xl p-4 text-sm text-slate-200">
+                <StatusMessage>
                   Inga datasets ännu. Skapa ett nytt för att börja utforska.
-                </div>
+                </StatusMessage>
               )}
 
               {datasets.map((dataset) => {
@@ -258,17 +234,12 @@ function IndexPage() {
                         {dataset.dataset_id}
                       </div>
                       {showEmbeddingProgress && (
-                        <div className="mt-2">
-                          <div className="text-[11px] text-slate-400">
-                            Embeddings {progressPct}%
-                          </div>
-                          <div className="mt-1 h-1 w-full rounded-full bg-white/10">
-                            <div
-                              className="h-1 rounded-full bg-amber-400"
-                              style={{ width: `${progressPct}%` }}
-                            />
-                          </div>
-                        </div>
+                        <EmbeddingProgressBar
+                          className="mt-2"
+                          percent={progressPct}
+                          label="Embeddings"
+                          labelClassName="text-[11px] text-slate-400"
+                        />
                       )}
                     </div>
                     <span

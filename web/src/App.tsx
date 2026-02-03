@@ -5,60 +5,24 @@ import DatasetPage from './pages/Dataset'
 import EmbeddingsCanvas from './pages/canvas'
 import { PhotoProvider } from 'react-photo-view'
 import { useAtomValue, useSetAtom } from 'jotai'
-import { activeDatasetIdAtom, selectedEmbeddingAtom, API_URL } from './state'
+import { activeDatasetIdAtom, selectedEmbeddingAtom } from './state'
 import StreetViewPage from './pages/streetview'
 import { ThemeProvider } from './components/ThemeProvider'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo } from 'react'
 import { Button } from './components/ui/button'
-
-type DatasetStatus = {
-  status?: string
-  job?: {
-    stage?: string
-    progress?: number
-    processed?: number
-    skipped?: number
-  }
-}
+import { useDatasetStatus } from './hooks/useDatasetStatus'
+import { fetchImageMetadata } from './lib/api'
+import { DatasetStatusPanel } from './components/DatasetStatusPanel'
+import { StatusMessage } from './components/StatusMessage'
 
 const DatasetCanvasRoute = () => {
   const { id } = useParams<{ id: string }>()
   const setActiveDatasetId = useSetAtom(activeDatasetIdAtom)
-  const [status, setStatus] = useState<DatasetStatus | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [loadError, setLoadError] = useState<string | null>(null)
+  const { status, loading, error } = useDatasetStatus(id)
 
   useEffect(() => {
     if (id) setActiveDatasetId(id)
   }, [id, setActiveDatasetId])
-
-  useEffect(() => {
-    if (!id) {
-      setLoading(false)
-      return
-    }
-    let cancelled = false
-    const load = async () => {
-      setLoading(true)
-      setLoadError(null)
-      try {
-        const res = await fetch(
-          `${API_URL}/datasets/${encodeURIComponent(id)}/status`
-        )
-        if (!res.ok) throw new Error('Failed to load dataset status')
-        const data = (await res.json()) as DatasetStatus
-        if (!cancelled) setStatus(data)
-      } catch (err) {
-        if (!cancelled) setLoadError('Kunde inte läsa status för datasetet.')
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
-    }
-    load()
-    return () => {
-      cancelled = true
-    }
-  }, [id])
 
   const isPending = useMemo(() => {
     const current = status?.status
@@ -66,25 +30,24 @@ const DatasetCanvasRoute = () => {
   }, [status?.status])
   const isError = status?.status === 'error'
 
-  if (loading) {
-    return (
-      <div className="min-h-svh text-white">
-        <div className="mx-auto w-full max-w-3xl px-6 py-12">
-          <div className="glass-panel rounded-2xl p-6 text-sm text-white/70">
-            Laddar status…
+  if (loading || error) {
+    if (loading && !error) {
+      return (
+        <div className="min-h-svh text-white">
+          <div className="mx-auto w-full max-w-3xl px-6 py-12">
+            <StatusMessage textClassName="text-white/70">
+              Laddar status…
+            </StatusMessage>
           </div>
         </div>
-      </div>
-    )
-  }
-
-  if (loadError) {
+      )
+    }
     return (
       <div className="min-h-svh text-white">
         <div className="mx-auto w-full max-w-3xl px-6 py-12">
-          <div className="glass-panel rounded-2xl p-6 text-sm text-red-200">
-            {loadError}
-          </div>
+          <StatusMessage variant="error" textClassName="text-red-200">
+            {error}
+          </StatusMessage>
         </div>
       </div>
     )
@@ -101,41 +64,26 @@ const DatasetCanvasRoute = () => {
     return (
       <div className="min-h-svh text-white">
         <div className="mx-auto w-full max-w-3xl px-6 py-12">
-          <div className="glass-panel rounded-2xl p-6">
-            <h1 className="text-xl font-semibold">Datasetet är pending</h1>
-            <p className="mt-2 text-sm text-white/70">
-              Bilderna bearbetas just nu. Canvas blir tillgänglig när arbetet är
-              klart.
-            </p>
-            {job?.stage && (
-              <div className="mt-3 text-sm text-white/70">
-                Steg: {job.stage}
-                {progress !== null ? ` (${progress}%)` : ''}
-              </div>
-            )}
-            {showEmbeddingProgress && (
-              <div className="mt-4">
-                <div className="text-sm text-white/70">
-                  Embeddings {progress}%
-                </div>
-                <div className="mt-2 h-2 w-full rounded-full bg-white/10">
-                  <div
-                    className="h-2 rounded-full bg-amber-400"
-                    style={{ width: `${progress}%` }}
-                  />
-                </div>
-              </div>
-            )}
-            <div className="mt-5 flex flex-wrap gap-2">
-              {id && (
+          <DatasetStatusPanel
+            variant="pending"
+            title="Datasetet är pending"
+            description="Bilderna bearbetas just nu. Canvas blir tillgänglig när arbetet är klart."
+            stage={job?.stage}
+            showProgress={showEmbeddingProgress}
+            progressPercent={progress}
+            className="text-white"
+            textClassName="text-white/70"
+            progressLabelClassName="text-sm text-white/70"
+            action={
+              id ? (
                 <Link to={`/dataset/${id}`}>
                   <Button variant="secondary" size="sm">
                     Visa status
                   </Button>
                 </Link>
-              )}
-            </div>
-          </div>
+              ) : null
+            }
+          />
         </div>
       </div>
     )
@@ -145,18 +93,20 @@ const DatasetCanvasRoute = () => {
     return (
       <div className="min-h-svh text-white">
         <div className="mx-auto w-full max-w-3xl px-6 py-12">
-          <div className="glass-panel rounded-2xl p-6 text-sm text-red-200">
-            Datasetet kunde inte färdigställas. Kontrollera statusen för mer info.
-            {id && (
-              <div className="mt-4">
+          <DatasetStatusPanel
+            variant="error"
+            errorText="Datasetet kunde inte färdigställas. Kontrollera statusen för mer info."
+            textClassName="text-sm text-red-200"
+            action={
+              id ? (
                 <Link to={`/dataset/${id}`}>
                   <Button variant="secondary" size="sm">
                     Visa status
                   </Button>
                 </Link>
-              </div>
-            )}
-          </div>
+              ) : null
+            }
+          />
         </div>
       </div>
     )
@@ -221,10 +171,7 @@ function App() {
             const imageId = Number(match[2])
             if (!datasetId || Number.isNaN(imageId)) return
             setSelectedEmbedding({ id: imageId, meta: {} })
-            void fetch(
-              `${API_URL}/datasets/${encodeURIComponent(datasetId)}/metadata/${imageId}`
-            )
-              .then((res) => (res.ok ? res.json() : null))
+            void fetchImageMetadata(datasetId, imageId)
               .then((meta) => {
                 if (meta) {
                   setSelectedEmbedding({ id: imageId, meta })

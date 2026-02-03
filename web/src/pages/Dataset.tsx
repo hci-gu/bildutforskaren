@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router'
 import { useSetAtom } from 'jotai'
-import { activeDatasetIdAtom, API_URL } from '@/state'
+import { activeDatasetIdAtom } from '@/state'
 import { Button } from '@/components/ui/button'
 import {
   Card,
@@ -10,30 +10,15 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
-
-type DatasetStatus = {
-  dataset_id: string
-  name?: string
-  status?: string
-  metadata_source?: string
-  has_metadata_xlsx?: boolean
-  embeddings_cached?: boolean
-  created_at?: string
-  error?: string | null
-  job?: {
-    stage?: string
-    progress?: number
-    processed?: number
-    skipped?: number
-    error?: string
-  }
-}
-
-type TagStats = {
-  total_images: number
-  tagged_images: number
-  tagged_percent: number
-}
+import { DatasetStatusPanel } from '@/components/DatasetStatusPanel'
+import { StatusMessage } from '@/components/StatusMessage'
+import {
+  fetchDatasetStatus,
+  fetchTagStats,
+  resumeProcessing,
+  seedTagsFromMetadata,
+} from '@/lib/api'
+import type { DatasetStatus, TagStats } from '@/types/datasets'
 
 export default function DatasetPage() {
   const { id } = useParams<{ id: string }>()
@@ -74,27 +59,21 @@ export default function DatasetPage() {
     if (!id) return
     setLoading(true)
     try {
-      const [statusRes, statsRes] = await Promise.all([
-        fetch(`${API_URL}/datasets/${encodeURIComponent(id)}/status`),
-        fetch(`${API_URL}/datasets/${encodeURIComponent(id)}/tag-stats`),
-      ])
-
-      if (!statusRes.ok) throw new Error('Failed to fetch dataset status')
-      const data = (await statusRes.json()) as DatasetStatus
+      const data = await fetchDatasetStatus(id)
       if (isCancelled?.()) return
       setDataset(data)
-
-      if (statsRes.ok) {
-        const stats = (await statsRes.json()) as TagStats
+      try {
+        const stats = await fetchTagStats(id)
         if (isCancelled?.()) return
         setTagStats(stats)
-      } else {
+      } catch (statsError) {
         if (isCancelled?.()) return
         setTagStats(null)
       }
     } catch (err) {
       if (isCancelled?.()) return
       setDataset(null)
+      setTagStats(null)
     } finally {
       if (isCancelled?.()) return
       setLoading(false)
@@ -128,12 +107,7 @@ export default function DatasetPage() {
     setSeedResult(null)
     setSeedError(null)
     try {
-      const res = await fetch(
-        `${API_URL}/datasets/${encodeURIComponent(id)}/seed-tags-from-metadata`,
-        { method: 'POST' }
-      )
-      if (!res.ok) throw new Error('Seeding failed')
-      const data = await res.json()
+      const data = await seedTagsFromMetadata(id)
       setSeedResult(
         `Infogade ${data.inserted ?? 0} taggar (skippade ${data.skipped_manual ?? 0} bilder med manuella taggar).`
       )
@@ -149,14 +123,7 @@ export default function DatasetPage() {
     setResuming(true)
     setResumeError(null)
     try {
-      const res = await fetch(
-        `${API_URL}/datasets/${encodeURIComponent(id)}/resume-processing`,
-        { method: 'POST' }
-      )
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}))
-        throw new Error(data?.error ?? 'Kunde inte starta bearbetning.')
-      }
+      await resumeProcessing(id)
       await reloadStatus()
     } catch (err) {
       setResumeError(String(err))
@@ -212,9 +179,13 @@ export default function DatasetPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            {loading && <div className="text-sm text-white/60">Laddar…</div>}
+            {loading && (
+              <StatusMessage textClassName="text-white/60">Laddar…</StatusMessage>
+            )}
             {!loading && !dataset && (
-              <div className="text-sm text-red-300">Kunde inte läsa dataset.</div>
+              <StatusMessage variant="error" textClassName="text-red-300">
+                Kunde inte läsa dataset.
+              </StatusMessage>
             )}
             {dataset && (
               <div className="grid gap-3 text-sm sm:grid-cols-2">
@@ -257,21 +228,16 @@ export default function DatasetPage() {
                   </div>
                 )}
                 {isPending && (
-                  <div className="sm:col-span-2 rounded-xl border border-white/10 bg-white/5 p-3 text-xs text-white/70">
-                    Datasetet bearbetas. Canvas och Street View blir tillgängliga när
-                    statusen är klar.
-                    {showEmbeddingProgress && (
-                      <div className="mt-3">
-                        <div>Embeddings {embeddingProgress}%</div>
-                        <div className="mt-2 h-2 w-full rounded-full bg-white/10">
-                          <div
-                            className="h-2 rounded-full bg-amber-400"
-                            style={{ width: `${embeddingProgress}%` }}
-                          />
-                        </div>
-                      </div>
-                    )}
-                  </div>
+                  <DatasetStatusPanel
+                    variant="pending"
+                    useGlassPanel={false}
+                    className="sm:col-span-2 border border-white/10 bg-white/5 text-white/70"
+                    description="Datasetet bearbetas. Canvas och Street View blir tillgängliga när statusen är klar."
+                    showProgress={showEmbeddingProgress}
+                    progressPercent={embeddingProgress}
+                    textClassName="text-xs text-white/70"
+                    progressLabelClassName="text-xs text-white/70"
+                  />
                 )}
                 {canResume && (
                   <div className="sm:col-span-2 rounded-xl border border-white/10 bg-white/5 p-3 text-xs text-white/70">
