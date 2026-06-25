@@ -9,7 +9,7 @@ import {
   searchQueryAtom,
   searchSettingsAtom,
   tagRefreshTriggerAtom,
-  taggedImagesRevisionAtom,
+  tagStatsRevisionAtom,
   textsAtom,
 } from '@/store'
 import { fetchTagStats } from '@/shared/lib/api'
@@ -388,7 +388,7 @@ const TaggedInfoPanel = () => {
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const refreshUntilRef = useRef(0)
   const datasetId = useAtomValue(activeDatasetIdAtom)
-  const taggedRevision = useAtomValue(taggedImagesRevisionAtom)
+  const tagStatsRevision = useAtomValue(tagStatsRevisionAtom)
   const tagRefreshTrigger = useAtomValue(tagRefreshTriggerAtom)
   const [stats, setStats] = useState<{
     total_images: number
@@ -421,7 +421,7 @@ const TaggedInfoPanel = () => {
     return () => {
       cancelled = true
     }
-  }, [datasetId, taggedRevision])
+  }, [datasetId, tagStatsRevision])
 
   useEffect(() => {
     if (!tagRefreshTrigger) return

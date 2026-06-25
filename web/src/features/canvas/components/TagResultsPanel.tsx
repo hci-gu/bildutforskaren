@@ -4,6 +4,7 @@ import { PhotoView } from 'react-photo-view'
 import { useAtom, useAtomValue, useSetAtom } from 'jotai'
 import {
   activeDatasetIdAtom,
+  applyTagMutationAtom,
   projectionSettingsAtom,
   projectionRevisionAtom,
   selectedTagsAtom,
@@ -18,7 +19,8 @@ import {
   steerRadiusAtom,
   steerTargetPointAtom,
   tagRefreshTriggerAtom,
-  taggedImagesRevisionAtom,
+  scheduleTaggedImagesRefreshAtom,
+  tagStatsRevisionAtom,
 } from '@/store'
 import {
   assignTagsToImages,
@@ -66,9 +68,11 @@ export const TagResultsPanel = () => {
   const [steerBlendAlpha, setSteerBlendAlpha] = useAtom(steerBlendAlphaAtom)
   const setSelectedTags = useSetAtom(selectedTagsAtom)
   const setSelectedEmbedding = useSetAtom(selectedEmbeddingAtom)
-  const bumpTaggedRevision = useSetAtom(taggedImagesRevisionAtom)
+  const applyTagMutation = useSetAtom(applyTagMutationAtom)
   const bumpProjectionRevision = useSetAtom(projectionRevisionAtom)
   const bumpTagRefreshTrigger = useSetAtom(tagRefreshTriggerAtom)
+  const scheduleTaggedRefresh = useSetAtom(scheduleTaggedImagesRefreshAtom)
+  const bumpTagStatsRevision = useSetAtom(tagStatsRevisionAtom)
   const setSteerTaggedIds = useSetAtom(steerTaggedIdsAtom)
   const setSteerSuggestedIds = useSetAtom(steerSuggestedIdsAtom)
   const steerSeedIds = useAtomValue(steerSeedIdsAtom)
@@ -296,9 +300,15 @@ export const TagResultsPanel = () => {
         Array.from(selectedSuggested),
         'manual'
       )
-      bumpTaggedRevision((v) => v + 1)
+      applyTagMutation({
+        imageIds: Array.from(selectedSuggested),
+        addedLabels: selectedTags,
+        setTagged: true,
+      })
+      scheduleTaggedRefresh()
       bumpProjectionRevision((v) => v + 1)
       bumpTagRefreshTrigger((v) => v + 1)
+      bumpTagStatsRevision((v) => v + 1)
       setSelectedSuggested(new Set())
       setRefreshKey((v) => v + 1)
       if (

@@ -75,12 +75,16 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
   useEffect(() => {
     if (mainEmbeddingsLoadable.state === 'hasData') {
       setRawEmbeddings(mainEmbeddingsLoadable.data as any[])
+    } else if (mainEmbeddingsLoadable.state === 'loading') {
+      setRawEmbeddings([])
     }
   }, [mainEmbeddingsLoadable])
 
   useEffect(() => {
     if (minimapEmbeddingsLoadable.state === 'hasData') {
       setRawMinimapEmbeddings(minimapEmbeddingsLoadable.data as any[])
+    } else if (minimapEmbeddingsLoadable.state === 'loading') {
+      setRawMinimapEmbeddings([])
     }
   }, [minimapEmbeddingsLoadable])
 
@@ -404,20 +408,22 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
             }
           }}
         >
-          {allLoaded && (
-          <EmbeddingsLayer
-            type="main"
-            masterAtlas={masterAtlas}
-            atlasMeta={atlasMeta}
-            particleContainerRefs={particleContainerRefs}
-            visibleBounds={visibleBounds}
-          />
+          {allLoaded && !isProjecting && (
+            <EmbeddingsLayer
+              key={`main_${projectionKey}`}
+              type="main"
+              masterAtlas={masterAtlas}
+              atlasMeta={atlasMeta}
+              particleContainerRefs={particleContainerRefs}
+              visibleBounds={visibleBounds}
+            />
           )}
           <SelectionRect selectionRect={selectionRect} />
         </viewport>
 
-        {allLoaded && projectionSettings.type === 'umap' && (
+        {allLoaded && !isProjecting && projectionSettings.type === 'umap' && (
           <Minimap
+            key={`minimap_${projectionKey}`}
             allLoaded={allLoaded}
             masterAtlas={masterAtlas}
             atlasMeta={atlasMeta}

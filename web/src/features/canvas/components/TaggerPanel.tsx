@@ -2,10 +2,12 @@ import { useEffect, useMemo, useState } from 'react'
 import { useAtomValue, useSetAtom } from 'jotai'
 import {
   activeDatasetIdAtom,
+  applyTagMutationAtom,
+  scheduleTaggedImagesRefreshAtom,
   selectedEmbeddingAtom,
   selectedEmbeddingIdsAtom,
   tagRefreshTriggerAtom,
-  taggedImagesRevisionAtom,
+  tagStatsRevisionAtom,
 } from '@/store'
 import {
   addImageTags,
@@ -55,8 +57,10 @@ export const TaggerPanel = ({
   const datasetId = useAtomValue(activeDatasetIdAtom)
   const selectedEmbedding = useAtomValue<any>(selectedEmbeddingAtom)
   const selectedEmbeddingIds = useAtomValue(selectedEmbeddingIdsAtom)
-  const bumpTaggedRevision = useSetAtom(taggedImagesRevisionAtom)
+  const applyTagMutation = useSetAtom(applyTagMutationAtom)
+  const scheduleTaggedRefresh = useSetAtom(scheduleTaggedImagesRefreshAtom)
   const bumpTagRefreshTrigger = useSetAtom(tagRefreshTriggerAtom)
+  const bumpTagStatsRevision = useSetAtom(tagStatsRevisionAtom)
 
   const imageId = useMemo(() => {
     if (selectedEmbedding?.id !== undefined && selectedEmbedding?.id !== null) {
@@ -170,8 +174,14 @@ export const TaggerPanel = ({
       setQuery('')
       setSuggestions([])
       setRefreshKey((v) => v + 1)
-      bumpTaggedRevision((v) => v + 1)
+      applyTagMutation({
+        imageIds: [imageId],
+        addedLabels: [label],
+        setTagged: true,
+      })
+      scheduleTaggedRefresh()
       bumpTagRefreshTrigger((v) => v + 1)
+      bumpTagStatsRevision((v) => v + 1)
     } catch (err) {
       setError('Kunde inte lägga till tagg.')
     } finally {
@@ -179,14 +189,21 @@ export const TaggerPanel = ({
     }
   }
 
-  const removeTag = async (tagId: number) => {
+  const removeTag = async (tagId: number, label: string) => {
     if (!datasetId || imageId === null || Number.isNaN(imageId)) return
     setSaving(String(tagId))
     try {
       await removeImageTags(datasetId, imageId, [tagId], 'manual')
       setRefreshKey((v) => v + 1)
-      bumpTaggedRevision((v) => v + 1)
+      const willUntag = tags.length <= 1
+      applyTagMutation({
+        imageIds: [imageId],
+        removedLabels: [label],
+        setTagged: willUntag ? false : null,
+      })
+      scheduleTaggedRefresh()
       bumpTagRefreshTrigger((v) => v + 1)
+      bumpTagStatsRevision((v) => v + 1)
     } catch (err) {
       setError('Kunde inte ta bort tagg.')
     } finally {
@@ -242,7 +259,7 @@ export const TaggerPanel = ({
               {tag.label}
               <button
                 type="button"
-                onClick={() => removeTag(tag.id)}
+                onClick={() => removeTag(tag.id, tag.label)}
                 className="text-white/60 hover:text-white"
                 aria-label={`Remove ${tag.label}`}
                 disabled={saving !== null}

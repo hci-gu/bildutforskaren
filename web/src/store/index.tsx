@@ -19,8 +19,137 @@ export const activeDatasetIdAtom = atom<string | null>(null)
 export const datasetsRevisionAtom = atom(0)
 export const embeddingsRevisionAtom = atom(0)
 export const taggedImagesRevisionAtom = atom(0)
+export const tagStatsRevisionAtom = atom(0)
 export const tagRefreshTriggerAtom = atom(0)
 export const viewportScaleAtom = atom(1)
+export const taggedOptimisticRevisionAtom = atom(0)
+
+type TaggedOverridesState = {
+  datasetId: string | null
+  overrides: Map<number, boolean>
+}
+
+type TagLabelOverride = {
+  label: string
+  added: Set<number>
+  removed: Set<number>
+}
+
+type TagsWithImagesOverridesState = {
+  datasetId: string | null
+  overrides: Map<string, TagLabelOverride>
+}
+
+export const taggedStatusOverridesAtom = atom<TaggedOverridesState>({
+  datasetId: null,
+  overrides: new Map<number, boolean>(),
+})
+
+export const tagsWithImagesOverridesAtom = atom<TagsWithImagesOverridesState>({
+  datasetId: null,
+  overrides: new Map<string, TagLabelOverride>(),
+})
+
+export const recentlyTaggedIdsAtom = atom<number[]>([])
+
+let taggedImagesRefreshTimer: ReturnType<typeof setTimeout> | null = null
+const TAGGED_IMAGES_REFRESH_DEBOUNCE_MS = 800
+
+export const scheduleTaggedImagesRefreshAtom = atom(
+  null,
+  (get, set) => {
+    const datasetId = get(activeDatasetIdAtom)
+    if (!datasetId) return
+    if (taggedImagesRefreshTimer) {
+      clearTimeout(taggedImagesRefreshTimer)
+    }
+    taggedImagesRefreshTimer = setTimeout(() => {
+      set(taggedImagesRevisionAtom, (v) => v + 1)
+      taggedImagesRefreshTimer = null
+    }, TAGGED_IMAGES_REFRESH_DEBOUNCE_MS)
+  }
+)
+
+const normalizeTagLabel = (label: string) => label.trim().toLowerCase()
+
+type TagMutation = {
+  imageIds: number[]
+  addedLabels?: string[]
+  removedLabels?: string[]
+  setTagged?: boolean | null
+}
+
+export const applyTagMutationAtom = atom(
+  null,
+  (get, set, mutation: TagMutation) => {
+    const datasetId = get(activeDatasetIdAtom)
+    if (!datasetId) return
+
+    if (mutation.setTagged !== undefined && mutation.setTagged !== null) {
+      set(taggedStatusOverridesAtom, (prev) => {
+        const nextState: TaggedOverridesState =
+          prev.datasetId === datasetId
+            ? { datasetId, overrides: new Map(prev.overrides) }
+            : { datasetId, overrides: new Map<number, boolean>() }
+        mutation.imageIds.forEach((id) => {
+          nextState.overrides.set(Number(id), mutation.setTagged as boolean)
+        })
+        return nextState
+      })
+    }
+
+    if (
+      (mutation.addedLabels && mutation.addedLabels.length > 0) ||
+      (mutation.removedLabels && mutation.removedLabels.length > 0)
+    ) {
+      set(tagsWithImagesOverridesAtom, (prev) => {
+        const nextState: TagsWithImagesOverridesState =
+          prev.datasetId === datasetId
+            ? { datasetId, overrides: new Map(prev.overrides) }
+            : { datasetId, overrides: new Map<string, TagLabelOverride>() }
+
+        const applyLabels = (
+          labels: string[] | undefined,
+          mode: 'add' | 'remove'
+        ) => {
+          if (!labels) return
+          labels.forEach((label) => {
+            const key = normalizeTagLabel(label)
+            const existing =
+              nextState.overrides.get(key) ??
+              ({
+                label,
+                added: new Set<number>(),
+                removed: new Set<number>(),
+              } as TagLabelOverride)
+            mutation.imageIds.forEach((id) => {
+              if (mode === 'add') {
+                existing.added.add(Number(id))
+                existing.removed.delete(Number(id))
+              } else {
+                existing.removed.add(Number(id))
+                existing.added.delete(Number(id))
+              }
+            })
+            nextState.overrides.set(key, existing)
+          })
+        }
+
+        applyLabels(mutation.addedLabels, 'add')
+        applyLabels(mutation.removedLabels, 'remove')
+
+        return nextState
+      })
+    }
+
+    set(taggedOptimisticRevisionAtom, (v) => v + 1)
+    set(recentlyTaggedIdsAtom, (prev) => {
+      const merged = new Set<number>(prev)
+      mutation.imageIds.forEach((id) => merged.add(Number(id)))
+      return Array.from(merged).slice(0, 200)
+    })
+  }
+)
 
 export const datasetsAtom = atom(async (get) => {
   // Force refresh when revision changes
@@ -74,6 +203,31 @@ export const taggedImagesAtom = atom(async (get) => {
   }
 })
 
+export const taggedImagesEffectiveAtom = atom(async (get) => {
+  const datasetId = get(activeDatasetIdAtom)
+  const base = await get(taggedImagesAtom)
+  const overridesState = get(taggedStatusOverridesAtom)
+  const tagged = new Set(base.tagged.map(Number))
+  const untagged = new Set(base.untagged.map(Number))
+
+  if (datasetId && overridesState.datasetId === datasetId) {
+    overridesState.overrides.forEach((isTagged, id) => {
+      if (isTagged) {
+        tagged.add(Number(id))
+        untagged.delete(Number(id))
+      } else {
+        tagged.delete(Number(id))
+        untagged.add(Number(id))
+      }
+    })
+  }
+
+  return {
+    tagged: Array.from(tagged),
+    untagged: Array.from(untagged),
+  }
+})
+
 export const datasetTagsAtom = atom(async (get) => {
   const datasetId = get(activeDatasetIdAtom)
   if (!datasetId) return []
@@ -96,6 +250,49 @@ export const tagsWithImagesAtom = atom(async (get) => {
     console.error('Failed to fetch tags with images:', error)
     return []
   }
+})
+
+export const tagsWithImagesEffectiveAtom = atom(async (get) => {
+  const datasetId = get(activeDatasetIdAtom)
+  const base = await get(tagsWithImagesAtom)
+  const overridesState = get(tagsWithImagesOverridesAtom)
+  const merged = new Map<
+    string,
+    {
+      label: string
+      ids: Set<number>
+    }
+  >()
+
+  base.forEach((entry: any) => {
+    const label = String(entry.label ?? '')
+    const key = normalizeTagLabel(label)
+    const ids = new Set<number>(
+      Array.isArray(entry.image_ids)
+        ? entry.image_ids.map((id: number) => Number(id))
+        : []
+    )
+    merged.set(key, { label, ids })
+  })
+
+  if (datasetId && overridesState.datasetId === datasetId) {
+    overridesState.overrides.forEach((override, key) => {
+      const existing =
+        merged.get(key) ??
+        ({
+          label: override.label || key,
+          ids: new Set<number>(),
+        } as { label: string; ids: Set<number> })
+      override.added.forEach((id) => existing.ids.add(Number(id)))
+      override.removed.forEach((id) => existing.ids.delete(Number(id)))
+      merged.set(key, existing)
+    })
+  }
+
+  return Array.from(merged.values()).map((entry) => ({
+    label: entry.label,
+    image_ids: Array.from(entry.ids),
+  }))
 })
 
 type SaoUmapData = {
@@ -314,6 +511,7 @@ export const embeddingProjection = atomFamily((type: string) =>
     const projectionSettings = get(projectionSettingsAtom)
     const filterSettings = get(filterSettingsAtom)
     const taggedRevision = get(taggedImagesRevisionAtom)
+    const taggedOptimisticRevision = get(taggedOptimisticRevisionAtom)
     const embeddingsRevision = get(embeddingsRevisionAtom)
     const activeEmbeddingIds = get(activeEmbeddingIdsAtom)
 
@@ -335,6 +533,7 @@ export const embeddingProjection = atomFamily((type: string) =>
       const cacheKey = [
         datasetId ?? 'none',
         taggedRevision,
+        taggedOptimisticRevision,
         embeddingsRevision,
         filterSettings.year ?? 'all',
         filterSettings.photographer ?? 'all',
@@ -346,7 +545,7 @@ export const embeddingProjection = atomFamily((type: string) =>
         return cached.points
       }
 
-      const tagInfo = await get(taggedImagesAtom)
+      const tagInfo = await get(taggedImagesEffectiveAtom)
       const taggedSet = new Set(tagInfo.tagged.map(String))
 
       const tagged = items
@@ -546,7 +745,7 @@ export const projectedEmbeddingsAtom = atomFamily((type: string) =>
       projectionSettings.groupTaggedByTag
     ) {
       const items = embeddingsData.filter((item: any) => item.type !== 'text')
-      const tagsWithImages = await get(tagsWithImagesAtom)
+      const tagsWithImages = await get(tagsWithImagesEffectiveAtom)
       const itemById = new Map<number, any>(
         items.map((item: any) => [Number(item.id), item])
       )

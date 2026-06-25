@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useAtomValue, useSetAtom } from 'jotai'
 import { useTick } from '@pixi/react'
 import * as PIXI from 'pixi.js'
@@ -19,6 +19,7 @@ import {
   steerTaggedIdsAtom,
   steerTargetPointAtom,
   viewportScaleAtom,
+  recentlyTaggedIdsAtom,
   selectedTagsAtom,
 } from '@/store'
 import {
@@ -62,6 +63,7 @@ export const EmbeddingsLayer: React.FC<{
   const setSteerSuggestedResults = useSetAtom(steerSuggestedResultsAtom)
   const viewportScale = useAtomValue(viewportScaleAtom)
   const setSelectedTags = useSetAtom(selectedTagsAtom)
+  const recentlyTaggedIds = useAtomValue(recentlyTaggedIdsAtom)
 
   const textEmbeddings = rawEmbeddings.filter((e: any) => e.type === 'text')
   const shouldCullSao = projectionSettings.type === 'sao' && !projectionSettings.saoOnlyDataset
@@ -84,6 +86,17 @@ export const EmbeddingsLayer: React.FC<{
   const textSizes = useRef(
     new Map<string, { current: number; target: number }>()
   )
+  const particlesByIdRef = useRef(new Map<number, CustomParticle>())
+  const rawEmbeddingsById = useMemo(() => {
+    const map = new Map<number, any>()
+    rawEmbeddings.forEach((embed: any) => {
+      const id = Number(embed.id)
+      if (!Number.isNaN(id)) {
+        map.set(id, embed)
+      }
+    })
+    return map
+  }, [rawEmbeddings])
   const selectedIdSet = useMemo(
     () => new Set(selectedEmbeddingIds.map((id) => String(id))),
     [selectedEmbeddingIds]
@@ -147,6 +160,53 @@ export const EmbeddingsLayer: React.FC<{
   const seedIdsEqual = (a: number[], b: number[]) =>
     a.length === b.length && a.every((value, index) => value === b[index])
 
+  const computeParticleVisuals = useCallback((
+    embed: any,
+    isSelected: boolean,
+    isSteerActive: boolean,
+    isSteerTagged: boolean,
+    isSteerSuggested: boolean
+  ) => {
+    let targetScale = BASE_SCALE * displaySettings.scale
+    let tint = displaySettings.colorPhotographer
+      ? colorForMetadata(embed.meta)
+      : 0xffffff
+
+    if (type === 'minimap') {
+      if (embed.meta.matched) {
+        targetScale = BASE_SCALE * displaySettings.scale * 100
+      } else if (searchQuery.length) {
+        targetScale = BASE_SCALE * displaySettings.scale * 2
+      } else {
+        targetScale = BASE_SCALE * displaySettings.scale * 5
+      }
+      return { targetScale, tint }
+    }
+
+    if (projectionSettings.type === 'umap') {
+      targetScale = BASE_SCALE * displaySettings.scale * 5
+    }
+    if (searchQuery.length && !embed.meta.matched) {
+      targetScale = BASE_SCALE * 0.1
+    }
+    if (!isSelected) {
+      if (isSteerSuggested) {
+        tint = 0xf5d547
+      } else if (isSteerTagged) {
+        tint = 0x37d67a
+      }
+    }
+    if (isSteerActive && !isSteerTagged && !isSteerSuggested && !isSelected) {
+      targetScale *= 0.5
+    }
+    if (isSelected) {
+      targetScale *= 1.6
+      tint = 0xffaa33
+    }
+
+    return { targetScale, tint }
+  }, [displaySettings, projectionSettings.type, searchQuery, type])
+
   useEffect(() => {
     if (!steerSuggestions || projectionSettings.type !== 'umap') return
     if (isSteerDragging) return
@@ -166,7 +226,7 @@ export const EmbeddingsLayer: React.FC<{
     steerTargetPoint,
   ])
 
-  const finishSteerDrag = (reason: string) => {
+  const finishSteerDrag = () => {
     if (!steerDragActiveRef.current) return
     steerDragActiveRef.current = false
     setIsSteerDragging(false)
@@ -228,6 +288,7 @@ export const EmbeddingsLayer: React.FC<{
   ])
 
   useTick(() => {
+    const now = Date.now()
     particleContainerRefs.forEach((ref) => {
       if (!ref.current) return
       for (const particle of ref.current.particleChildren as CustomParticle[]) {
@@ -241,7 +302,17 @@ export const EmbeddingsLayer: React.FC<{
           particle.x += dx * lerp
           particle.y += dy * lerp
         }
-        const targetScale = data.targetScale || BASE_SCALE
+        let targetScale = data.targetScale || BASE_SCALE
+        if (data.flashUntil && data.flashUntil > now) {
+          const remaining = data.flashUntil - now
+          const progress = 1 - Math.min(1, remaining / 600)
+          const pulse = 1 + 0.25 * Math.sin(progress * Math.PI)
+          targetScale *= pulse
+          particle.alpha = 0.95
+        } else {
+          data.flashUntil = null
+          particle.alpha = 1
+        }
         const ds = targetScale - particle.scaleX
         if (Math.abs(ds) > 0.01) {
           particle.scaleX += ds * lerp
@@ -280,89 +351,13 @@ export const EmbeddingsLayer: React.FC<{
   }, [hoveredText, displayedTextEmbeddings])
 
   useEffect(() => {
-    particleContainerRefs.forEach((ref) => {
-      if (!ref.current) return
-      for (const particle of ref.current.particleChildren as CustomParticle[]) {
-        const embeddingId = particle.data.embedding.id
-        const rawEmbedding = rawEmbeddings.find((e: any) => e.id === embeddingId)
-        if (!rawEmbedding) continue
+    const byId = particlesByIdRef.current
+    const activeIds = new Set<number>()
 
-        const [nx, ny] = rawEmbedding.point
-        const x = nx * CANVAS_WIDTH
-        const y = ny * CANVAS_HEIGHT
-        particle.data.embedding = rawEmbedding
-        particle.data.x = x
-        particle.data.y = y
-
-        const isSelected = selectedIdSet.has(String(embeddingId))
-        const isSteerActive =
-          steerSuggestions && projectionSettings.type === 'umap' && type === 'main'
-        const isSteerTagged = isSteerActive && steerTaggedSet.has(String(embeddingId))
-        const isSteerSuggested =
-          isSteerActive && steerSuggestedSet.has(String(embeddingId))
-        if (type === 'minimap') {
-          let targetScale = BASE_SCALE * displaySettings.scale * 10
-          if (particle.data.embedding.meta.matched) {
-            targetScale = BASE_SCALE * displaySettings.scale * 100
-          } else if (searchQuery.length) {
-            targetScale = BASE_SCALE * displaySettings.scale * 2
-          } else {
-            targetScale = BASE_SCALE * displaySettings.scale * 5
-          }
-          particle.data.targetScale = targetScale
-          particle.tint = displaySettings.colorPhotographer
-            ? colorForMetadata(rawEmbedding.meta)
-            : 0xffffff
-        } else {
-          let targetScale = BASE_SCALE * displaySettings.scale
-          if (projectionSettings.type === 'umap') {
-            targetScale = BASE_SCALE * displaySettings.scale * 5
-          }
-          let tint = displaySettings.colorPhotographer
-            ? colorForMetadata(rawEmbedding.meta)
-            : 0xffffff
-
-          if (searchQuery.length && !particle.data.embedding.meta.matched) {
-            targetScale = BASE_SCALE * 0.1
-          }
-
-          if (!isSelected) {
-            if (isSteerSuggested) {
-              tint = 0xf5d547
-            } else if (isSteerTagged) {
-              tint = 0x37d67a
-            }
-          }
-          if (isSteerActive && !isSteerTagged && !isSteerSuggested && !isSelected) {
-            targetScale *= 0.5
-          }
-
-          if (isSelected) {
-            targetScale *= 1.6
-            tint = 0xffaa33
-          }
-
-          particle.data.targetScale = targetScale
-          particle.tint = tint
-        }
-      }
-    })
-  }, [
-    rawEmbeddings,
-    searchQuery,
-    filterSettings,
-    displaySettings,
-    projectionSettings,
-    selectedIdSet,
-    steerSuggestions,
-    steerTaggedSet,
-    steerSuggestedSet,
-    particleContainerRefs,
-    type,
-  ])
-
-  useEffect(() => {
     rawEmbeddings.forEach((embed: any) => {
+      const id = Number(embed.id)
+      if (Number.isNaN(id)) return
+
       const atlasInfo = (atlasMeta as any)[embed.id]
       if (!atlasInfo) return
 
@@ -371,88 +366,110 @@ export const EmbeddingsLayer: React.FC<{
       const texture = masterAtlas[sheetIndex]?.textures[embed.id]
       if (!container || !texture) return
 
+      activeIds.add(id)
+
+      let particle = byId.get(id)
       const [nx, ny] = embed.point
       const x = nx * CANVAS_WIDTH
       const y = ny * CANVAS_HEIGHT
-      const isSelected = selectedIdSet.has(String(embed.id))
-      const isSteerActive =
-        steerSuggestions && projectionSettings.type === 'umap' && type === 'main'
-      const isSteerTagged = isSteerActive && steerTaggedSet.has(String(embed.id))
-      const isSteerSuggested = isSteerActive && steerSuggestedSet.has(String(embed.id))
-      let targetScale = BASE_SCALE * displaySettings.scale
-      let tint = displaySettings.colorPhotographer
-        ? colorForMetadata(embed.meta)
-        : 0xffffff
 
-      if (type === 'minimap') {
-        if (embed.meta.matched) {
-          targetScale = BASE_SCALE * displaySettings.scale * 100
-        } else if (searchQuery.length) {
-          targetScale = BASE_SCALE * displaySettings.scale * 2
-        } else {
-          targetScale = BASE_SCALE * displaySettings.scale * 5
+      if (!particle) {
+        const isSelected = selectedIdSet.has(String(id))
+        const isSteerActive =
+          steerSuggestions && projectionSettings.type === 'umap' && type === 'main'
+        const isSteerTagged = isSteerActive && steerTaggedSet.has(String(id))
+        const isSteerSuggested =
+          isSteerActive && steerSuggestedSet.has(String(id))
+        const { targetScale, tint } = computeParticleVisuals(
+          embed,
+          isSelected,
+          isSteerActive,
+          isSteerTagged,
+          isSteerSuggested
+        )
+
+        particle = new PIXI.Particle({
+          texture,
+          x,
+          y,
+          scaleX: targetScale,
+          scaleY: targetScale,
+          anchorX: 0.5,
+          anchorY: 0.5,
+          tint,
+        }) as CustomParticle
+
+        particle.data = {
+          embedding: embed,
+          x,
+          y,
+          originalX: x,
+          originalY: y,
+          targetScale,
+          flashUntil: null,
         }
+
+        container.addParticle(particle)
+        byId.set(id, particle)
       } else {
-        if (projectionSettings.type === 'umap') {
-          targetScale = BASE_SCALE * displaySettings.scale * 5
-        }
-        if (searchQuery.length && !embed.meta.matched) {
-          targetScale = BASE_SCALE * 0.1
-        }
-        if (!isSelected) {
-          if (isSteerSuggested) {
-            tint = 0xf5d547
-          } else if (isSteerTagged) {
-            tint = 0x37d67a
-          }
-        }
-        if (isSteerActive && !isSteerTagged && !isSteerSuggested && !isSelected) {
-          targetScale *= 0.5
-        }
-        if (isSelected) {
-          targetScale *= 1.6
-          tint = 0xffaa33
-        }
+        particle.data.embedding = embed
+        particle.data.x = x
+        particle.data.y = y
       }
-
-      const particle = new PIXI.Particle({
-        texture,
-        x,
-        y,
-        scaleX: targetScale,
-        scaleY: targetScale,
-        anchorX: 0.5,
-        anchorY: 0.5,
-        tint,
-      }) as CustomParticle
-
-      particle.data = {
-        embedding: embed,
-        x,
-        y,
-        originalX: x,
-        originalY: y,
-        targetScale,
-      }
-
-      container.addParticle(particle)
     })
 
-    return () => {
-      particleContainerRefs.forEach((ref) => {
-        if (ref.current) {
-          ref.current.removeParticles()
-          ref.current.particleChildren = []
-        }
-      })
+    for (const [id, particle] of byId) {
+      if (!activeIds.has(id)) {
+        particleContainerRefs.forEach((ref) => {
+          const container = ref.current
+          if (container?.particleChildren.includes(particle)) {
+            container.removeParticle(particle)
+          }
+        })
+        byId.delete(id)
+      }
     }
   }, [
     rawEmbeddings,
     particleContainerRefs,
     masterAtlas,
     atlasMeta,
-    displaySettings,
+    computeParticleVisuals,
+    projectionSettings.type,
+    selectedIdSet,
+    steerSuggestions,
+    steerTaggedSet,
+    steerSuggestedSet,
+    type,
+  ])
+
+  useEffect(() => {
+    const byId = particlesByIdRef.current
+    const isSteerActive =
+      steerSuggestions && projectionSettings.type === 'umap' && type === 'main'
+    for (const [id, particle] of byId) {
+      const embed = rawEmbeddingsById.get(id)
+      if (!embed) continue
+      particle.data.embedding = embed
+      const isSelected = selectedIdSet.has(String(id))
+      const isSteerTagged = isSteerActive && steerTaggedSet.has(String(id))
+      const isSteerSuggested = isSteerActive && steerSuggestedSet.has(String(id))
+      const { targetScale, tint } = computeParticleVisuals(
+        embed,
+        isSelected,
+        isSteerActive,
+        isSteerTagged,
+        isSteerSuggested
+      )
+      particle.data.targetScale = targetScale
+      particle.tint = tint
+    }
+  }, [
+    computeParticleVisuals,
+    rawEmbeddingsById,
     searchQuery,
+    filterSettings,
+    displaySettings,
     projectionSettings,
     selectedIdSet,
     steerSuggestions,
@@ -460,6 +477,31 @@ export const EmbeddingsLayer: React.FC<{
     steerSuggestedSet,
     type,
   ])
+
+  useEffect(() => {
+    if (recentlyTaggedIds.length === 0) return
+    const byId = particlesByIdRef.current
+    const now = Date.now()
+    recentlyTaggedIds.forEach((id) => {
+      const particle = byId.get(Number(id))
+      if (particle?.data) {
+        particle.data.flashUntil = now + 600
+      }
+    })
+  }, [recentlyTaggedIds])
+
+  useEffect(() => {
+    const particlesById = particlesByIdRef.current
+    return () => {
+      particlesById.clear()
+      particleContainerRefs.forEach((ref) => {
+        if (ref.current) {
+          ref.current.removeParticles()
+          ref.current.particleChildren = []
+        }
+      })
+    }
+  }, [particleContainerRefs])
 
   return (
     <>
@@ -517,7 +559,7 @@ export const EmbeddingsLayer: React.FC<{
 
               const handleMove = (event: any) => {
                 const target = steerDragTargetRef.current
-                if (!target) return
+                if (!target?.parent) return
                 target.parent.toLocal(event.global, undefined, target.position)
                 const nextPoint = {
                   x: target.position.x / CANVAS_WIDTH,
@@ -529,7 +571,7 @@ export const EmbeddingsLayer: React.FC<{
               }
 
               const handleUp = () => {
-                finishSteerDrag('pointerup')
+                finishSteerDrag()
               }
 
               app.stage.on('pointermove', handleMove)
@@ -547,8 +589,8 @@ export const EmbeddingsLayer: React.FC<{
           const isSao = projectionSettings.type === 'sao'
           const isTaggedHeaders = projectionSettings.type === 'tagged'
           const saoFontSize = Math.max(
-            40,
-            Math.min(120, 160 / Math.max(0.6, viewportScale))
+            1.5,
+            Math.min(18, 16 / Math.max(0.2, viewportScale))
           )
           const taggedFontSize = 8
           return (
@@ -609,7 +651,12 @@ export const EmbeddingsLayer: React.FC<{
                     : isTaggedHeaders
                       ? taggedFontSize
                       : textSizes.current.get(textKey)?.current ?? TEXT_BASE_SIZE
-                  if (isTaggedHeaders) {
+                  if (isSao) {
+                    node.resolution = Math.min(
+                      6,
+                      Math.max(2, viewportScale * 2)
+                    )
+                  } else if (isTaggedHeaders) {
                     node.resolution = 2
                   }
                 } else {
