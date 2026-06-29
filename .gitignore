@@ -1,8 +1,10 @@
 images/*
+out/*
 *.xlsx
 .cache
+.agents
+.venv
 .micromamba/
-.venv/
 
 web/.htpasswd
 datasets/*

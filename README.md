@@ -128,6 +128,12 @@ This section outlines the general steps to get the image search system up and ru
 *   More sophisticated frontend UI features (e.g., metadata display, advanced filtering).
 *   Support for other embedding models beyond CLIP.
 *   User authentication and personalized image galleries.
+*   Image generation (from average embeddings)
+*   Create spaceword from unsupervised clustering algorithm (cluster embeddings -> use average class embedding vector -> inverse-map to text)
+*   Query optimization (len(word) == 1: "photo of " + word)
+*   Image caption prefix data exploration
+*   Generate image description (big button "Describe this!"")
+* Return to Center of Mass button near minimap
 
 ### Contributing
 

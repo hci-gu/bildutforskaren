@@ -1,3 +1,4 @@
+import argparse
 import os
 from PIL import Image
 
@@ -30,4 +31,9 @@ def process_folder(input_root, output_root, max_size):
                     print(f"Error processing {input_path}: {e}")
 
 if __name__ == '__main__':
-    process_folder(input_root, output_root, max_size)
+    parser = argparse.ArgumentParser(description='Resize images into a mirrored output folder.')
+    parser.add_argument('input_root', nargs='?', default=input_root, help='Root folder containing source images.')
+    parser.add_argument('output_root', nargs='?', default=output_root, help='Root folder for resized images.')
+    args = parser.parse_args()
+
+    process_folder(args.input_root, args.output_root, max_size)
