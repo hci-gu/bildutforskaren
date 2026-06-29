@@ -1,6 +1,7 @@
 import { atom } from 'jotai'
 import { atomFamily, loadable } from 'jotai/utils'
 import {
+  fetchClusters,
   fetchDatasetImages,
   fetchDatasetTags,
   fetchDatasets,
@@ -13,6 +14,7 @@ import {
   searchByImage,
   searchByText,
 } from '@/shared/lib/api'
+import type { Cluster } from '@/shared/lib/api'
 
 export const activeDatasetIdAtom = atom<string | null>(null)
 
@@ -55,20 +57,17 @@ export const recentlyTaggedIdsAtom = atom<number[]>([])
 let taggedImagesRefreshTimer: ReturnType<typeof setTimeout> | null = null
 const TAGGED_IMAGES_REFRESH_DEBOUNCE_MS = 800
 
-export const scheduleTaggedImagesRefreshAtom = atom(
-  null,
-  (get, set) => {
-    const datasetId = get(activeDatasetIdAtom)
-    if (!datasetId) return
-    if (taggedImagesRefreshTimer) {
-      clearTimeout(taggedImagesRefreshTimer)
-    }
-    taggedImagesRefreshTimer = setTimeout(() => {
-      set(taggedImagesRevisionAtom, (v) => v + 1)
-      taggedImagesRefreshTimer = null
-    }, TAGGED_IMAGES_REFRESH_DEBOUNCE_MS)
+export const scheduleTaggedImagesRefreshAtom = atom(null, (get, set) => {
+  const datasetId = get(activeDatasetIdAtom)
+  if (!datasetId) return
+  if (taggedImagesRefreshTimer) {
+    clearTimeout(taggedImagesRefreshTimer)
   }
-)
+  taggedImagesRefreshTimer = setTimeout(() => {
+    set(taggedImagesRevisionAtom, (v) => v + 1)
+    taggedImagesRefreshTimer = null
+  }, TAGGED_IMAGES_REFRESH_DEBOUNCE_MS)
+})
 
 const normalizeTagLabel = (label: string) => label.trim().toLowerCase()
 
@@ -504,6 +503,29 @@ const setTaggedProjectionCache = (
   }
 }
 
+const clusterCache = new Map<string, Promise<Cluster[]>>()
+
+const getClustersForProjection = (
+  key: string,
+  datasetId: string,
+  points: [number, number][],
+  imageIds: number[]
+) => {
+  const cached = clusterCache.get(key)
+  if (cached) return cached
+
+  const request = fetchClusters(datasetId, points, imageIds).catch((error) => {
+    clusterCache.delete(key)
+    throw error
+  })
+  clusterCache.set(key, request)
+  if (clusterCache.size > 10) {
+    const firstKey = clusterCache.keys().next().value
+    if (firstKey) clusterCache.delete(firstKey)
+  }
+  return request
+}
+
 export const embeddingProjection = atomFamily((type: string) =>
   atom(async (get) => {
     const datasetId = get(activeDatasetIdAtom)
@@ -580,7 +602,9 @@ export const embeddingProjection = atomFamily((type: string) =>
       placeGrid(tagged, leftX, blockWidth)
       placeGrid(untagged, rightX, blockWidth)
 
-      const points = items.map((item: any) => positions.get(item.id) ?? [0, 0])
+      const points: [number, number][] = items.map(
+        (item: any) => positions.get(item.id) ?? [0, 0]
+      )
       setTaggedProjectionCache(cacheKey, { points, count: items.length })
       return points
     }
@@ -592,28 +616,36 @@ export const embeddingProjection = atomFamily((type: string) =>
       const imageIds = imageItems.map((item: any) => item.id)
       const includeTexts = !filterSettings.year && !filterSettings.photographer
       const texts = includeTexts ? get(textsAtom) : []
-
-      const data = await fetchUmapProjection(datasetId, imageIds, texts, {
+      const umapParams = {
         n_neighbors: projectionSettings.nNeighbors,
         min_dist: projectionSettings.minDist,
         n_components: 2,
         spread: projectionSettings.spread,
         seed: projectionSettings.seed,
-      })
+      }
+
+      const data = await fetchUmapProjection(
+        datasetId,
+        imageIds,
+        texts,
+        umapParams
+      )
       const imagePointsById = new Map<number, [number, number]>()
       for (let i = 0; i < data.image_ids.length; i++) {
         imagePointsById.set(data.image_ids[i], data.image_points[i])
       }
 
       let textIndex = 0
-      const embedding2d = embeddingsData.map((item: any) => {
-        if (item.type === 'text') {
-          const point = data.text_points?.[textIndex]
-          textIndex += 1
-          return point ?? [0, 0]
+      const embedding2d: [number, number][] = embeddingsData.map(
+        (item: any) => {
+          if (item.type === 'text') {
+            const point = data.text_points?.[textIndex]
+            textIndex += 1
+            return point ?? [0, 0]
+          }
+          return imagePointsById.get(item.id) ?? [0, 0]
         }
-        return imagePointsById.get(item.id) ?? [0, 0]
-      })
+      )
 
       return embedding2d
     } else if (projectionType === 'grid') {
@@ -684,11 +716,14 @@ export const embeddingProjection = atomFamily((type: string) =>
 
       return positions
     }
+
+    return []
   })
 )
 
 export const projectedEmbeddingsAtom = atomFamily((type: string) =>
   atom(async (get) => {
+    const datasetId = get(activeDatasetIdAtom)
     let embeddingsData = await get(filteredEmbeddingsAtom)
     const projectionSettings = get(projectionSettingsAtom)
     const projection = await get(embeddingProjection(type))
@@ -936,6 +971,43 @@ export const projectedEmbeddingsAtom = atomFamily((type: string) =>
         },
       })
     )
+
+    if (datasetId && type !== 'minimap' && projectionSettings.type === 'umap') {
+      const imageEmbeddings = projectedEmbeddings.filter(
+        (item: any) => item.type === 'image' && Array.isArray(item.point)
+      )
+      const imageIds = imageEmbeddings.map((item: any) => Number(item.id))
+      const imagePoints = imageEmbeddings.map(
+        (item: any) => item.point as [number, number]
+      )
+      if (imageIds.length > 0) {
+        try {
+          const clusters = await getClustersForProjection(
+            JSON.stringify({ datasetId, imageIds, imagePoints }),
+            datasetId,
+            imagePoints,
+            imageIds
+          )
+          clusters.forEach((cluster, index) => {
+            const label = cluster.label?.trim()
+            if (!label) return
+            projectedEmbeddings.push({
+              id: `cluster_${index}_${label}`,
+              point: cluster.centroid_position,
+              text: label,
+              type: 'text',
+              meta: {
+                matched: false,
+                clusterSize: cluster.num_points,
+                labelScore: cluster.label_score ?? null,
+              },
+            })
+          })
+        } catch (error) {
+          console.error('Failed to fetch UMAP cluster labels:', error)
+        }
+      }
+    }
 
     if (projectionSettings.type == 'year') {
       const embeddingsWithYear = embeddingsData.filter(

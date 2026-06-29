@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import numpy as np
 from flask import Blueprint, jsonify, request
 from sklearn.cluster import KMeans
@@ -8,9 +10,40 @@ from sklearn.metrics import silhouette_score
 
 bp = Blueprint("clustering", __name__)
 
+@dataclass
+class Cluster:
+    centroid_position: list[float]
+    num_points: int
+    points: list[list[float]]
+    point_indices: list[int]
+    label: str | None = None
+    label_score: float | None = None
+
+    @classmethod
+    def from_points(cls, points: np.ndarray, point_indices: np.ndarray) -> "Cluster":
+        centroid = np.mean(points, axis=0)
+        return cls(
+            centroid_position=centroid.tolist(),
+            num_points=int(points.shape[0]),
+            points=points.tolist(),
+            point_indices=[int(index) for index in point_indices.tolist()],
+        )
+
+    def to_dict(self) -> dict:
+        data = {
+            "centroid_position": self.centroid_position,
+            "num_points": self.num_points,
+            "points": self.points,
+            "point_indices": self.point_indices,
+        }
+        if self.label is not None:
+            data["label"] = self.label
+            data["label_score"] = self.label_score
+        return data
+
 
 # get 2D array (n,p) and perform clustering
-def fit_model(X: np.ndarray):
+def fit_model(X: np.ndarray) -> list[Cluster]:
     X = np.asarray(X)
     if X.ndim != 2:
         raise ValueError("X must be a 2D array")
@@ -19,7 +52,13 @@ def fit_model(X: np.ndarray):
     if n_samples == 0:
         raise ValueError("No samples given for X matrix")
     if n_samples < 3:
-        return [[index] for index in range(n_samples)]
+        return [
+            Cluster.from_points(
+                X[index : index + 1],
+                np.array([index], dtype=int),
+            )
+            for index in range(n_samples)
+        ]
 
     best_labels = None
     best_score = -1.0
@@ -42,10 +81,13 @@ def fit_model(X: np.ndarray):
             best_labels = labels
 
     if best_labels is None:
-        return [list(range(n_samples))]
+        return [Cluster.from_points(X, np.arange(n_samples))]
 
     return [
-        np.where(best_labels == cluster_index)[0].tolist()
+        Cluster.from_points(
+            X[best_labels == cluster_index],
+            np.where(best_labels == cluster_index)[0],
+        )
         for cluster_index in sorted(np.unique(best_labels))
     ]
 
@@ -61,4 +103,4 @@ def clustering_route():
     except (TypeError, ValueError) as exc:
         return jsonify({"error": str(exc)}), 400
 
-    return jsonify(clusters)
+    return jsonify([cluster.to_dict() for cluster in clusters])

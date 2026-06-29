@@ -1,5 +1,14 @@
 type Json = Record<string, any>
 
+export type Cluster = {
+  centroid_position: [number, number]
+  num_points: number
+  points: [number, number][]
+  point_indices: number[]
+  label?: string
+  label_score?: number
+}
+
 export const API_URL = 'http://localhost:3000'
 // export const API_URL = 'https://bildutforskaren-api.prod.appadem.in'
 // export const API_URL = 'https://leviathan.itit.gu.se'
@@ -75,9 +84,11 @@ export const fetchDatasetStatus = async (datasetId: string) => {
 }
 
 export const fetchTagStats = async (datasetId: string) => {
-  return await fetchJson<Json>(
-    `${API_URL}/datasets/${encodeURIComponent(datasetId)}/tag-stats`
-  )
+  return await fetchJson<{
+    total_images: number
+    tagged_images: number
+    tagged_percent: number
+  }>(`${API_URL}/datasets/${encodeURIComponent(datasetId)}/tag-stats`)
 }
 
 export const seedTagsFromMetadata = async (datasetId: string) => {
@@ -94,7 +105,10 @@ export const resumeProcessing = async (datasetId: string) => {
   )
 }
 
-export const fetchImageMetadata = async (datasetId: string, imageId: number) => {
+export const fetchImageMetadata = async (
+  datasetId: string,
+  imageId: number
+) => {
   return await fetchJson<Json>(
     `${API_URL}/datasets/${encodeURIComponent(datasetId)}/metadata/${imageId}`
   )
@@ -188,8 +202,25 @@ export const fetchUmapProjection = async (
   })
 }
 
+export const fetchClusters = async (
+  datasetId: string,
+  points: [number, number][],
+  imageIds: number[]
+) => {
+  const reponse = await fetchJson<Cluster[]>(
+    datasetApiUrl(datasetId, '/clustering'),
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ X: points, image_ids: imageIds }),
+    }
+  )
+  console.log('Got clusters:', reponse)
+  return reponse
+}
+
 export const fetchEmbeddingById = async (datasetId: string, id: string) => {
-  return await fetchJson<Json>(datasetApiUrl(datasetId, `/embedding/${id}`))
+  return await fetchJson<number[]>(datasetApiUrl(datasetId, `/embedding/${id}`))
 }
 
 export const fetchAtlasMeta = async (datasetId: string) => {
@@ -208,7 +239,10 @@ export const fetchImageTagSuggestions = async (
   limit = 3
 ) => {
   return await fetchJson<Json[]>(
-    datasetApiUrl(datasetId, `/images/${imageId}/tag-suggestions?limit=${limit}`)
+    datasetApiUrl(
+      datasetId,
+      `/images/${imageId}/tag-suggestions?limit=${limit}`
+    )
   )
 }
 

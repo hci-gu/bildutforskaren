@@ -18,11 +18,36 @@ from api import datasets
 from api import indexing
 from api import context as context_builder
 from api import runtime
+from api.clustering import fit_model
 
 
 bp = Blueprint("dataset_scoped", __name__)
 
 UMAP_CACHE_VERSION = 5
+
+_CLUSTER_DESCRIPTION_CANDIDATES = [
+    "portraits",
+    "people indoors",
+    "people outdoors",
+    "groups of people",
+    "children",
+    "buildings",
+    "city streets",
+    "interiors",
+    "landscapes",
+    "nature scenes",
+    "water views",
+    "vehicles",
+    "objects",
+    "documents",
+    "artworks",
+    "text and signs",
+    "black and white photos",
+    "color photos",
+    "close-up details",
+    "wide scenes",
+]
+_CLUSTER_DESCRIPTION_EMBEDDINGS: np.ndarray | None = None
 
 
 def _get_context(dataset_id: str):
@@ -112,6 +137,30 @@ def _get_dataset_db(dataset_id: str):
     if not db_path.exists():
         return None, cfg, db_path
     return dataset_db.connect_dataset_db(db_path), cfg, db_path
+
+
+def _get_cluster_description_embeddings() -> np.ndarray:
+    global _CLUSTER_DESCRIPTION_EMBEDDINGS
+    if _CLUSTER_DESCRIPTION_EMBEDDINGS is None:
+        prompts = [
+            f"a photo of {description}"
+            for description in _CLUSTER_DESCRIPTION_CANDIDATES
+        ]
+        _CLUSTER_DESCRIPTION_EMBEDDINGS = clip_service.embed_text(prompts)
+    return _CLUSTER_DESCRIPTION_EMBEDDINGS
+
+
+def _label_for_embedding(embedding: np.ndarray) -> dict:
+    description_embeddings = _get_cluster_description_embeddings()
+    query = embedding.astype("float32", copy=False)
+    norm = max(1e-12, float(np.linalg.norm(query)))
+    query = query / norm
+    scores = description_embeddings @ query
+    best_idx = int(np.argmax(scores))
+    return {
+        "label": _CLUSTER_DESCRIPTION_CANDIDATES[best_idx],
+        "score": float(scores[best_idx]),
+    }
 
 
 def _require_image_id(conn, image_id: int):
@@ -1102,6 +1151,45 @@ def assign_tag_to_images(dataset_id: str):
         return jsonify({"tag_ids": tag_ids, "assigned": after - before})
     finally:
         conn.close()
+
+
+@bp.route("/datasets/<dataset_id>/clustering", methods=["POST"])
+def cluster_dataset_projection(dataset_id: str):
+    ctx = _get_context(dataset_id)
+    payload = request.get_json(silent=True) or {}
+    if "X" not in payload:
+        return jsonify({"error": "Missing 'X'"}), 400
+
+    image_ids = payload.get("image_ids")
+    if not isinstance(image_ids, list) or any(not isinstance(i, int) for i in image_ids):
+        return jsonify({"error": "'image_ids' must be a list of integers"}), 400
+    if any(i < 0 or i >= len(ctx.embeddings) for i in image_ids):
+        return jsonify({"error": "One or more image_ids are out of range"}), 400
+
+    try:
+        points = np.asarray(payload["X"], dtype=float)
+        clusters = fit_model(points)
+    except (TypeError, ValueError) as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    if points.shape[0] != len(image_ids):
+        return jsonify({"error": "'X' and 'image_ids' must have the same length"}), 400
+
+    embeddings = ctx.embeddings.cpu().numpy().astype("float32")
+    for cluster in clusters:
+        cluster_image_ids = [
+            image_ids[index]
+            for index in cluster.point_indices
+            if 0 <= index < len(image_ids)
+        ]
+        if not cluster_image_ids:
+            continue
+        avg_embedding = embeddings[cluster_image_ids].mean(axis=0)
+        label = _label_for_embedding(avg_embedding)
+        cluster.label = label["label"]
+        cluster.label_score = label["score"]
+
+    return jsonify([cluster.to_dict() for cluster in clusters])
 
 
 @bp.route("/datasets/<dataset_id>/umap", methods=["GET", "POST"])
