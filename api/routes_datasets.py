@@ -4,11 +4,48 @@ from flask import Blueprint, jsonify, request
 
 from api import config
 from api import datasets
+from api import image_roundtrip
 from api import jobs
+from api import model_backends
 from api import runtime
 
 
 bp = Blueprint("datasets", __name__)
+
+
+@bp.route("/models/status", methods=["GET"])
+def model_status():
+    try:
+        backend = model_backends.get_model_backend()
+        if isinstance(backend, model_backends.RemoteHttpModelBackend):
+            try:
+                import httpx
+
+                response = httpx.get(f"{backend.base_url}/health", timeout=5)
+                response.raise_for_status()
+                worker = response.json()
+            except Exception as exc:
+                worker = {"ok": False, "error": str(exc)}
+            return jsonify(
+                {
+                    "backend": "remote",
+                    "worker_url": backend.base_url,
+                    "worker": worker,
+                }
+            )
+
+        return jsonify(
+            {
+                "backend": "local",
+                "models": {
+                    "caption": model_backends.CAPTION_MODEL,
+                    "caption_task": model_backends.CAPTION_TASK,
+                    "sdxl_text": model_backends.SDXL_MODEL,
+                },
+            }
+        )
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
 
 
 @bp.route("/datasets", methods=["GET", "POST"])
@@ -37,6 +74,10 @@ def dataset_status(dataset_id: str):
         meta["embeddings_cached"] = cfg.cache_file.exists()
     except Exception:
         meta["embeddings_cached"] = False
+    try:
+        meta["image_roundtrip"] = image_roundtrip.artifact_status(dataset_id)
+    except Exception:
+        meta["image_roundtrip"] = None
 
     job = runtime.get_job_manager().get_state(dataset_id)
     if job:
@@ -152,3 +193,82 @@ def resume_processing(dataset_id: str):
 
     jobs.submit_processing(dataset_id)
     return jsonify({"status": "queued"}), 202
+
+
+@bp.route("/datasets/<dataset_id>/image-roundtrip/status", methods=["GET"])
+def image_roundtrip_status(dataset_id: str):
+    if not datasets.is_safe_dataset_id(dataset_id):
+        return jsonify({"error": "Invalid dataset_id"}), 400
+
+    try:
+        meta = datasets.read_dataset_json(dataset_id)
+    except FileNotFoundError:
+        return jsonify({"error": "Dataset not found"}), 404
+
+    if meta.get("status") != "ready":
+        return jsonify({"error": "Dataset is not ready"}), 409
+
+    return jsonify(image_roundtrip.artifact_status(dataset_id))
+
+
+@bp.route("/datasets/<dataset_id>/image-roundtrip/generate", methods=["POST"])
+def generate_image_roundtrip(dataset_id: str):
+    if not datasets.is_safe_dataset_id(dataset_id):
+        return jsonify({"error": "Invalid dataset_id"}), 400
+
+    try:
+        meta = datasets.read_dataset_json(dataset_id)
+    except FileNotFoundError:
+        return jsonify({"error": "Dataset not found"}), 404
+
+    if meta.get("status") != "ready":
+        return jsonify({"error": "Dataset is not ready"}), 409
+
+    job_state = runtime.get_job_manager().get_state(dataset_id)
+    active_stages = {
+        "queued",
+        "thumbnails",
+        "indexing",
+        "embeddings",
+        "atlas",
+        "image-roundtrip",
+    }
+    if job_state.get("stage") in active_stages:
+        return jsonify({"error": "Processing already running"}), 409
+
+    status = image_roundtrip.artifact_status(dataset_id)
+    if status.get("missing", 0) <= 0:
+        return jsonify({"error": "Image roundtrip artifacts already exist"}), 409
+
+    payload = request.get_json(silent=True) or {}
+    options = {
+        "max_new_tokens": int(payload.get("caption_tokens") or 160),
+    }
+    image_roundtrip.submit(dataset_id, **options)
+
+    return jsonify({"status": "queued", "image_roundtrip": status}), 202
+
+
+@bp.route("/datasets/<dataset_id>/image-roundtrip/<artifact_group>", methods=["DELETE"])
+def clear_image_roundtrip_artifacts(dataset_id: str, artifact_group: str):
+    if not datasets.is_safe_dataset_id(dataset_id):
+        return jsonify({"error": "Invalid dataset_id"}), 400
+
+    try:
+        meta = datasets.read_dataset_json(dataset_id)
+    except FileNotFoundError:
+        return jsonify({"error": "Dataset not found"}), 404
+
+    if meta.get("status") != "ready":
+        return jsonify({"error": "Dataset is not ready"}), 409
+
+    job_state = runtime.get_job_manager().get_state(dataset_id)
+    if job_state.get("stage") == "image-roundtrip":
+        return jsonify({"error": "Image metadata generation is running"}), 409
+
+    try:
+        result = image_roundtrip.clear_artifacts(dataset_id, artifact_group)
+    except ValueError:
+        return jsonify({"error": "Invalid artifact group"}), 400
+
+    return jsonify(result)

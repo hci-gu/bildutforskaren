@@ -105,6 +105,27 @@ export const resumeProcessing = async (datasetId: string) => {
   )
 }
 
+export const generateImageRoundtrip = async (datasetId: string) => {
+  return await fetchJson<Json>(
+    `${API_URL}/datasets/${encodeURIComponent(datasetId)}/image-roundtrip/generate`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    }
+  )
+}
+
+export const clearImageRoundtripArtifacts = async (
+  datasetId: string,
+  artifactGroup: 'clip' | 'florence' | 'sdxl'
+) => {
+  return await fetchJson<Json>(
+    `${API_URL}/datasets/${encodeURIComponent(datasetId)}/image-roundtrip/${artifactGroup}`,
+    { method: 'DELETE' }
+  )
+}
+
 export const fetchImageMetadata = async (
   datasetId: string,
   imageId: number
