@@ -28,8 +28,19 @@ export type DatasetStatus = {
       clip?: number
       florence?: number
       sdxl?: number
+      ip_adapter?: number
     }
     root?: string
+  } | null
+  cluster_previews?: {
+    exists: boolean
+    levels: number
+    requested_levels?: number
+    clusters: number
+    images: number
+    root?: string
+    created_at?: string
+    params?: Record<string, any>
   } | null
   created_at?: string
   error?: string | null

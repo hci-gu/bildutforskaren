@@ -25,7 +25,7 @@ from api.clustering import fit_model
 
 bp = Blueprint("dataset_scoped", __name__)
 
-UMAP_CACHE_VERSION = 5
+UMAP_CACHE_VERSION = 6
 
 _CLUSTER_DESCRIPTION_CANDIDATES = [
     "portraits",
@@ -621,6 +621,107 @@ def generate_from_sdxl_embedding(dataset_id: str, image_id: int):
         return jsonify({"error": "SDXL embedding not found"}), 404
     except Exception as exc:
         logging.exception("Failed to generate image for %s/%s", dataset_id, image_id)
+        return jsonify({"error": str(exc)}), 500
+
+    return send_file(io.BytesIO(image), mimetype="image/png")
+
+
+@bp.route("/datasets/<dataset_id>/images/<int:image_id>/generate-from-ip-adapter-embedding", methods=["POST"])
+def generate_from_ip_adapter_embedding(dataset_id: str, image_id: int):
+    payload = request.get_json(silent=True) or {}
+    try:
+        image = image_roundtrip.generate_image_from_saved_ip_adapter_embedding(
+            dataset_id,
+            image_id,
+            prompt=str(payload.get("prompt") or ""),
+            negative_prompt=str(payload.get("negative_prompt") or ""),
+            steps=int(payload.get("steps") or 4),
+            cfg=float(payload.get("cfg") if payload.get("cfg") is not None else 0.0),
+            size=int(payload.get("size") or 512),
+            seed=int(payload.get("seed") or 1),
+            adapter_scale=float(
+                payload.get("adapter_scale")
+                if payload.get("adapter_scale") is not None
+                else 0.9
+            ),
+        )
+    except IndexError:
+        return jsonify({"error": "Image ID not found"}), 404
+    except FileNotFoundError:
+        return jsonify({"error": "IP-Adapter embedding not found"}), 404
+    except Exception as exc:
+        logging.exception("Failed to generate IP-Adapter image for %s/%s", dataset_id, image_id)
+        return jsonify({"error": str(exc)}), 500
+
+    return send_file(io.BytesIO(image), mimetype="image/png")
+
+
+@bp.route("/datasets/<dataset_id>/sdxl-average-generation-status", methods=["POST"])
+def sdxl_average_generation_status(dataset_id: str):
+    payload = request.get_json(silent=True) or {}
+    image_ids = _parse_image_ids(payload.get("image_ids")) or []
+    try:
+        return jsonify(image_roundtrip.average_embedding_status(dataset_id, image_ids))
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except IndexError:
+        return jsonify({"error": "Image ID not found"}), 404
+
+
+@bp.route("/datasets/<dataset_id>/generate-from-average-sdxl-embedding", methods=["POST"])
+def generate_from_average_sdxl_embedding(dataset_id: str):
+    payload = request.get_json(silent=True) or {}
+    image_ids = _parse_image_ids(payload.get("image_ids")) or []
+    try:
+        image = image_roundtrip.generate_image_from_average_embedding(
+            dataset_id,
+            image_ids,
+            steps=int(payload.get("steps") or 4),
+            cfg=float(payload.get("cfg") if payload.get("cfg") is not None else 0.5),
+            size=int(payload.get("size") or 512),
+            seed=int(payload.get("seed") or 1),
+        )
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except IndexError:
+        return jsonify({"error": "Image ID not found"}), 404
+    except FileNotFoundError as exc:
+        return jsonify({"error": str(exc)}), 404
+    except Exception as exc:
+        logging.exception("Failed to generate average image for %s", dataset_id)
+        return jsonify({"error": str(exc)}), 500
+
+    return send_file(io.BytesIO(image), mimetype="image/png")
+
+
+@bp.route("/datasets/<dataset_id>/generate-from-average-ip-adapter-embedding", methods=["POST"])
+def generate_from_average_ip_adapter_embedding(dataset_id: str):
+    payload = request.get_json(silent=True) or {}
+    image_ids = _parse_image_ids(payload.get("image_ids")) or []
+    try:
+        image = image_roundtrip.generate_image_from_average_ip_adapter_embedding(
+            dataset_id,
+            image_ids,
+            prompt=str(payload.get("prompt") or ""),
+            negative_prompt=str(payload.get("negative_prompt") or ""),
+            steps=int(payload.get("steps") or 4),
+            cfg=float(payload.get("cfg") if payload.get("cfg") is not None else 0.0),
+            size=int(payload.get("size") or 512),
+            seed=int(payload.get("seed") or 1),
+            adapter_scale=float(
+                payload.get("adapter_scale")
+                if payload.get("adapter_scale") is not None
+                else 0.9
+            ),
+        )
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except IndexError:
+        return jsonify({"error": "Image ID not found"}), 404
+    except FileNotFoundError as exc:
+        return jsonify({"error": str(exc)}), 404
+    except Exception as exc:
+        logging.exception("Failed to generate average IP-Adapter image for %s", dataset_id)
         return jsonify({"error": str(exc)}), 500
 
     return send_file(io.BytesIO(image), mimetype="image/png")
@@ -1264,6 +1365,7 @@ def get_umap(dataset_id: str):
             n_components=int(params.get("n_components", 2)),
             spread=float(params.get("spread", 1.0)),
             metric="cosine",
+            random_state=int(params.get("seed", 42)),
             transform_seed=int(params.get("seed", 42)),
         )
 

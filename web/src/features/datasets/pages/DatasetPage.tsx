@@ -23,16 +23,18 @@ import {
 import { DatasetStatusPanel } from '@/features/datasets/components/DatasetStatusPanel'
 import { StatusMessage } from '@/shared/components/StatusMessage'
 import {
+  clearClusterPreviews,
   clearImageRoundtripArtifacts,
   fetchDatasetStatus,
   fetchTagStats,
+  generateClusterPreviews,
   generateImageRoundtrip,
   resumeProcessing,
   seedTagsFromMetadata,
 } from '@/shared/lib/api'
 import type { DatasetStatus, TagStats } from '@/features/datasets/types/datasets'
 
-type ArtifactGroup = 'clip' | 'florence' | 'sdxl'
+type ArtifactGroup = 'clip' | 'florence' | 'sdxl' | 'ip_adapter'
 
 const artifactGroups: Array<{
   key: ArtifactGroup
@@ -57,6 +59,12 @@ const artifactGroups: Array<{
     label: 'SDXL',
     description: 'Korta SDXL-prompter och SDXL-textembeddings.',
     confirm: 'Detta tar bort sparade SDXL-prompter och textembeddings.',
+  },
+  {
+    key: 'ip_adapter',
+    label: 'IP-Adapter',
+    description: 'Bildembeddings för SDXL IP-Adapter.',
+    confirm: 'Detta tar bort sparade IP-Adapter-bildembeddings.',
   },
 ]
 
@@ -94,6 +102,10 @@ export default function DatasetPage() {
   const [roundtripError, setRoundtripError] = useState<string | null>(null)
   const [roundtripStarting, setRoundtripStarting] = useState(false)
   const [clearingArtifact, setClearingArtifact] = useState<ArtifactGroup | null>(null)
+  const [clusterError, setClusterError] = useState<string | null>(null)
+  const [clusterStarting, setClusterStarting] = useState(false)
+  const [clusterClearing, setClusterClearing] = useState(false)
+  const [clusterLevels, setClusterLevels] = useState(4)
 
   const statusValue = dataset?.status
   const isPending =
@@ -114,7 +126,8 @@ export default function DatasetPage() {
     jobStage === 'indexing' ||
     jobStage === 'embeddings' ||
     jobStage === 'atlas' ||
-    jobStage === 'image-roundtrip'
+    jobStage === 'image-roundtrip' ||
+    jobStage === 'cluster-previews'
   const canResume =
     !!dataset && !isJobActive && (!dataset.embeddings_cached || isPending)
   const roundtripStatus = dataset?.image_roundtrip
@@ -136,6 +149,19 @@ export default function DatasetPage() {
   const roundtripTotalWork = dataset?.job?.total_work
   const roundtripRemaining = dataset?.job?.remaining
   const roundtripCounts = roundtripStatus?.existing_groups ?? {}
+  const clusterStatus = dataset?.cluster_previews
+  const showClusterProgress =
+    dataset?.job?.stage === 'cluster-previews' &&
+    typeof dataset?.job?.progress === 'number'
+  const clusterProgress = showClusterProgress
+    ? Math.round((dataset?.job?.progress ?? 0) * 100)
+    : 0
+  const clusterEta = showClusterProgress
+    ? formatEta(dataset?.job?.eta_seconds)
+    : null
+  const clusterProcessed = dataset?.job?.processed ?? 0
+  const clusterTotalWork = dataset?.job?.total_work
+  const clusterRemaining = dataset?.job?.remaining
 
   const reloadStatus = async (isCancelled?: () => boolean) => {
     if (!id) return
@@ -239,6 +265,34 @@ export default function DatasetPage() {
       setRoundtripError(String(err))
     } finally {
       setClearingArtifact(null)
+    }
+  }
+
+  const handleGenerateClusters = async () => {
+    if (!id) return
+    setClusterStarting(true)
+    setClusterError(null)
+    try {
+      await generateClusterPreviews(id, { levels: clusterLevels, size: 512 })
+      await reloadStatus()
+    } catch (err) {
+      setClusterError('Kunde inte starta klusterbakning.')
+    } finally {
+      setClusterStarting(false)
+    }
+  }
+
+  const handleClearClusters = async () => {
+    if (!id) return
+    setClusterClearing(true)
+    setClusterError(null)
+    try {
+      await clearClusterPreviews(id)
+      await reloadStatus()
+    } catch (err) {
+      setClusterError('Kunde inte ta bort klusterförhandsvisningar.')
+    } finally {
+      setClusterClearing(false)
     }
   }
 
@@ -503,6 +557,131 @@ export default function DatasetPage() {
             )}
             {roundtripError && (
               <div className="text-xs text-red-300">{roundtripError}</div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card className="glass-panel mt-6 text-white">
+          <CardHeader>
+            <CardTitle>Klusterförhandsvisningar</CardTitle>
+            <CardDescription className="text-white/60">
+              Baka klusterhierarki och genererade genomsnittsbilder för canvasvyn.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="grid gap-3 text-sm sm:grid-cols-4">
+              <div>
+                <div className="text-white/50">Finns</div>
+                <div>{clusterStatus?.exists ? 'Ja' : 'Nej'}</div>
+              </div>
+              <div>
+                <div className="text-white/50">Nivåer</div>
+                <div>{clusterStatus?.levels ?? '-'}</div>
+              </div>
+              <div>
+                <div className="text-white/50">Kluster</div>
+                <div>{clusterStatus?.clusters ?? '-'}</div>
+              </div>
+              <div>
+                <div className="text-white/50">Bilder</div>
+                <div>{clusterStatus?.images ?? '-'}</div>
+              </div>
+            </div>
+            {showClusterProgress && (
+              <DatasetStatusPanel
+                variant="pending"
+                title="Bakar klusterförhandsvisningar"
+                description={[
+                  typeof clusterTotalWork === 'number'
+                    ? `${clusterProcessed}/${clusterTotalWork} klara`
+                    : null,
+                  typeof clusterRemaining === 'number'
+                    ? `${clusterRemaining} kvar`
+                    : null,
+                  clusterEta ? `cirka ${clusterEta} återstår` : null,
+                ]
+                  .filter(Boolean)
+                  .join(' · ')}
+                stage="cluster-previews"
+                showProgress
+                progressPercent={clusterProgress}
+                progressLabel="Kluster"
+                progressLabelClassName="text-xs text-white/70"
+              />
+            )}
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+              <div className="flex flex-col gap-1">
+                <label htmlFor="clusterLevels" className="text-xs text-white/60">
+                  Nivåer
+                </label>
+                <input
+                  id="clusterLevels"
+                  type="number"
+                  min={1}
+                  max={8}
+                  step={1}
+                  value={clusterLevels}
+                  onChange={(event) =>
+                    setClusterLevels(
+                      Math.max(1, Math.floor(Number(event.target.value) || 1))
+                    )
+                  }
+                  className="w-24 rounded-md border border-white/20 bg-white/10 px-3 py-2 text-sm text-white"
+                />
+              </div>
+              <Button
+                type="button"
+                onClick={handleGenerateClusters}
+                disabled={!isReady || isJobActive || clusterStarting}
+              >
+                {clusterStarting ? 'Startar…' : 'Baka kluster'}
+              </Button>
+              <Dialog>
+                <DialogTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    disabled={!isReady || isJobActive || !clusterStatus?.exists || clusterClearing}
+                  >
+                    {clusterClearing ? 'Tar bort…' : 'Ta bort'}
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="border-white/10 bg-zinc-950 text-white">
+                  <DialogHeader>
+                    <DialogTitle>Ta bort klusterförhandsvisningar?</DialogTitle>
+                    <DialogDescription className="text-white/60">
+                      Detta tar bort bakad klusterhierarki och genererade klusterbilder.
+                      De kan återskapas genom att köra bakningen igen.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <DialogFooter>
+                    <DialogClose asChild>
+                      <Button type="button" variant="secondary">
+                        Avbryt
+                      </Button>
+                    </DialogClose>
+                    <DialogClose asChild>
+                      <Button
+                        type="button"
+                        variant="destructive"
+                        onClick={() => {
+                          void handleClearClusters()
+                        }}
+                      >
+                        Ta bort
+                      </Button>
+                    </DialogClose>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+            </div>
+            {!isReady && (
+              <div className="text-xs text-white/50">
+                Datasetet måste vara klart innan detta kan köras.
+              </div>
+            )}
+            {clusterError && (
+              <div className="text-xs text-red-300">{clusterError}</div>
             )}
           </CardContent>
         </Card>

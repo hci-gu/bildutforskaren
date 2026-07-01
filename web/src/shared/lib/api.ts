@@ -9,6 +9,36 @@ export type Cluster = {
   label_score?: number
 }
 
+export type ClusterPreview = {
+  id: string
+  parent_id: string | null
+  level: number
+  image_ids: number[]
+  image_count: number
+  centroid: [number, number]
+  bounds: {
+    min_x: number
+    min_y: number
+    max_x: number
+    max_y: number
+    width: number
+    height: number
+  }
+  image_path: string
+  has_image: boolean
+}
+
+export type ClusterPreviewManifest = {
+  dataset_id: string
+  requested_levels: number
+  params: Record<string, any>
+  projection: {
+    image_ids: number[]
+    image_points: [number, number][]
+  }
+  clusters: ClusterPreview[]
+}
+
 export const API_URL = 'http://localhost:3000'
 // export const API_URL = 'https://bildutforskaren-api.prod.appadem.in'
 // export const API_URL = 'https://leviathan.itit.gu.se'
@@ -118,13 +148,43 @@ export const generateImageRoundtrip = async (datasetId: string) => {
 
 export const clearImageRoundtripArtifacts = async (
   datasetId: string,
-  artifactGroup: 'clip' | 'florence' | 'sdxl'
+  artifactGroup: 'clip' | 'florence' | 'sdxl' | 'ip_adapter'
 ) => {
   return await fetchJson<Json>(
     `${API_URL}/datasets/${encodeURIComponent(datasetId)}/image-roundtrip/${artifactGroup}`,
     { method: 'DELETE' }
   )
 }
+
+export const generateClusterPreviews = async (
+  datasetId: string,
+  options: { levels?: number; size?: number } = {}
+) => {
+  return await fetchJson<Json>(
+    `${API_URL}/datasets/${encodeURIComponent(datasetId)}/cluster-previews/generate`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(options),
+    }
+  )
+}
+
+export const clearClusterPreviews = async (datasetId: string) => {
+  return await fetchJson<Json>(
+    `${API_URL}/datasets/${encodeURIComponent(datasetId)}/cluster-previews`,
+    { method: 'DELETE' }
+  )
+}
+
+export const fetchClusterPreviewManifest = async (datasetId: string) => {
+  return await fetchJson<ClusterPreviewManifest>(
+    `${API_URL}/datasets/${encodeURIComponent(datasetId)}/cluster-previews/manifest`
+  )
+}
+
+export const clusterPreviewImageUrl = (datasetId: string, clusterId: string) =>
+  `${API_URL}/datasets/${encodeURIComponent(datasetId)}/cluster-previews/images/${encodeURIComponent(clusterId)}.png`
 
 export const fetchImageMetadata = async (
   datasetId: string,
@@ -287,6 +347,84 @@ export const generateImageFromSdxlEmbedding = async (
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(options),
+    }
+  )
+}
+
+export const generateImageFromIpAdapterEmbedding = async (
+  datasetId: string,
+  imageId: number,
+  options: {
+    prompt?: string
+    negative_prompt?: string
+    steps?: number
+    cfg?: number
+    size?: number
+    seed?: number
+    adapter_scale?: number
+  } = {}
+) => {
+  return await fetchBlob(
+    datasetApiUrl(
+      datasetId,
+      `/images/${imageId}/generate-from-ip-adapter-embedding`
+    ),
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(options),
+    }
+  )
+}
+
+export const fetchAverageSdxlGenerationStatus = async (
+  datasetId: string,
+  imageIds: number[]
+) => {
+  return await fetchJson<Json>(
+    datasetApiUrl(datasetId, '/sdxl-average-generation-status'),
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ image_ids: imageIds }),
+    }
+  )
+}
+
+export const generateImageFromAverageSdxlEmbedding = async (
+  datasetId: string,
+  imageIds: number[],
+  options: { steps?: number; cfg?: number; size?: number; seed?: number } = {}
+) => {
+  return await fetchBlob(
+    datasetApiUrl(datasetId, '/generate-from-average-sdxl-embedding'),
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ image_ids: imageIds, ...options }),
+    }
+  )
+}
+
+export const generateImageFromAverageIpAdapterEmbedding = async (
+  datasetId: string,
+  imageIds: number[],
+  options: {
+    prompt?: string
+    negative_prompt?: string
+    steps?: number
+    cfg?: number
+    size?: number
+    seed?: number
+    adapter_scale?: number
+  } = {}
+) => {
+  return await fetchBlob(
+    datasetApiUrl(datasetId, '/generate-from-average-ip-adapter-embedding'),
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ image_ids: imageIds, ...options }),
     }
   )
 }

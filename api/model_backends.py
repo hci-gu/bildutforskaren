@@ -15,6 +15,7 @@ os.environ.setdefault(
 
 import httpx
 import torch
+from diffusers import AutoPipelineForText2Image
 from PIL import Image
 from transformers import AutoModelForCausalLM, AutoProcessor
 
@@ -24,6 +25,10 @@ from sd import SD
 CAPTION_MODEL = "microsoft/Florence-2-large"
 CAPTION_TASK = "<MORE_DETAILED_CAPTION>"
 SDXL_MODEL = "stabilityai/sdxl-turbo"
+IP_ADAPTER_REPO = os.environ.get("IP_ADAPTER_REPO", "h94/IP-Adapter")
+IP_ADAPTER_SUBFOLDER = os.environ.get("IP_ADAPTER_SUBFOLDER", "sdxl_models")
+IP_ADAPTER_WEIGHT_NAME = os.environ.get("IP_ADAPTER_WEIGHT_NAME", "ip-adapter_sdxl.bin")
+IP_ADAPTER_DEFAULT_SCALE = float(os.environ.get("IP_ADAPTER_DEFAULT_SCALE", "0.9"))
 
 
 @dataclass(frozen=True)
@@ -58,6 +63,21 @@ class SdxlEmbeddingResult:
 
 
 @dataclass(frozen=True)
+class IpAdapterEmbeddingItem:
+    id: int
+    image_path: Path
+
+
+@dataclass(frozen=True)
+class IpAdapterEmbeddingResult:
+    id: int
+    ok: bool
+    embedding: dict[str, Any] | None = None
+    error: str | None = None
+    duration_ms: int | None = None
+
+
+@dataclass(frozen=True)
 class SdxlImageResult:
     ok: bool
     image: bytes | None = None
@@ -77,16 +97,25 @@ def _model_dtype(device: str) -> torch.dtype:
     return torch.float16 if device == "cuda" else torch.float32
 
 
-def encode_embedding_payload(embedding: dict[str, torch.Tensor]) -> str:
+def _detach_payload(value: Any) -> Any:
+    if isinstance(value, torch.Tensor):
+        return value.detach().cpu()
+    if isinstance(value, dict):
+        return {key: _detach_payload(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_detach_payload(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_detach_payload(item) for item in value)
+    return value
+
+
+def encode_embedding_payload(embedding: Any) -> str:
     buffer = io.BytesIO()
-    torch.save(
-        {key: value.detach().cpu() for key, value in embedding.items()},
-        buffer,
-    )
+    torch.save(_detach_payload(embedding), buffer)
     return base64.b64encode(buffer.getvalue()).decode("ascii")
 
 
-def decode_embedding_payload(payload: str) -> dict[str, torch.Tensor]:
+def decode_embedding_payload(payload: str) -> Any:
     raw = base64.b64decode(payload.encode("ascii"))
     return torch.load(io.BytesIO(raw), map_location="cpu")
 
@@ -97,6 +126,8 @@ class LocalModelBackend:
         self._caption_model = None
         self._caption_device = None
         self._sd = None
+        self._ip_adapter_pipe = None
+        self._ip_adapter_device = None
 
     def _load_caption_model(self):
         if self._caption_processor is not None and self._caption_model is not None:
@@ -120,6 +151,29 @@ class LocalModelBackend:
         if self._sd is None:
             self._sd = SD()
         return self._sd
+
+    def _load_ip_adapter_pipe(self):
+        if self._ip_adapter_pipe is not None:
+            return self._ip_adapter_pipe, self._ip_adapter_device
+
+        device = _torch_device()
+        torch_dtype = _model_dtype(device)
+        pipe = AutoPipelineForText2Image.from_pretrained(
+            SDXL_MODEL,
+            torch_dtype=torch_dtype,
+        )
+        pipe.load_ip_adapter(
+            IP_ADAPTER_REPO,
+            subfolder=IP_ADAPTER_SUBFOLDER,
+            weight_name=IP_ADAPTER_WEIGHT_NAME,
+        )
+        pipe.set_ip_adapter_scale(IP_ADAPTER_DEFAULT_SCALE)
+        pipe.set_progress_bar_config(disable=True)
+        pipe = pipe.to(device)
+
+        self._ip_adapter_pipe = pipe
+        self._ip_adapter_device = device
+        return self._ip_adapter_pipe, self._ip_adapter_device
 
     def caption_images(self, items: list[CaptionItem]) -> list[CaptionResult]:
         if not items:
@@ -205,6 +259,59 @@ class LocalModelBackend:
                 results.append(SdxlEmbeddingResult(id=item.id, ok=False, error=str(exc)))
         return results
 
+    def ip_adapter_image_embeddings(
+        self,
+        items: list[IpAdapterEmbeddingItem],
+    ) -> list[IpAdapterEmbeddingResult]:
+        if not items:
+            return []
+
+        pipe, device = self._load_ip_adapter_pipe()
+        results = []
+        for item in items:
+            started_at = time.monotonic()
+            try:
+                with Image.open(item.image_path) as image:
+                    image = image.convert("RGB").copy()
+                positive = pipe.prepare_ip_adapter_image_embeds(
+                    image,
+                    None,
+                    device,
+                    num_images_per_prompt=1,
+                    do_classifier_free_guidance=False,
+                )
+                classifier_free_guidance = pipe.prepare_ip_adapter_image_embeds(
+                    image,
+                    None,
+                    device,
+                    num_images_per_prompt=1,
+                    do_classifier_free_guidance=True,
+                )
+                results.append(
+                    IpAdapterEmbeddingResult(
+                        id=item.id,
+                        ok=True,
+                        embedding={
+                            "format": "diffusers_ip_adapter_image_embeds",
+                            "format_version": 1,
+                            "sdxl_model": SDXL_MODEL,
+                            "ip_adapter_repo": IP_ADAPTER_REPO,
+                            "ip_adapter_subfolder": IP_ADAPTER_SUBFOLDER,
+                            "ip_adapter_weight_name": IP_ADAPTER_WEIGHT_NAME,
+                            "positive": _detach_payload(positive),
+                            "classifier_free_guidance": _detach_payload(
+                                classifier_free_guidance
+                            ),
+                        },
+                        duration_ms=int((time.monotonic() - started_at) * 1000),
+                    )
+                )
+            except Exception as exc:
+                results.append(
+                    IpAdapterEmbeddingResult(id=item.id, ok=False, error=str(exc))
+                )
+        return results
+
     def sdxl_image_from_embedding(
         self,
         embedding: dict[str, torch.Tensor],
@@ -224,6 +331,46 @@ class LocalModelBackend:
                 size=size,
                 seed=seed,
             )
+            buffer = io.BytesIO()
+            image.save(buffer, format="PNG")
+            return SdxlImageResult(
+                ok=True,
+                image=buffer.getvalue(),
+                duration_ms=int((time.monotonic() - started_at) * 1000),
+            )
+        except Exception as exc:
+            return SdxlImageResult(ok=False, error=str(exc))
+
+    def sdxl_image_from_ip_adapter_embedding(
+        self,
+        embedding: dict[str, Any],
+        *,
+        prompt: str = "",
+        negative_prompt: str = "",
+        steps: int = 4,
+        cfg: float = 0.0,
+        size: int = 512,
+        seed: int = 1,
+        adapter_scale: float = IP_ADAPTER_DEFAULT_SCALE,
+    ) -> SdxlImageResult:
+        started_at = time.monotonic()
+        try:
+            pipe, device = self._load_ip_adapter_pipe()
+            pipe.set_ip_adapter_scale(adapter_scale)
+            key = "classifier_free_guidance" if cfg > 1.0 else "positive"
+            image_embeds = embedding[key]
+            generator_device = device if device in ("cuda", "mps") else "cpu"
+            image = pipe(
+                prompt=prompt,
+                negative_prompt=negative_prompt or None,
+                ip_adapter_image_embeds=image_embeds,
+                num_inference_steps=steps,
+                guidance_scale=cfg,
+                width=size,
+                height=size,
+                output_type="pil",
+                generator=torch.Generator(device=generator_device).manual_seed(seed),
+            ).images[0]
             buffer = io.BytesIO()
             image.save(buffer, format="PNG")
             return SdxlImageResult(
@@ -308,6 +455,47 @@ class RemoteHttpModelBackend:
             for item in items
         ]
 
+    def ip_adapter_image_embeddings(
+        self,
+        items: list[IpAdapterEmbeddingItem],
+    ) -> list[IpAdapterEmbeddingResult]:
+        payload_items = []
+        for item in items:
+            raw = item.image_path.read_bytes()
+            payload_items.append(
+                {
+                    "id": item.id,
+                    "image_base64": base64.b64encode(raw).decode("ascii"),
+                }
+            )
+
+        data = self._post_json("/embed/ip-adapter-image/batch", {"items": payload_items})
+        by_id = {}
+        for item in data.get("items", []):
+            item_id = int(item["id"])
+            if item.get("ok"):
+                by_id[item_id] = IpAdapterEmbeddingResult(
+                    id=item_id,
+                    ok=True,
+                    embedding=decode_embedding_payload(item["embedding"]),
+                    duration_ms=item.get("duration_ms"),
+                )
+            else:
+                by_id[item_id] = IpAdapterEmbeddingResult(
+                    id=item_id,
+                    ok=False,
+                    error=item.get("error") or "Remote worker failed",
+                )
+        return [
+            by_id.get(item.id)
+            or IpAdapterEmbeddingResult(
+                id=item.id,
+                ok=False,
+                error="Missing result from remote worker",
+            )
+            for item in items
+        ]
+
     def sdxl_image_from_embedding(
         self,
         embedding: dict[str, torch.Tensor],
@@ -325,6 +513,39 @@ class RemoteHttpModelBackend:
                 "cfg": cfg,
                 "size": size,
                 "seed": seed,
+            },
+        )
+        if not data.get("ok"):
+            return SdxlImageResult(ok=False, error=data.get("error") or "Remote worker failed")
+        return SdxlImageResult(
+            ok=True,
+            image=base64.b64decode(data["image_base64"].encode("ascii")),
+            duration_ms=data.get("duration_ms"),
+        )
+
+    def sdxl_image_from_ip_adapter_embedding(
+        self,
+        embedding: dict[str, Any],
+        *,
+        prompt: str = "",
+        negative_prompt: str = "",
+        steps: int = 4,
+        cfg: float = 0.0,
+        size: int = 512,
+        seed: int = 1,
+        adapter_scale: float = IP_ADAPTER_DEFAULT_SCALE,
+    ) -> SdxlImageResult:
+        data = self._post_json(
+            "/generate/sdxl-image-from-ip-adapter",
+            {
+                "embedding": encode_embedding_payload(embedding),
+                "prompt": prompt,
+                "negative_prompt": negative_prompt,
+                "steps": steps,
+                "cfg": cfg,
+                "size": size,
+                "seed": seed,
+                "adapter_scale": adapter_scale,
             },
         )
         if not data.get("ok"):

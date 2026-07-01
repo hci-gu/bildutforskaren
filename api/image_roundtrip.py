@@ -23,9 +23,15 @@ from api import context as context_builder
 from api.model_backends import (
     CAPTION_MODEL,
     CAPTION_TASK,
+    IP_ADAPTER_DEFAULT_SCALE,
+    IP_ADAPTER_REPO,
+    IP_ADAPTER_SUBFOLDER,
+    IP_ADAPTER_WEIGHT_NAME,
     SDXL_MODEL,
     CaptionItem,
     CaptionResult,
+    IpAdapterEmbeddingItem,
+    IpAdapterEmbeddingResult,
     SdxlEmbeddingItem,
     SdxlEmbeddingResult,
     get_model_backend,
@@ -37,17 +43,20 @@ SDXL_MAX_TOKENS = 77
 SDXL_CONTENT_TOKENS = 75
 FLORENCE_BATCH_SIZE = int(os.environ.get("FLORENCE_BATCH_SIZE", "16"))
 SDXL_TEXT_BATCH_SIZE = int(os.environ.get("SDXL_TEXT_BATCH_SIZE", "32"))
+IP_ADAPTER_BATCH_SIZE = int(os.environ.get("IP_ADAPTER_BATCH_SIZE", "8"))
 REQUIRED_ARTIFACTS = (
     "clip_embedding",
     "description",
     "sdxl_prompt",
     "sdxl_embedding",
+    "ip_adapter_embedding",
     "metadata",
 )
 ARTIFACT_GROUPS = {
     "clip": ("clip_embedding",),
     "florence": ("description", "sdxl_prompt", "sdxl_embedding", "metadata"),
     "sdxl": ("sdxl_prompt", "sdxl_embedding", "metadata"),
+    "ip_adapter": ("ip_adapter_embedding", "metadata"),
 }
 
 
@@ -69,6 +78,7 @@ def _artifact_paths(ctx: DatasetContext, image_id: int) -> dict[str, Path]:
         "description": base / "description.txt",
         "sdxl_prompt": base / "sdxl_prompt.txt",
         "sdxl_embedding": base / "sdxl_text_embedding.pt",
+        "ip_adapter_embedding": base / "ip_adapter_image_embeds.pt",
         "metadata": base / "metadata.json",
     }
 
@@ -177,6 +187,19 @@ def _sdxl_batch_resilient(backend, batch: list[SdxlEmbeddingItem]):
         ]
 
 
+def _ip_adapter_batch_resilient(backend, batch: list[IpAdapterEmbeddingItem]):
+    try:
+        return backend.ip_adapter_image_embeddings(batch)
+    except Exception as exc:
+        if len(batch) <= 1:
+            return [IpAdapterEmbeddingResult(id=batch[0].id, ok=False, error=str(exc))]
+        midpoint = len(batch) // 2
+        return [
+            *_ip_adapter_batch_resilient(backend, batch[:midpoint]),
+            *_ip_adapter_batch_resilient(backend, batch[midpoint:]),
+        ]
+
+
 def _missing_for_image(ctx: DatasetContext, image_id: int) -> list[str]:
     paths = _artifact_paths(ctx, image_id)
     return [key for key in REQUIRED_ARTIFACTS if not paths[key].exists()]
@@ -199,6 +222,7 @@ def artifact_status(dataset_id: str) -> dict:
         "description": 0,
         "sdxl_prompt": 0,
         "sdxl_embedding": 0,
+        "ip_adapter_embedding": 0,
         "metadata": 0,
     }
     existing_by_kind = {key: 0 for key in missing_by_kind}
@@ -219,6 +243,7 @@ def artifact_status(dataset_id: str) -> dict:
         "clip": existing_by_kind["clip_embedding"],
         "florence": existing_by_kind["description"],
         "sdxl": min(existing_by_kind["sdxl_prompt"], existing_by_kind["sdxl_embedding"]),
+        "ip_adapter": existing_by_kind["ip_adapter_embedding"],
     }
 
     return {
@@ -271,6 +296,7 @@ def image_embedding_status(dataset_id: str, image_id: int) -> dict:
         "dataset_id": dataset_id,
         "image_id": image_id,
         "has_sdxl_embedding": paths["sdxl_embedding"].exists(),
+        "has_ip_adapter_embedding": paths["ip_adapter_embedding"].exists(),
         "has_sdxl_prompt": paths["sdxl_prompt"].exists(),
         "sdxl_prompt": prompt,
     }
@@ -306,13 +332,226 @@ def generate_image_from_saved_embedding(
     return result.image
 
 
+def generate_image_from_saved_ip_adapter_embedding(
+    dataset_id: str,
+    image_id: int,
+    *,
+    prompt: str = "",
+    negative_prompt: str = "",
+    steps: int = 4,
+    cfg: float = 0.0,
+    size: int = 512,
+    seed: int = 1,
+    adapter_scale: float = IP_ADAPTER_DEFAULT_SCALE,
+) -> bytes:
+    ctx = _get_context(dataset_id)
+    if not (0 <= image_id < len(ctx.image_paths)):
+        raise IndexError("Image ID not found")
+
+    path = _artifact_paths(ctx, image_id)["ip_adapter_embedding"]
+    if not path.exists():
+        raise FileNotFoundError("IP-Adapter embedding not found")
+
+    embedding = torch.load(path, map_location="cpu")
+    result = get_model_backend().sdxl_image_from_ip_adapter_embedding(
+        embedding,
+        prompt=prompt,
+        negative_prompt=negative_prompt,
+        steps=steps,
+        cfg=cfg,
+        size=size,
+        seed=seed,
+        adapter_scale=adapter_scale,
+    )
+    if not result.ok or result.image is None:
+        raise RuntimeError(result.error or "Image generation failed")
+    return result.image
+
+
+def average_embedding_status(dataset_id: str, image_ids: list[int]) -> dict:
+    ctx = _get_context(dataset_id)
+    valid_ids = [int(image_id) for image_id in image_ids]
+    if not valid_ids:
+        raise ValueError("No image IDs provided")
+    invalid = [image_id for image_id in valid_ids if not (0 <= image_id < len(ctx.image_paths))]
+    if invalid:
+        raise IndexError("Image ID not found")
+
+    available = []
+    ip_adapter_available = []
+    missing = []
+    ip_adapter_missing = []
+    prompts = []
+    for image_id in valid_ids:
+        paths = _artifact_paths(ctx, image_id)
+        if paths["sdxl_embedding"].exists():
+            available.append(image_id)
+        else:
+            missing.append(image_id)
+        if paths["ip_adapter_embedding"].exists():
+            ip_adapter_available.append(image_id)
+        else:
+            ip_adapter_missing.append(image_id)
+        if paths["sdxl_prompt"].exists():
+            prompts.append(paths["sdxl_prompt"].read_text(encoding="utf-8").strip())
+
+    return {
+        "dataset_id": dataset_id,
+        "image_ids": valid_ids,
+        "total": len(valid_ids),
+        "available": len(available),
+        "missing": len(missing),
+        "missing_image_ids": missing,
+        "can_generate": len(available) == len(valid_ids),
+        "ip_adapter_available": len(ip_adapter_available),
+        "ip_adapter_missing": len(ip_adapter_missing),
+        "ip_adapter_missing_image_ids": ip_adapter_missing,
+        "can_generate_ip_adapter": len(ip_adapter_available) == len(valid_ids),
+        "prompts": prompts[:5],
+    }
+
+
+def generate_image_from_average_embedding(
+    dataset_id: str,
+    image_ids: list[int],
+    *,
+    steps: int = 4,
+    cfg: float = 0.5,
+    size: int = 512,
+    seed: int = 1,
+) -> bytes:
+    ctx = _get_context(dataset_id)
+    valid_ids = [int(image_id) for image_id in image_ids]
+    if not valid_ids:
+        raise ValueError("No image IDs provided")
+    invalid = [image_id for image_id in valid_ids if not (0 <= image_id < len(ctx.image_paths))]
+    if invalid:
+        raise IndexError("Image ID not found")
+
+    prompt_sum = None
+    pooled_sum = None
+    prompt_dtype = None
+    pooled_dtype = None
+    for image_id in valid_ids:
+        path = _artifact_paths(ctx, image_id)["sdxl_embedding"]
+        if not path.exists():
+            raise FileNotFoundError(f"SDXL embedding not found for image {image_id}")
+        embedding = torch.load(path, map_location="cpu")
+        prompt_embeds = embedding["prompt_embeds"].detach()
+        pooled_prompt_embeds = embedding["pooled_prompt_embeds"].detach()
+        if prompt_sum is None:
+            prompt_dtype = prompt_embeds.dtype
+            pooled_dtype = pooled_prompt_embeds.dtype
+            prompt_sum = torch.zeros_like(prompt_embeds, dtype=torch.float32)
+            pooled_sum = torch.zeros_like(pooled_prompt_embeds, dtype=torch.float32)
+        prompt_sum.add_(prompt_embeds.to(dtype=torch.float32))
+        pooled_sum.add_(pooled_prompt_embeds.to(dtype=torch.float32))
+
+    averaged = {
+        "prompt_embeds": (prompt_sum / len(valid_ids)).to(dtype=prompt_dtype),
+        "pooled_prompt_embeds": (pooled_sum / len(valid_ids)).to(dtype=pooled_dtype),
+    }
+    result = get_model_backend().sdxl_image_from_embedding(
+        averaged,
+        steps=steps,
+        cfg=cfg,
+        size=size,
+        seed=seed,
+    )
+    if not result.ok or result.image is None:
+        raise RuntimeError(result.error or "Image generation failed")
+    return result.image
+
+
+def _average_tensor_lists(
+    embeddings: list[dict],
+    key: str,
+) -> list[torch.Tensor]:
+    first = embeddings[0][key]
+    sums = [torch.zeros_like(tensor, dtype=torch.float32) for tensor in first]
+    dtypes = [tensor.dtype for tensor in first]
+    for embedding in embeddings:
+        values = embedding[key]
+        if len(values) != len(sums):
+            raise ValueError(f"IP-Adapter embedding list length mismatch for {key}")
+        for idx, tensor in enumerate(values):
+            if tensor.shape != sums[idx].shape:
+                raise ValueError(f"IP-Adapter embedding shape mismatch for {key}[{idx}]")
+            sums[idx].add_(tensor.to(dtype=torch.float32))
+    return [
+        (tensor_sum / len(embeddings)).to(dtype=dtypes[idx])
+        for idx, tensor_sum in enumerate(sums)
+    ]
+
+
+def generate_image_from_average_ip_adapter_embedding(
+    dataset_id: str,
+    image_ids: list[int],
+    *,
+    prompt: str = "",
+    negative_prompt: str = "",
+    steps: int = 4,
+    cfg: float = 0.0,
+    size: int = 512,
+    seed: int = 1,
+    adapter_scale: float = IP_ADAPTER_DEFAULT_SCALE,
+) -> bytes:
+    ctx = _get_context(dataset_id)
+    valid_ids = [int(image_id) for image_id in image_ids]
+    if not valid_ids:
+        raise ValueError("No image IDs provided")
+    invalid = [image_id for image_id in valid_ids if not (0 <= image_id < len(ctx.image_paths))]
+    if invalid:
+        raise IndexError("Image ID not found")
+
+    embeddings = []
+    for image_id in valid_ids:
+        path = _artifact_paths(ctx, image_id)["ip_adapter_embedding"]
+        if not path.exists():
+            raise FileNotFoundError(f"IP-Adapter embedding not found for image {image_id}")
+        embeddings.append(torch.load(path, map_location="cpu"))
+
+    averaged = {
+        "format": "diffusers_ip_adapter_image_embeds",
+        "format_version": 1,
+        "sdxl_model": SDXL_MODEL,
+        "ip_adapter_repo": IP_ADAPTER_REPO,
+        "ip_adapter_subfolder": IP_ADAPTER_SUBFOLDER,
+        "ip_adapter_weight_name": IP_ADAPTER_WEIGHT_NAME,
+        "positive": _average_tensor_lists(embeddings, "positive"),
+        "classifier_free_guidance": _average_tensor_lists(
+            embeddings,
+            "classifier_free_guidance",
+        ),
+    }
+    result = get_model_backend().sdxl_image_from_ip_adapter_embedding(
+        averaged,
+        prompt=prompt,
+        negative_prompt=negative_prompt,
+        steps=steps,
+        cfg=cfg,
+        size=size,
+        seed=seed,
+        adapter_scale=adapter_scale,
+    )
+    if not result.ok or result.image is None:
+        raise RuntimeError(result.error or "Image generation failed")
+    return result.image
+
+
 def _is_complete(ctx: DatasetContext, image_id: int) -> bool:
     return not _missing_for_image(ctx, image_id)
 
 
 def _write_metadata(ctx: DatasetContext, image_id: int, max_new_tokens: int) -> bool:
     paths = _artifact_paths(ctx, image_id)
-    required = ("clip_embedding", "description", "sdxl_prompt", "sdxl_embedding")
+    required = (
+        "clip_embedding",
+        "description",
+        "sdxl_prompt",
+        "sdxl_embedding",
+        "ip_adapter_embedding",
+    )
     if any(not paths[key].exists() for key in required):
         return False
 
@@ -331,6 +570,9 @@ def _write_metadata(ctx: DatasetContext, image_id: int, max_new_tokens: int) -> 
         "caption_task": CAPTION_TASK,
         "caption_tokens": max_new_tokens,
         "sdxl_model": SDXL_MODEL,
+        "ip_adapter_repo": IP_ADAPTER_REPO,
+        "ip_adapter_subfolder": IP_ADAPTER_SUBFOLDER,
+        "ip_adapter_weight_name": IP_ADAPTER_WEIGHT_NAME,
         "outputs": {key: str(path) for key, path in paths.items()},
     }
     paths["metadata"].write_text(
@@ -469,6 +711,41 @@ def process_dataset(dataset_id: str, *, max_new_tokens: int = 160) -> None:
                     )
                     continue
                 torch.save(result.embedding, _artifact_paths(ctx, result.id)["sdxl_embedding"])
+                successes += 1
+            _record_batch_duration(started_at, successes)
+
+            metadata_written = 0
+            for item in batch:
+                if _write_metadata(ctx, item.id, max_new_tokens):
+                    metadata_written += 1
+            _record_batch_duration(started_at, metadata_written)
+            _set_progress()
+
+        ip_adapter_items = [
+            IpAdapterEmbeddingItem(
+                id=image_id,
+                image_path=_original_path(ctx, image_id),
+            )
+            for image_id in work_image_ids
+            if not _artifact_paths(ctx, image_id)["ip_adapter_embedding"].exists()
+        ]
+        for batch in _chunked(ip_adapter_items, IP_ADAPTER_BATCH_SIZE):
+            started_at = time.monotonic()
+            results = _ip_adapter_batch_resilient(backend, batch)
+            successes = 0
+            for result in results:
+                if not result.ok or result.embedding is None:
+                    logging.warning(
+                        "IP-Adapter embedding failed for dataset=%s image_id=%s: %s",
+                        dataset_id,
+                        result.id,
+                        result.error,
+                    )
+                    continue
+                torch.save(
+                    result.embedding,
+                    _artifact_paths(ctx, result.id)["ip_adapter_embedding"],
+                )
                 successes += 1
             _record_batch_duration(started_at, successes)
 

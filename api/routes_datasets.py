@@ -1,8 +1,11 @@
 from __future__ import annotations
 
-from flask import Blueprint, jsonify, request
+import re
+
+from flask import Blueprint, jsonify, request, send_file
 
 from api import config
+from api import cluster_previews
 from api import datasets
 from api import image_roundtrip
 from api import jobs
@@ -78,6 +81,10 @@ def dataset_status(dataset_id: str):
         meta["image_roundtrip"] = image_roundtrip.artifact_status(dataset_id)
     except Exception:
         meta["image_roundtrip"] = None
+    try:
+        meta["cluster_previews"] = cluster_previews.status(dataset_id)
+    except Exception:
+        meta["cluster_previews"] = None
 
     job = runtime.get_job_manager().get_state(dataset_id)
     if job:
@@ -232,6 +239,7 @@ def generate_image_roundtrip(dataset_id: str):
         "embeddings",
         "atlas",
         "image-roundtrip",
+        "cluster-previews",
     }
     if job_state.get("stage") in active_stages:
         return jsonify({"error": "Processing already running"}), 409
@@ -272,3 +280,98 @@ def clear_image_roundtrip_artifacts(dataset_id: str, artifact_group: str):
         return jsonify({"error": "Invalid artifact group"}), 400
 
     return jsonify(result)
+
+
+@bp.route("/datasets/<dataset_id>/cluster-previews/status", methods=["GET"])
+def cluster_preview_status(dataset_id: str):
+    if not datasets.is_safe_dataset_id(dataset_id):
+        return jsonify({"error": "Invalid dataset_id"}), 400
+
+    try:
+        meta = datasets.read_dataset_json(dataset_id)
+    except FileNotFoundError:
+        return jsonify({"error": "Dataset not found"}), 404
+
+    if meta.get("status") != "ready":
+        return jsonify({"error": "Dataset is not ready"}), 409
+
+    return jsonify(cluster_previews.status(dataset_id))
+
+
+@bp.route("/datasets/<dataset_id>/cluster-previews/generate", methods=["POST"])
+def generate_cluster_previews(dataset_id: str):
+    if not datasets.is_safe_dataset_id(dataset_id):
+        return jsonify({"error": "Invalid dataset_id"}), 400
+
+    try:
+        meta = datasets.read_dataset_json(dataset_id)
+    except FileNotFoundError:
+        return jsonify({"error": "Dataset not found"}), 404
+
+    if meta.get("status") != "ready":
+        return jsonify({"error": "Dataset is not ready"}), 409
+
+    job_state = runtime.get_job_manager().get_state(dataset_id)
+    active_stages = {
+        "queued",
+        "thumbnails",
+        "indexing",
+        "embeddings",
+        "atlas",
+        "image-roundtrip",
+        "cluster-previews",
+    }
+    if job_state.get("stage") in active_stages:
+        return jsonify({"error": "Processing already running"}), 409
+
+    payload = request.get_json(silent=True) or {}
+    levels = int(payload.get("levels") or cluster_previews.DEFAULT_LEVELS)
+    size = int(payload.get("size") or 512)
+    cluster_previews.submit(dataset_id, levels=levels, size=size)
+    return jsonify({"status": "queued", "cluster_previews": cluster_previews.status(dataset_id)}), 202
+
+
+@bp.route("/datasets/<dataset_id>/cluster-previews", methods=["DELETE"])
+def clear_cluster_previews(dataset_id: str):
+    if not datasets.is_safe_dataset_id(dataset_id):
+        return jsonify({"error": "Invalid dataset_id"}), 400
+
+    try:
+        meta = datasets.read_dataset_json(dataset_id)
+    except FileNotFoundError:
+        return jsonify({"error": "Dataset not found"}), 404
+
+    if meta.get("status") != "ready":
+        return jsonify({"error": "Dataset is not ready"}), 409
+
+    job_state = runtime.get_job_manager().get_state(dataset_id)
+    if job_state.get("stage") == "cluster-previews":
+        return jsonify({"error": "Cluster preview baking is running"}), 409
+
+    return jsonify(cluster_previews.clear(dataset_id))
+
+
+@bp.route("/datasets/<dataset_id>/cluster-previews/manifest", methods=["GET"])
+def cluster_preview_manifest(dataset_id: str):
+    if not datasets.is_safe_dataset_id(dataset_id):
+        return jsonify({"error": "Invalid dataset_id"}), 400
+
+    try:
+        return jsonify(cluster_previews.load_manifest(dataset_id))
+    except FileNotFoundError:
+        return jsonify({"error": "Cluster previews have not been baked"}), 404
+
+
+@bp.route("/datasets/<dataset_id>/cluster-previews/images/<filename>", methods=["GET"])
+def cluster_preview_image(dataset_id: str, filename: str):
+    if not datasets.is_safe_dataset_id(dataset_id):
+        return jsonify({"error": "Invalid dataset_id"}), 400
+    if not re.fullmatch(r"[0-9_]+\.png", filename):
+        return jsonify({"error": "Invalid cluster image"}), 400
+
+    try:
+        path = cluster_previews.image_file(dataset_id, filename[:-4])
+    except FileNotFoundError:
+        return jsonify({"error": "Cluster preview image not found"}), 404
+
+    return send_file(path, mimetype="image/png")

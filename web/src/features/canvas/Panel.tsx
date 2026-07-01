@@ -257,6 +257,25 @@ const DisplaySettings = () => {
           Färga fotograf
         </label>
       </div>
+      <div className="flex items-center space-x-2">
+        <Checkbox
+          id="showClusterImages"
+          name="showClusterImages"
+          onCheckedChange={(checked) =>
+            setSettings((prev) => ({
+              ...prev,
+              showClusterImages: !!checked,
+            }))
+          }
+          checked={settings.showClusterImages}
+        />
+        <label
+          htmlFor="showClusterImages"
+          className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+        >
+          Visa klusterbilder
+        </label>
+      </div>
       <Label htmlFor="scale">Bildstorlek</Label>
       <Input
         id="scale"

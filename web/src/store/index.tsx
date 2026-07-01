@@ -1,10 +1,10 @@
 import { atom } from 'jotai'
 import { atomFamily, loadable } from 'jotai/utils'
 import {
-  fetchClusters,
   fetchDatasetImages,
   fetchDatasetTags,
   fetchDatasets,
+  fetchClusterPreviewManifest,
   fetchEmbeddingById,
   fetchEmbeddings,
   fetchSaoTermsUmap,
@@ -14,7 +14,6 @@ import {
   searchByImage,
   searchByText,
 } from '@/shared/lib/api'
-import type { Cluster } from '@/shared/lib/api'
 
 export const activeDatasetIdAtom = atom<string | null>(null)
 
@@ -24,6 +23,7 @@ export const taggedImagesRevisionAtom = atom(0)
 export const tagStatsRevisionAtom = atom(0)
 export const tagRefreshTriggerAtom = atom(0)
 export const viewportScaleAtom = atom(1)
+export const viewportFitScaleAtom = atom(1)
 export const taggedOptimisticRevisionAtom = atom(0)
 
 type TaggedOverridesState = {
@@ -473,6 +473,7 @@ export const projectionSettingsAtom = atom({
 
 export const displaySettingsAtom = atom({
   colorPhotographer: false,
+  showClusterImages: true,
   scale: 1,
 })
 
@@ -501,29 +502,6 @@ const setTaggedProjectionCache = (
     const firstKey = taggedProjectionCache.keys().next().value
     if (firstKey) taggedProjectionCache.delete(firstKey)
   }
-}
-
-const clusterCache = new Map<string, Promise<Cluster[]>>()
-
-const getClustersForProjection = (
-  key: string,
-  datasetId: string,
-  points: [number, number][],
-  imageIds: number[]
-) => {
-  const cached = clusterCache.get(key)
-  if (cached) return cached
-
-  const request = fetchClusters(datasetId, points, imageIds).catch((error) => {
-    clusterCache.delete(key)
-    throw error
-  })
-  clusterCache.set(key, request)
-  if (clusterCache.size > 10) {
-    const firstKey = clusterCache.keys().next().value
-    if (firstKey) clusterCache.delete(firstKey)
-  }
-  return request
 }
 
 export const embeddingProjection = atomFamily((type: string) =>
@@ -622,6 +600,39 @@ export const embeddingProjection = atomFamily((type: string) =>
         n_components: 2,
         spread: projectionSettings.spread,
         seed: projectionSettings.seed,
+      }
+      const canUseBakedProjection =
+        datasetId &&
+        texts.length === 0 &&
+        !filterSettings.year &&
+        !filterSettings.photographer &&
+        Number(projectionSettings.nNeighbors) === 15 &&
+        Number(projectionSettings.minDist) === 0.1 &&
+        Number(projectionSettings.spread) === 1 &&
+        Number(projectionSettings.seed) === 1
+
+      if (canUseBakedProjection) {
+        try {
+          const manifest = await fetchClusterPreviewManifest(datasetId)
+          const imagePointsById = new Map<number, [number, number]>()
+          for (let i = 0; i < manifest.projection.image_ids.length; i++) {
+            imagePointsById.set(
+              manifest.projection.image_ids[i],
+              manifest.projection.image_points[i]
+            )
+          }
+          const allImagesHaveBakedPoints = imageItems.every((item: any) =>
+            imagePointsById.has(Number(item.id))
+          )
+          if (allImagesHaveBakedPoints) {
+            return embeddingsData.map((item: any) => {
+              if (item.type === 'text') return [0, 0]
+              return imagePointsById.get(Number(item.id)) ?? [0, 0]
+            })
+          }
+        } catch (error) {
+          // Fall through to live UMAP when no baked cluster projection exists.
+        }
       }
 
       const data = await fetchUmapProjection(
@@ -723,7 +734,6 @@ export const embeddingProjection = atomFamily((type: string) =>
 
 export const projectedEmbeddingsAtom = atomFamily((type: string) =>
   atom(async (get) => {
-    const datasetId = get(activeDatasetIdAtom)
     let embeddingsData = await get(filteredEmbeddingsAtom)
     const projectionSettings = get(projectionSettingsAtom)
     const projection = await get(embeddingProjection(type))
@@ -971,43 +981,6 @@ export const projectedEmbeddingsAtom = atomFamily((type: string) =>
         },
       })
     )
-
-    if (datasetId && type !== 'minimap' && projectionSettings.type === 'umap') {
-      const imageEmbeddings = projectedEmbeddings.filter(
-        (item: any) => item.type === 'image' && Array.isArray(item.point)
-      )
-      const imageIds = imageEmbeddings.map((item: any) => Number(item.id))
-      const imagePoints = imageEmbeddings.map(
-        (item: any) => item.point as [number, number]
-      )
-      if (imageIds.length > 0) {
-        try {
-          const clusters = await getClustersForProjection(
-            JSON.stringify({ datasetId, imageIds, imagePoints }),
-            datasetId,
-            imagePoints,
-            imageIds
-          )
-          clusters.forEach((cluster, index) => {
-            const label = cluster.label?.trim()
-            if (!label) return
-            projectedEmbeddings.push({
-              id: `cluster_${index}_${label}`,
-              point: cluster.centroid_position,
-              text: label,
-              type: 'text',
-              meta: {
-                matched: false,
-                clusterSize: cluster.num_points,
-                labelScore: cluster.label_score ?? null,
-              },
-            })
-          })
-        } catch (error) {
-          console.error('Failed to fetch UMAP cluster labels:', error)
-        }
-      }
-    }
 
     if (projectionSettings.type == 'year') {
       const embeddingsWithYear = embeddingsData.filter(
