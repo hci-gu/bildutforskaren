@@ -102,6 +102,8 @@ class SD:
   
   def image_for_embeddings(self, embeddings, steps=1, cfg=0, size=512, seed=1):
     prompt_embeds, pooled_prompt_embeds = embeddings
+    prompt_embeds = prompt_embeds.to(device)
+    pooled_prompt_embeds = pooled_prompt_embeds.to(device)
     return self.base(
       prompt_embeds=prompt_embeds,
       pooled_prompt_embeds=pooled_prompt_embeds,

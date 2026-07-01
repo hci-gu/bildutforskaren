@@ -17,6 +17,7 @@ from api.model_backends import (
     CaptionItem,
     LocalModelBackend,
     SdxlEmbeddingItem,
+    decode_embedding_payload,
     encode_embedding_payload,
 )
 
@@ -42,6 +43,14 @@ class SdxlTextEmbeddingBatchItem(BaseModel):
 
 class SdxlTextEmbeddingBatchRequest(BaseModel):
     items: list[SdxlTextEmbeddingBatchItem]
+
+
+class SdxlImageRequest(BaseModel):
+    embedding: str
+    steps: int = 4
+    cfg: float = 0.5
+    size: int = 512
+    seed: int = 1
 
 
 @app.get("/health")
@@ -149,4 +158,26 @@ def embed_sdxl_text_batch(request: SdxlTextEmbeddingBatchRequest) -> dict[str, A
         "model": SDXL_MODEL,
         "device": health()["device"],
         "batch_duration_ms": int((time.monotonic() - started_at) * 1000),
+    }
+
+
+@app.post("/generate/sdxl-image")
+def generate_sdxl_image(request: SdxlImageRequest) -> dict[str, Any]:
+    embedding = decode_embedding_payload(request.embedding)
+    result = backend.sdxl_image_from_embedding(
+        embedding,
+        steps=request.steps,
+        cfg=request.cfg,
+        size=request.size,
+        seed=request.seed,
+    )
+    return {
+        "ok": result.ok,
+        "image_base64": base64.b64encode(result.image).decode("ascii")
+        if result.image is not None
+        else None,
+        "error": result.error,
+        "duration_ms": result.duration_ms,
+        "model": SDXL_MODEL,
+        "device": health()["device"],
     }

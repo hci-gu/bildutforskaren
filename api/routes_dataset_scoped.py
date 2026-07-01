@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import pickle
 
+import io
 import json
 import re
 
@@ -15,6 +16,7 @@ from api import atlas
 from api import clip_service
 from api import dataset_db
 from api import datasets
+from api import image_roundtrip
 from api import indexing
 from api import context as context_builder
 from api import runtime
@@ -591,6 +593,37 @@ def tag_suggestions(dataset_id: str, image_id: int):
         return jsonify(results)
     finally:
         conn.close()
+
+
+@bp.route("/datasets/<dataset_id>/images/<int:image_id>/sdxl-generation-status", methods=["GET"])
+def sdxl_generation_status(dataset_id: str, image_id: int):
+    try:
+        return jsonify(image_roundtrip.image_embedding_status(dataset_id, image_id))
+    except IndexError:
+        return jsonify({"error": "Image ID not found"}), 404
+
+
+@bp.route("/datasets/<dataset_id>/images/<int:image_id>/generate-from-sdxl-embedding", methods=["POST"])
+def generate_from_sdxl_embedding(dataset_id: str, image_id: int):
+    payload = request.get_json(silent=True) or {}
+    try:
+        image = image_roundtrip.generate_image_from_saved_embedding(
+            dataset_id,
+            image_id,
+            steps=int(payload.get("steps") or 4),
+            cfg=float(payload.get("cfg") if payload.get("cfg") is not None else 0.5),
+            size=int(payload.get("size") or 512),
+            seed=int(payload.get("seed") or 1),
+        )
+    except IndexError:
+        return jsonify({"error": "Image ID not found"}), 404
+    except FileNotFoundError:
+        return jsonify({"error": "SDXL embedding not found"}), 404
+    except Exception as exc:
+        logging.exception("Failed to generate image for %s/%s", dataset_id, image_id)
+        return jsonify({"error": str(exc)}), 500
+
+    return send_file(io.BytesIO(image), mimetype="image/png")
 
 
 @bp.route("/datasets/<dataset_id>/seed-tags-from-metadata", methods=["POST"])

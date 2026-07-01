@@ -13,6 +13,8 @@ import {
   addImageTags,
   fetchImageTagSuggestions,
   fetchImageTags,
+  fetchSdxlGenerationStatus,
+  generateImageFromSdxlEmbedding,
   removeImageTags,
   searchSaoTerms,
 } from '@/shared/lib/api'
@@ -81,6 +83,9 @@ export const TaggerPanel = ({
   const [saving, setSaving] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
+  const [sdxlStatus, setSdxlStatus] = useState<any>(null)
+  const [generating, setGenerating] = useState(false)
+  const [generatedUrl, setGeneratedUrl] = useState<string | null>(null)
 
   const existingLabels = useMemo(
     () => new Set(tags.map((tag) => tag.label.toLowerCase())),
@@ -109,6 +114,34 @@ export const TaggerPanel = ({
       cancelled = true
     }
   }, [datasetId, imageId, refreshKey])
+
+  useEffect(() => {
+    if (!datasetId || imageId === null || Number.isNaN(imageId)) {
+      setSdxlStatus(null)
+      setGeneratedUrl(null)
+      return
+    }
+
+    let cancelled = false
+    const loadGenerationStatus = async () => {
+      try {
+        const data = await fetchSdxlGenerationStatus(datasetId, imageId)
+        if (!cancelled) setSdxlStatus(data)
+      } catch (err) {
+        if (!cancelled) setSdxlStatus(null)
+      }
+    }
+
+    if (generatedUrl) {
+      URL.revokeObjectURL(generatedUrl)
+      setGeneratedUrl(null)
+    }
+
+    loadGenerationStatus()
+    return () => {
+      cancelled = true
+    }
+  }, [datasetId, imageId])
 
   useEffect(() => {
     if (!datasetId || imageId === null || Number.isNaN(imageId)) {
@@ -211,6 +244,26 @@ export const TaggerPanel = ({
     }
   }
 
+  const generatePreview = async () => {
+    if (!datasetId || imageId === null || Number.isNaN(imageId)) return
+    setGenerating(true)
+    setError(null)
+    try {
+      const blob = await generateImageFromSdxlEmbedding(datasetId, imageId, {
+        steps: 4,
+        cfg: 0.5,
+        size: 512,
+        seed: Date.now() % 2147483647,
+      })
+      if (generatedUrl) URL.revokeObjectURL(generatedUrl)
+      setGeneratedUrl(URL.createObjectURL(blob))
+    } catch (err) {
+      setError('Kunde inte generera bild från SDXL-embedding.')
+    } finally {
+      setGenerating(false)
+    }
+  }
+
   if (!datasetId) return null
   if (imageId === null || Number.isNaN(imageId)) {
     if (selectedEmbeddingIds.length > 1) {
@@ -246,6 +299,42 @@ export const TaggerPanel = ({
       </CardHeader>
       <CardContent className="flex flex-1 min-h-0 flex-col gap-3 overflow-hidden">
         {error && <div className="text-xs text-red-300">{error}</div>}
+
+        <div className="space-y-2 rounded-lg border border-white/10 bg-white/5 p-3">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <div className="text-xs font-semibold text-white/80">
+                SDXL-test
+              </div>
+              <div className="mt-1 text-[10px] text-white/50">
+                {sdxlStatus?.has_sdxl_embedding
+                  ? 'Embedding finns för bilden.'
+                  : 'Ingen SDXL-embedding hittades.'}
+              </div>
+            </div>
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              onClick={generatePreview}
+              disabled={!sdxlStatus?.has_sdxl_embedding || generating}
+            >
+              {generating ? 'Genererar…' : 'Generera'}
+            </Button>
+          </div>
+          {sdxlStatus?.sdxl_prompt && (
+            <div className="line-clamp-2 text-[10px] text-white/50">
+              {sdxlStatus.sdxl_prompt}
+            </div>
+          )}
+          {generatedUrl && (
+            <img
+              src={generatedUrl}
+              alt="Genererad SDXL-förhandsvisning"
+              className="aspect-square w-full rounded-md object-cover"
+            />
+          )}
+        </div>
 
         <div className="flex flex-wrap gap-2">
           {tags.length === 0 && (

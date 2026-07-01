@@ -267,6 +267,30 @@ export const fetchImageTagSuggestions = async (
   )
 }
 
+export const fetchSdxlGenerationStatus = async (
+  datasetId: string,
+  imageId: number
+) => {
+  return await fetchJson<Json>(
+    datasetApiUrl(datasetId, `/images/${imageId}/sdxl-generation-status`)
+  )
+}
+
+export const generateImageFromSdxlEmbedding = async (
+  datasetId: string,
+  imageId: number,
+  options: { steps?: number; cfg?: number; size?: number; seed?: number } = {}
+) => {
+  return await fetchBlob(
+    datasetApiUrl(datasetId, `/images/${imageId}/generate-from-sdxl-embedding`),
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(options),
+    }
+  )
+}
+
 export const addImageTags = async (
   datasetId: string,
   imageId: number,

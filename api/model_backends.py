@@ -57,6 +57,14 @@ class SdxlEmbeddingResult:
     duration_ms: int | None = None
 
 
+@dataclass(frozen=True)
+class SdxlImageResult:
+    ok: bool
+    image: bytes | None = None
+    error: str | None = None
+    duration_ms: int | None = None
+
+
 def _torch_device() -> str:
     if torch.backends.mps.is_available():
         return "mps"
@@ -197,6 +205,35 @@ class LocalModelBackend:
                 results.append(SdxlEmbeddingResult(id=item.id, ok=False, error=str(exc)))
         return results
 
+    def sdxl_image_from_embedding(
+        self,
+        embedding: dict[str, torch.Tensor],
+        *,
+        steps: int = 4,
+        cfg: float = 0.5,
+        size: int = 512,
+        seed: int = 1,
+    ) -> SdxlImageResult:
+        started_at = time.monotonic()
+        try:
+            sd = self._load_sd()
+            image = sd.image_for_embeddings(
+                (embedding["prompt_embeds"], embedding["pooled_prompt_embeds"]),
+                steps=steps,
+                cfg=cfg,
+                size=size,
+                seed=seed,
+            )
+            buffer = io.BytesIO()
+            image.save(buffer, format="PNG")
+            return SdxlImageResult(
+                ok=True,
+                image=buffer.getvalue(),
+                duration_ms=int((time.monotonic() - started_at) * 1000),
+            )
+        except Exception as exc:
+            return SdxlImageResult(ok=False, error=str(exc))
+
 
 class RemoteHttpModelBackend:
     def __init__(self, *, base_url: str, timeout: float = 120.0) -> None:
@@ -270,6 +307,33 @@ class RemoteHttpModelBackend:
             or SdxlEmbeddingResult(id=item.id, ok=False, error="Missing result from remote worker")
             for item in items
         ]
+
+    def sdxl_image_from_embedding(
+        self,
+        embedding: dict[str, torch.Tensor],
+        *,
+        steps: int = 4,
+        cfg: float = 0.5,
+        size: int = 512,
+        seed: int = 1,
+    ) -> SdxlImageResult:
+        data = self._post_json(
+            "/generate/sdxl-image",
+            {
+                "embedding": encode_embedding_payload(embedding),
+                "steps": steps,
+                "cfg": cfg,
+                "size": size,
+                "seed": seed,
+            },
+        )
+        if not data.get("ok"):
+            return SdxlImageResult(ok=False, error=data.get("error") or "Remote worker failed")
+        return SdxlImageResult(
+            ok=True,
+            image=base64.b64decode(data["image_base64"].encode("ascii")),
+            duration_ms=data.get("duration_ms"),
+        )
 
 
 def get_model_backend() -> LocalModelBackend | RemoteHttpModelBackend:

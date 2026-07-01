@@ -257,6 +257,55 @@ def clear_artifacts(dataset_id: str, artifact_group: str) -> dict:
     }
 
 
+def image_embedding_status(dataset_id: str, image_id: int) -> dict:
+    ctx = _get_context(dataset_id)
+    if not (0 <= image_id < len(ctx.image_paths)):
+        raise IndexError("Image ID not found")
+
+    paths = _artifact_paths(ctx, image_id)
+    prompt = None
+    if paths["sdxl_prompt"].exists():
+        prompt = paths["sdxl_prompt"].read_text(encoding="utf-8").strip()
+
+    return {
+        "dataset_id": dataset_id,
+        "image_id": image_id,
+        "has_sdxl_embedding": paths["sdxl_embedding"].exists(),
+        "has_sdxl_prompt": paths["sdxl_prompt"].exists(),
+        "sdxl_prompt": prompt,
+    }
+
+
+def generate_image_from_saved_embedding(
+    dataset_id: str,
+    image_id: int,
+    *,
+    steps: int = 4,
+    cfg: float = 0.5,
+    size: int = 512,
+    seed: int = 1,
+) -> bytes:
+    ctx = _get_context(dataset_id)
+    if not (0 <= image_id < len(ctx.image_paths)):
+        raise IndexError("Image ID not found")
+
+    path = _artifact_paths(ctx, image_id)["sdxl_embedding"]
+    if not path.exists():
+        raise FileNotFoundError("SDXL embedding not found")
+
+    embedding = torch.load(path, map_location="cpu")
+    result = get_model_backend().sdxl_image_from_embedding(
+        embedding,
+        steps=steps,
+        cfg=cfg,
+        size=size,
+        seed=seed,
+    )
+    if not result.ok or result.image is None:
+        raise RuntimeError(result.error or "Image generation failed")
+    return result.image
+
+
 def _is_complete(ctx: DatasetContext, image_id: int) -> bool:
     return not _missing_for_image(ctx, image_id)
 
