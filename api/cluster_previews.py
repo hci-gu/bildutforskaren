@@ -15,7 +15,14 @@ from api import datasets
 from api import indexing
 from api import runtime
 from api.clustering import fit_model
-from api.model_backends import get_model_backend
+from api.model_backends import (
+    IP_ADAPTER_DEFAULT_SCALE,
+    IP_ADAPTER_REPO,
+    IP_ADAPTER_SUBFOLDER,
+    IP_ADAPTER_WEIGHT_NAME,
+    SDXL_MODEL,
+    get_model_backend,
+)
 from api.models import DatasetContext
 
 
@@ -56,12 +63,12 @@ def _image_path(ctx: DatasetContext, cluster_id: str) -> Path:
     return _image_dir(ctx) / f"{cluster_id}.png"
 
 
-def _sdxl_embedding_path(ctx: DatasetContext, image_id: int) -> Path:
+def _ip_adapter_embedding_path(ctx: DatasetContext, image_id: int) -> Path:
     return (
         ctx.cfg.cache_dir
         / "image_roundtrip"
         / str(image_id)
-        / "sdxl_text_embedding.pt"
+        / "ip_adapter_image_embeds.pt"
     )
 
 
@@ -153,35 +160,50 @@ def _build_cluster_records(
     return records
 
 
-def _average_sdxl_embedding(ctx: DatasetContext, image_ids: list[int]) -> dict[str, torch.Tensor]:
-    prompt_sum = None
-    pooled_sum = None
-    prompt_dtype = None
-    pooled_dtype = None
+def _average_tensor_lists(
+    embeddings: list[dict],
+    key: str,
+) -> list[torch.Tensor]:
+    first = embeddings[0][key]
+    sums = [torch.zeros_like(tensor, dtype=torch.float32) for tensor in first]
+    dtypes = [tensor.dtype for tensor in first]
+    for embedding in embeddings:
+        values = embedding[key]
+        if len(values) != len(sums):
+            raise ValueError(f"IP-Adapter embedding list length mismatch for {key}")
+        for idx, tensor in enumerate(values):
+            if tensor.shape != sums[idx].shape:
+                raise ValueError(f"IP-Adapter embedding shape mismatch for {key}[{idx}]")
+            sums[idx].add_(tensor.to(dtype=torch.float32))
+    return [
+        (tensor_sum / len(embeddings)).to(dtype=dtypes[idx])
+        for idx, tensor_sum in enumerate(sums)
+    ]
 
+
+def _average_ip_adapter_embedding(ctx: DatasetContext, image_ids: list[int]) -> dict:
+    embeddings = []
     for image_id in image_ids:
-        path = _sdxl_embedding_path(ctx, image_id)
+        path = _ip_adapter_embedding_path(ctx, image_id)
         if not path.exists():
-            raise FileNotFoundError(f"SDXL embedding not found for image {image_id}")
-        embedding = torch.load(path, map_location="cpu")
-        prompt_embeds = embedding["prompt_embeds"].detach()
-        pooled_prompt_embeds = embedding["pooled_prompt_embeds"].detach()
+            raise FileNotFoundError(f"IP-Adapter embedding not found for image {image_id}")
+        embeddings.append(torch.load(path, map_location="cpu"))
 
-        if prompt_sum is None:
-            prompt_dtype = prompt_embeds.dtype
-            pooled_dtype = pooled_prompt_embeds.dtype
-            prompt_sum = torch.zeros_like(prompt_embeds, dtype=torch.float32)
-            pooled_sum = torch.zeros_like(pooled_prompt_embeds, dtype=torch.float32)
-
-        prompt_sum.add_(prompt_embeds.to(dtype=torch.float32))
-        pooled_sum.add_(pooled_prompt_embeds.to(dtype=torch.float32))
-
-    if prompt_sum is None or pooled_sum is None:
+    if not embeddings:
         raise ValueError("No image IDs provided")
 
     return {
-        "prompt_embeds": (prompt_sum / len(image_ids)).to(dtype=prompt_dtype),
-        "pooled_prompt_embeds": (pooled_sum / len(image_ids)).to(dtype=pooled_dtype),
+        "format": "diffusers_ip_adapter_image_embeds",
+        "format_version": 1,
+        "sdxl_model": SDXL_MODEL,
+        "ip_adapter_repo": IP_ADAPTER_REPO,
+        "ip_adapter_subfolder": IP_ADAPTER_SUBFOLDER,
+        "ip_adapter_weight_name": IP_ADAPTER_WEIGHT_NAME,
+        "positive": _average_tensor_lists(embeddings, "positive"),
+        "classifier_free_guidance": _average_tensor_lists(
+            embeddings,
+            "classifier_free_guidance",
+        ),
     }
 
 
@@ -320,13 +342,14 @@ def bake(dataset_id: str, *, levels: int = DEFAULT_LEVELS, size: int = 512) -> N
                 continue
 
             started_at = time.monotonic()
-            embedding = _average_sdxl_embedding(ctx, cluster["image_ids"])
-            result = backend.sdxl_image_from_embedding(
+            embedding = _average_ip_adapter_embedding(ctx, cluster["image_ids"])
+            result = backend.sdxl_image_from_ip_adapter_embedding(
                 embedding,
                 steps=4,
-                cfg=0.5,
+                cfg=0.0,
                 size=size,
                 seed=1,
+                adapter_scale=IP_ADAPTER_DEFAULT_SCALE,
             )
             if not result.ok or result.image is None:
                 raise RuntimeError(result.error or "Cluster image generation failed")

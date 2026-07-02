@@ -380,7 +380,7 @@ export const TaggerPanel = ({
         <div className="flex items-center justify-between gap-3">
           <div>
             <div className="text-xs font-semibold text-white/80">
-              {mode === 'single' ? 'SDXL-test' : 'SDXL-genomsnitt'}
+              {mode === 'single' ? 'Bildgenerering' : 'Generera genomsnitt'}
             </div>
             <div className="mt-1 text-[10px] text-white/50">
               {mode === 'single'
@@ -400,25 +400,25 @@ export const TaggerPanel = ({
               variant="secondary"
               onClick={() =>
                 mode === 'single'
-                  ? generatePreview('sdxl')
-                  : generateAveragePreview('sdxl')
-              }
-              disabled={!canGenerateSdxl || generating}
-            >
-              {generating ? 'Genererar…' : 'SDXL'}
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant="secondary"
-              onClick={() =>
-                mode === 'single'
                   ? generatePreview('ip_adapter')
                   : generateAveragePreview('ip_adapter')
               }
               disabled={!canGenerateIpAdapter || generating}
             >
-              {generating ? 'Genererar…' : 'IP'}
+              {generating ? 'Genererar…' : 'Generera'}
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              onClick={() =>
+                mode === 'single'
+                  ? generatePreview('sdxl')
+                  : generateAveragePreview('sdxl')
+              }
+              disabled={!canGenerateSdxl || generating}
+            >
+              SDXL
             </Button>
           </div>
         </div>
@@ -440,7 +440,7 @@ export const TaggerPanel = ({
         {generatedUrl && (
           <img
             src={generatedUrl}
-            alt="Genererad SDXL-förhandsvisning"
+            alt="Genererad förhandsvisning"
             className="aspect-square w-full rounded-md object-cover"
           />
         )}
