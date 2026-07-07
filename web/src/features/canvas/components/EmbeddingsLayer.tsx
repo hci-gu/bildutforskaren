@@ -7,7 +7,6 @@ import {
   displaySettingsAtom,
   filterSettingsAtom,
   hoveredTextAtom,
-  projectedEmbeddingsAtom,
   projectionSettingsAtom,
   searchQueryAtom,
   selectedEmbeddingIdsAtom,
@@ -102,11 +101,18 @@ export const EmbeddingsLayer: React.FC<{
   masterAtlas: Record<number, PIXI.Spritesheet>
   atlasMeta: AtlasMeta
   particleContainerRefs: React.RefObject<PIXI.ParticleContainer | null>[]
+  rawEmbeddings: any[]
   visibleBounds?: PIXI.Rectangle | null
-}> = ({ type, masterAtlas, atlasMeta, particleContainerRefs, visibleBounds }) => {
+}> = ({
+  type,
+  masterAtlas,
+  atlasMeta,
+  particleContainerRefs,
+  rawEmbeddings,
+  visibleBounds,
+}) => {
   const searchQuery = useAtomValue(searchQueryAtom)
   const datasetId = useAtomValue(activeDatasetIdAtom)
-  const rawEmbeddings = useAtomValue(projectedEmbeddingsAtom(type))
   const displaySettings = useAtomValue(displaySettingsAtom)
   const filterSettings = useAtomValue(filterSettingsAtom)
   const projectionSettings = useAtomValue(projectionSettingsAtom)
