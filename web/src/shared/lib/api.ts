@@ -39,7 +39,8 @@ export type ClusterPreviewManifest = {
   clusters: ClusterPreview[]
 }
 
-export const API_URL = 'http://localhost:3000'
+export const API_URL =
+  import.meta.env.VITE_API_URL || 'http://localhost:3000'
 // export const API_URL = 'https://bildutforskaren-api.prod.appadem.in'
 // export const API_URL = 'https://leviathan.itit.gu.se'
 
