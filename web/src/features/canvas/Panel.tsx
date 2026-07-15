@@ -356,7 +356,7 @@ const TextPanel = () => {
 
   return (
     <Card
-      className="glass-panel absolute top-4 left-4 z-10 w-1/5 text-white shadow-lg"
+      className="glass-panel absolute top-20 left-4 z-10 w-1/5 text-white shadow-lg"
       data-canvas-ui="true"
     >
       <CardContent className="px-4">
@@ -464,7 +464,7 @@ const TaggedInfoPanel = () => {
 
   return (
     <Card
-      className="glass-panel absolute top-4 left-4 z-10 w-64 shadow-lg"
+      className="glass-panel absolute top-20 left-4 z-10 w-64 shadow-lg"
       data-canvas-ui="true"
     >
       <CardContent className="px-4 py-1 text-sm text-white">

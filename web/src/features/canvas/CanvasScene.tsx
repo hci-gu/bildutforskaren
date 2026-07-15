@@ -23,6 +23,7 @@ import { EmbeddingsLayer } from './components/EmbeddingsLayer'
 import { SelectionRect } from './components/SelectionRect'
 import { Minimap } from './components/Minimap'
 import { HUD } from './components/HUD'
+import { HomeLogoLink } from '@/shared/components/HomeLogoLink'
 
 extend({
   Viewport,
@@ -278,12 +279,14 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
 
   return (
     <>
+      <HomeLogoLink />
+
       {(!allLoaded || rawEmbeddings.length === 0) && (
         <h1
           style={{
             position: 'absolute',
             top: 44,
-            left: 44,
+            left: 84,
             color: 'white',
             fontSize: 24,
             zIndex: 1000,

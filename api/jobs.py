@@ -107,9 +107,10 @@ def process_uploaded_dataset(dataset_id: str) -> None:
         atlas.ensure_atlas(cfg, ctx.image_paths)
 
         meta = datasets.read_dataset_json(dataset_id)
-        meta["status"] = "ready"
-        meta["error"] = None
-        datasets.write_dataset_json(dataset_id, meta)
+        if meta.get("status") != "deleted":
+            meta["status"] = "ready"
+            meta["error"] = None
+            datasets.write_dataset_json(dataset_id, meta)
 
         _set_job_state(dataset_id, stage="ready", progress=1)
         logging.info("Dataset {dataset_id} has finished processing and is ready for analysis")
@@ -117,9 +118,10 @@ def process_uploaded_dataset(dataset_id: str) -> None:
         logging.exception("Dataset processing failed for %s", dataset_id)
         try:
             meta = datasets.read_dataset_json(dataset_id)
-            meta["status"] = "error"
-            meta["error"] = str(exc)
-            datasets.write_dataset_json(dataset_id, meta)
+            if meta.get("status") != "deleted":
+                meta["status"] = "error"
+                meta["error"] = str(exc)
+                datasets.write_dataset_json(dataset_id, meta)
         except Exception:
             logging.exception("Failed to write error status for %s", dataset_id)
 

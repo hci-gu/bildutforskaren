@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
-import { useParams, Link } from 'react-router'
+import { useParams, Link, useNavigate } from 'react-router'
 import { useSetAtom } from 'jotai'
-import { activeDatasetIdAtom } from '@/store'
+import { activeDatasetIdAtom, datasetsRevisionAtom } from '@/store'
 import { Button } from '@/shared/ui/button'
 import {
   Card,
@@ -25,6 +25,7 @@ import { StatusMessage } from '@/shared/components/StatusMessage'
 import {
   clearClusterPreviews,
   clearImageRoundtripArtifacts,
+  deleteDataset,
   fetchDatasetStatus,
   fetchTagStats,
   generateClusterPreviews,
@@ -33,6 +34,7 @@ import {
   seedTagsFromMetadata,
 } from '@/shared/lib/api'
 import type { DatasetStatus, TagStats } from '@/features/datasets/types/datasets'
+import { HomeLogoLink } from '@/shared/components/HomeLogoLink'
 
 type ArtifactGroup = 'clip' | 'florence' | 'sdxl' | 'ip_adapter'
 
@@ -89,7 +91,9 @@ const formatEta = (seconds?: number | null) => {
 
 export default function DatasetPage() {
   const { id } = useParams<{ id: string }>()
+  const navigate = useNavigate()
   const setActiveDatasetId = useSetAtom(activeDatasetIdAtom)
+  const bumpDatasetsRevision = useSetAtom(datasetsRevisionAtom)
 
   const [dataset, setDataset] = useState<DatasetStatus | null>(null)
   const [tagStats, setTagStats] = useState<TagStats | null>(null)
@@ -106,6 +110,8 @@ export default function DatasetPage() {
   const [clusterStarting, setClusterStarting] = useState(false)
   const [clusterClearing, setClusterClearing] = useState(false)
   const [clusterLevels, setClusterLevels] = useState(4)
+  const [deleting, setDeleting] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
 
   const statusValue = dataset?.status
   const isPending =
@@ -296,9 +302,25 @@ export default function DatasetPage() {
     }
   }
 
+  const handleDeleteDataset = async () => {
+    if (!id || deleting) return
+    setDeleting(true)
+    setDeleteError(null)
+    try {
+      await deleteDataset(id)
+      setActiveDatasetId(null)
+      bumpDatasetsRevision((revision) => revision + 1)
+      navigate('/')
+    } catch (err) {
+      setDeleteError(String(err))
+      setDeleting(false)
+    }
+  }
+
   return (
-    <div className="min-h-screen text-white">
-      <div className="mx-auto w-full max-w-4xl px-6 py-10">
+    <div className="relative min-h-screen text-white">
+      <HomeLogoLink />
+      <div className="mx-auto w-full max-w-4xl px-6 pt-20 pb-10">
         <div className="mb-6 flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-semibold">Dataset</h1>
@@ -710,6 +732,56 @@ export default function DatasetPage() {
             {seedError && <div className="text-xs text-red-300">{seedError}</div>}
           </CardContent>
         </Card>
+
+        <div className="mt-10 border-t border-red-400/20 pt-6">
+          <div className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
+            <div>
+              <h2 className="font-semibold text-red-300">Ta bort dataset</h2>
+              <p className="mt-1 text-sm text-white/60">
+                Datasetet döljs från listan. Inga filer tas bort.
+              </p>
+            </div>
+            <Dialog>
+              <DialogTrigger asChild>
+                <Button type="button" variant="destructive" disabled={deleting}>
+                  {deleting ? 'Tar bort…' : 'Ta bort dataset'}
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="border-white/10 bg-zinc-950 text-white">
+                <DialogHeader>
+                  <DialogTitle>Ta bort dataset?</DialogTitle>
+                  <DialogDescription className="text-white/60">
+                    Datasetet markeras som borttaget och försvinner från listan.
+                    Filerna på servern behålls.
+                  </DialogDescription>
+                </DialogHeader>
+                {deleteError && (
+                  <div className="text-sm text-red-300">{deleteError}</div>
+                )}
+                <DialogFooter>
+                  <DialogClose asChild>
+                    <Button type="button" variant="secondary">
+                      Avbryt
+                    </Button>
+                  </DialogClose>
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    onClick={() => {
+                      void handleDeleteDataset()
+                    }}
+                    disabled={deleting}
+                  >
+                    {deleting ? 'Tar bort…' : 'Ta bort dataset'}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          </div>
+          {deleteError && (
+            <div className="mt-3 text-sm text-red-300">{deleteError}</div>
+          )}
+        </div>
       </div>
     </div>
   )

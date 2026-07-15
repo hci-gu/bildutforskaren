@@ -114,6 +114,13 @@ export const fetchDatasetStatus = async (datasetId: string) => {
   )
 }
 
+export const deleteDataset = async (datasetId: string) => {
+  return await fetchJson<Json>(
+    `${API_URL}/datasets/${encodeURIComponent(datasetId)}`,
+    { method: 'DELETE' }
+  )
+}
+
 export const fetchTagStats = async (datasetId: string) => {
   return await fetchJson<{
     total_images: number

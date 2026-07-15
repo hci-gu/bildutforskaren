@@ -94,6 +94,20 @@ def dataset_status(dataset_id: str):
     return jsonify(meta)
 
 
+@bp.route("/datasets/<dataset_id>", methods=["DELETE"])
+def delete_dataset(dataset_id: str):
+    if not datasets.is_safe_dataset_id(dataset_id):
+        return jsonify({"error": "Invalid dataset_id"}), 400
+
+    try:
+        meta = datasets.mark_dataset_deleted(dataset_id)
+    except FileNotFoundError:
+        return jsonify({"error": "Dataset not found"}), 404
+
+    runtime.get_context_cache().invalidate(dataset_id)
+    return jsonify(meta)
+
+
 @bp.route("/datasets/<dataset_id>/metadata-source", methods=["GET", "POST"])
 def dataset_metadata_source(dataset_id: str):
     if not datasets.is_safe_dataset_id(dataset_id):

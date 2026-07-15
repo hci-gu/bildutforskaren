@@ -67,6 +67,8 @@ def list_datasets() -> list[dict]:
         try:
             data = json.loads(meta_path.read_text(encoding="utf-8"))
             data = dict(data)
+            if data.get("status") == "deleted":
+                continue
             data.setdefault("metadata_source", "none")
             data["has_metadata_xlsx"] = (entry / "metadata.xlsx").exists()
             job = runtime.get_job_manager().get_state(dataset_id)
@@ -77,6 +79,15 @@ def list_datasets() -> list[dict]:
             logging.exception("Failed to read dataset.json for %s", dataset_id)
 
     return datasets
+
+
+def mark_dataset_deleted(dataset_id: str) -> dict:
+    data = read_dataset_json(dataset_id)
+    data = dict(data)
+    data["status"] = "deleted"
+    write_dataset_json(dataset_id, data)
+    logging.info(f"Marked dataset {dataset_id} as deleted")
+    return data
 
 
 def create_dataset(name: str | None) -> dict:
