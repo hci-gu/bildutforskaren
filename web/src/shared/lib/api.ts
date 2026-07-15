@@ -9,6 +9,26 @@ export type Cluster = {
   label_score?: number
 }
 
+export type ClusteringAlgorithm = 'kmeans' | 'dbscan' | 'hdbscan'
+
+export type ClusteringConfig = {
+  algorithm: ClusteringAlgorithm
+  parameters?: Record<string, unknown>
+}
+
+export type ClusteringMetadata = {
+  algorithm: ClusteringAlgorithm
+  method: 'recursive' | 'single_run'
+  feature_space: 'umap_2d'
+  parameters: Record<string, unknown>
+}
+
+export type ClusteringResult = {
+  clustering: ClusteringMetadata
+  clusters: Cluster[]
+  ignored_noise_point_indices: number[]
+}
+
 export type ClusterPreview = {
   id: string
   parent_id: string | null
@@ -31,7 +51,13 @@ export type ClusterPreview = {
 export type ClusterPreviewManifest = {
   dataset_id: string
   requested_levels: number
-  params: Record<string, any>
+  effective_levels: number
+  params: Record<string, unknown>
+  clustering: ClusteringMetadata
+  image_generation: {
+    method: 'average_ip_adapter_embedding'
+    size: number
+  }
   projection: {
     image_ids: number[]
     image_points: [number, number][]
@@ -166,7 +192,11 @@ export const clearImageRoundtripArtifacts = async (
 
 export const generateClusterPreviews = async (
   datasetId: string,
-  options: { levels?: number; size?: number } = {}
+  options: {
+    levels?: number
+    size?: number
+    clustering?: ClusteringConfig
+  } = {}
 ) => {
   return await fetchJson<Json>(
     `${API_URL}/datasets/${encodeURIComponent(datasetId)}/cluster-previews/generate`,
@@ -294,18 +324,19 @@ export const fetchUmapProjection = async (
 export const fetchClusters = async (
   datasetId: string,
   points: [number, number][],
-  imageIds: number[]
+  imageIds: number[],
+  clustering: ClusteringConfig = { algorithm: 'kmeans' }
 ) => {
-  const reponse = await fetchJson<Cluster[]>(
+  const response = await fetchJson<ClusteringResult>(
     datasetApiUrl(datasetId, '/clustering'),
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ X: points, image_ids: imageIds }),
+      body: JSON.stringify({ X: points, image_ids: imageIds, clustering }),
     }
   )
-  console.log('Got clusters:', reponse)
-  return reponse
+  console.log('Got clusters:', response)
+  return response
 }
 
 export const fetchEmbeddingById = async (datasetId: string, id: string) => {

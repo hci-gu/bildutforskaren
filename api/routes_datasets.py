@@ -11,6 +11,7 @@ from api import image_roundtrip
 from api import jobs
 from api import model_backends
 from api import runtime
+from api.clustering import ClusteringConfig
 
 
 bp = Blueprint("datasets", __name__)
@@ -357,9 +358,19 @@ def generate_cluster_previews(dataset_id: str):
         return jsonify({"error": "Processing already running"}), 409
 
     payload = request.get_json(silent=True) or {}
-    levels = int(payload.get("levels") or cluster_previews.DEFAULT_LEVELS)
-    size = int(payload.get("size") or 512)
-    cluster_previews.submit(dataset_id, levels=levels, size=size)
+    try:
+        levels = int(payload.get("levels") or cluster_previews.DEFAULT_LEVELS)
+        size = int(payload.get("size") or 512)
+        clustering_config = ClusteringConfig.from_dict(payload.get("clustering"))
+    except (TypeError, ValueError) as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    cluster_previews.submit(
+        dataset_id,
+        levels=levels,
+        size=size,
+        clustering_config=clustering_config,
+    )
     return jsonify({"status": "queued", "cluster_previews": cluster_previews.status(dataset_id)}), 202
 
 

@@ -20,7 +20,7 @@ from api import image_roundtrip
 from api import indexing
 from api import context as context_builder
 from api import runtime
-from api.clustering import fit_model
+from api.clustering import ClusteringConfig, fit_model
 
 
 bp = Blueprint("dataset_scoped", __name__)
@@ -1302,7 +1302,8 @@ def cluster_dataset_projection(dataset_id: str):
 
     try:
         points = np.asarray(payload["X"], dtype=float)
-        clusters = fit_model(points)
+        clustering_config = ClusteringConfig.from_dict(payload.get("clustering"))
+        clustering_result = fit_model(points, clustering_config)
     except (TypeError, ValueError) as exc:
         return jsonify({"error": str(exc)}), 400
 
@@ -1310,7 +1311,7 @@ def cluster_dataset_projection(dataset_id: str):
         return jsonify({"error": "'X' and 'image_ids' must have the same length"}), 400
 
     embeddings = ctx.embeddings.cpu().numpy().astype("float32")
-    for cluster in clusters:
+    for cluster in clustering_result.clusters:
         cluster_image_ids = [
             image_ids[index]
             for index in cluster.point_indices
@@ -1323,7 +1324,7 @@ def cluster_dataset_projection(dataset_id: str):
         cluster.label = label["label"]
         cluster.label_score = label["score"]
 
-    return jsonify([cluster.to_dict() for cluster in clusters])
+    return jsonify(clustering_result.to_dict())
 
 
 @bp.route("/datasets/<dataset_id>/umap", methods=["GET", "POST"])

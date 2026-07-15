@@ -14,7 +14,7 @@ from api import context as context_builder
 from api import datasets
 from api import indexing
 from api import runtime
-from api.clustering import fit_model
+from api.clustering import ClusteringConfig, fit_model
 from api.model_backends import (
     IP_ADAPTER_DEFAULT_SCALE,
     IP_ADAPTER_REPO,
@@ -28,6 +28,7 @@ from api.models import DatasetContext
 
 DEFAULT_LEVELS = 4
 ETA_WINDOW_SIZE = 10
+PREVIEW_METHOD = "average_ip_adapter_embedding"
 UMAP_PARAMS = {
     "n_neighbors": 15,
     "min_dist": 0.1,
@@ -111,14 +112,17 @@ def _build_cluster_records(
     points: np.ndarray,
     image_ids: list[int],
     max_levels: int,
+    clustering_config: ClusteringConfig,
     parent_id: str | None = None,
     level: int = 1,
 ) -> list[dict]:
     if level > max_levels or len(image_ids) == 0:
         return []
 
-    clusters = fit_model(points)
+    clustering_result = fit_model(points, clustering_config)
+    clusters = clustering_result.clusters
     records: list[dict] = []
+    can_subcluster = clustering_config.method == "recursive" and len(clusters) > 1
 
     for index, cluster in enumerate(clusters):
         local_indices = [
@@ -146,12 +150,18 @@ def _build_cluster_records(
             }
         )
 
-        if level < max_levels and len(cluster_image_ids) >= 3:
+        if (
+            can_subcluster
+            and level < max_levels
+            and len(cluster_image_ids) >= 3
+            and len(cluster_image_ids) < len(image_ids)
+        ):
             records.extend(
                 _build_cluster_records(
                     points=cluster_points,
                     image_ids=cluster_image_ids,
                     max_levels=max_levels,
+                    clustering_config=clustering_config,
                     parent_id=cluster_id,
                     level=level + 1,
                 )
@@ -257,6 +267,8 @@ def status(dataset_id: str) -> dict:
         "root": str(_root(ctx)),
         "created_at": manifest.get("created_at"),
         "params": manifest.get("params"),
+        "clustering": manifest.get("clustering"),
+        "image_generation": manifest.get("image_generation"),
     }
 
 
@@ -269,9 +281,17 @@ def clear(dataset_id: str) -> dict:
     return {"deleted": existed, "cluster_previews": status(dataset_id)}
 
 
-def bake(dataset_id: str, *, levels: int = DEFAULT_LEVELS, size: int = 512) -> None:
+def bake(
+    dataset_id: str,
+    *,
+    levels: int = DEFAULT_LEVELS,
+    size: int = 512,
+    clustering_config: ClusteringConfig | None = None,
+) -> None:
     levels = max(1, int(levels))
     size = max(128, int(size))
+    clustering_config = clustering_config or ClusteringConfig()
+    effective_levels = 1 if clustering_config.algorithm == "hdbscan" else levels
     ctx = _get_context(dataset_id)
     manager = runtime.get_job_manager()
     durations: deque[float] = deque(maxlen=ETA_WINDOW_SIZE)
@@ -309,20 +329,41 @@ def bake(dataset_id: str, *, levels: int = DEFAULT_LEVELS, size: int = 512) -> N
         clusters = _build_cluster_records(
             points=points,
             image_ids=image_ids,
-            max_levels=levels,
+            max_levels=effective_levels,
+            clustering_config=clustering_config,
         )
 
+        clustering_manifest = clustering_config.to_dict()
+        image_generation_manifest = {
+            "method": PREVIEW_METHOD,
+            "size": size,
+        }
         manifest = {
             "dataset_id": dataset_id,
             "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             "requested_levels": levels,
+            "effective_levels": effective_levels,
             "params": UMAP_PARAMS,
+            "clustering": clustering_manifest,
+            "image_generation": image_generation_manifest,
             "projection": {
                 "image_ids": image_ids,
                 "image_points": points.tolist(),
             },
             "clusters": clusters,
         }
+
+        manifest_path = _manifest_path(ctx)
+        if manifest_path.exists():
+            previous_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            configuration_changed = (
+                previous_manifest.get("clustering") != clustering_manifest
+                or previous_manifest.get("image_generation")
+                != image_generation_manifest
+                or previous_manifest.get("params") != UMAP_PARAMS
+            )
+            if configuration_changed and _image_dir(ctx).exists():
+                shutil.rmtree(_image_dir(ctx))
         _write_manifest(ctx, manifest)
 
         _image_dir(ctx).mkdir(parents=True, exist_ok=True)
@@ -378,8 +419,20 @@ def bake(dataset_id: str, *, levels: int = DEFAULT_LEVELS, size: int = 512) -> N
         raise
 
 
-def submit(dataset_id: str, *, levels: int = DEFAULT_LEVELS, size: int = 512) -> None:
+def submit(
+    dataset_id: str,
+    *,
+    levels: int = DEFAULT_LEVELS,
+    size: int = 512,
+    clustering_config: ClusteringConfig | None = None,
+) -> None:
+    effective_config = clustering_config or ClusteringConfig()
     runtime.get_job_manager().submit(
-        lambda ds_id: bake(ds_id, levels=levels, size=size),
+        lambda ds_id: bake(
+            ds_id,
+            levels=levels,
+            size=size,
+            clustering_config=effective_config,
+        ),
         dataset_id,
     )

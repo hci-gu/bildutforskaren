@@ -40,7 +40,17 @@ export type DatasetStatus = {
     images: number
     root?: string
     created_at?: string
-    params?: Record<string, any>
+    params?: Record<string, unknown>
+    clustering?: {
+      algorithm: 'kmeans' | 'dbscan' | 'hdbscan'
+      method: 'recursive' | 'single_run'
+      feature_space: 'umap_2d'
+      parameters: Record<string, unknown>
+    }
+    image_generation?: {
+      method: 'average_ip_adapter_embedding'
+      size: number
+    }
   } | null
   created_at?: string
   error?: string | null

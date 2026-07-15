@@ -33,8 +33,16 @@ import {
   resumeProcessing,
   seedTagsFromMetadata,
 } from '@/shared/lib/api'
+import type { ClusteringAlgorithm } from '@/shared/lib/api'
 import type { DatasetStatus, TagStats } from '@/features/datasets/types/datasets'
 import { HomeLogoLink } from '@/shared/components/HomeLogoLink'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/shared/ui/select'
 
 type ArtifactGroup = 'clip' | 'florence' | 'sdxl' | 'ip_adapter'
 
@@ -110,6 +118,8 @@ export default function DatasetPage() {
   const [clusterStarting, setClusterStarting] = useState(false)
   const [clusterClearing, setClusterClearing] = useState(false)
   const [clusterLevels, setClusterLevels] = useState(4)
+  const [clusterAlgorithm, setClusterAlgorithm] =
+    useState<ClusteringAlgorithm>('kmeans')
   const [deleting, setDeleting] = useState(false)
   const [deleteError, setDeleteError] = useState<string | null>(null)
 
@@ -279,9 +289,13 @@ export default function DatasetPage() {
     setClusterStarting(true)
     setClusterError(null)
     try {
-      await generateClusterPreviews(id, { levels: clusterLevels, size: 512 })
+      await generateClusterPreviews(id, {
+        levels: clusterAlgorithm === 'hdbscan' ? 1 : clusterLevels,
+        size: 512,
+        clustering: { algorithm: clusterAlgorithm },
+      })
       await reloadStatus()
-    } catch (err) {
+    } catch {
       setClusterError('Kunde inte starta klusterbakning.')
     } finally {
       setClusterStarting(false)
@@ -633,6 +647,29 @@ export default function DatasetPage() {
             )}
             <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
               <div className="flex flex-col gap-1">
+                <label htmlFor="clusterAlgorithm" className="text-xs text-white/60">
+                  Algoritm
+                </label>
+                <Select
+                  value={clusterAlgorithm}
+                  onValueChange={(value) =>
+                    setClusterAlgorithm(value as ClusteringAlgorithm)
+                  }
+                >
+                  <SelectTrigger
+                    id="clusterAlgorithm"
+                    className="w-36 border-white/20 bg-white/10 text-white"
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className="border-white/10 bg-zinc-950 text-white">
+                    <SelectItem value="kmeans">K-means</SelectItem>
+                    <SelectItem value="dbscan">DBSCAN</SelectItem>
+                    <SelectItem value="hdbscan">HDBSCAN</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex flex-col gap-1">
                 <label htmlFor="clusterLevels" className="text-xs text-white/60">
                   Nivåer
                 </label>
@@ -642,7 +679,8 @@ export default function DatasetPage() {
                   min={1}
                   max={8}
                   step={1}
-                  value={clusterLevels}
+                  value={clusterAlgorithm === 'hdbscan' ? 1 : clusterLevels}
+                  disabled={clusterAlgorithm === 'hdbscan'}
                   onChange={(event) =>
                     setClusterLevels(
                       Math.max(1, Math.floor(Number(event.target.value) || 1))
