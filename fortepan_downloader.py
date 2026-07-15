@@ -1,12 +1,11 @@
+import httpx
 import asyncio
 from pathlib import Path
 
-import httpx
-
-
 BASE_URL = "https://fortepan.download/file/fortepan-eu/download/fortepan_{image_id}.jpg"
 IMAGE_OUTPUT_DIR = Path("datasets/fortepan/images")
-IMAGE_IDS = range(200_000, 300_000, 666)
+STEP = 111 # keep between 100 or 1000, lower -> more images
+IMAGE_IDS = range(200_000, 400_000, STEP)
 MAX_PARALLEL_REQUESTS = 10
 REQUEST_TIMEOUT_SECONDS = 30
 
