@@ -1,0 +1,2 @@
+- right the frontend page in the dataset selection menu does not update after processing is completed. It would be good to have a way to send a refresh signal or update the status on the uploaded dataset
+- The status menu is also not technically correct
