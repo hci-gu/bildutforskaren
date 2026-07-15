@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import '@pixi/events'
 import { Application, extend } from '@pixi/react'
 import * as PIXI from 'pixi.js'
@@ -17,7 +17,7 @@ import { state } from './canvasState'
 import { Viewport } from './ViewPort'
 import Panel from './Panel'
 import { CANVAS_HEIGHT, CANVAS_WIDTH, CLICK_EPS } from './constants'
-import { buildSelectionRect, computeProjectionBounds, pointIntersectsParticle } from './utils'
+import { buildSelectionRect, computeProjectionFit, pointIntersectsParticle } from './utils'
 import { useAtlasLoader } from './hooks/useAtlasLoader'
 import { EmbeddingsLayer } from './components/EmbeddingsLayer'
 import { SelectionRect } from './components/SelectionRect'
@@ -61,6 +61,12 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
   const [showTagRefresh, setShowTagRefresh] = useState(false)
 
   const viewportRef = useRef<Viewport>(null)
+  const [viewportReady, setViewportReady] = useState(false)
+
+  const handleViewportRef = useCallback((viewport: Viewport | null) => {
+    viewportRef.current = viewport
+    if (viewport) setViewportReady(true)
+  }, [])
 
   const [windowSize, setWindowSize] = useState(() => ({
     width: typeof window === 'undefined' ? width : window.innerWidth,
@@ -128,10 +134,27 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
     )
   }, [numSheets])
 
-  const projectionBounds = useMemo(
-    () => computeProjectionBounds(rawEmbeddings),
+  const projectionFit = useMemo(
+    () => computeProjectionFit(rawEmbeddings),
     [rawEmbeddings]
   )
+
+  const fitProjection = useCallback(() => {
+    const viewport = viewportRef.current
+    if (!viewport || !projectionFit) return
+
+    const paddingFactor = 0.08
+    viewport.fit(
+      false,
+      projectionFit.width * (1 + paddingFactor * 2),
+      projectionFit.height * (1 + paddingFactor * 2)
+    )
+    viewport.moveCenter(projectionFit.center)
+
+    const fitScale = viewport.scale?.x ?? 1
+    setViewportScale(fitScale)
+    setViewportFitScale(fitScale)
+  }, [projectionFit, setViewportFitScale, setViewportScale])
 
   const projectionKey = useMemo(
     () =>
@@ -141,8 +164,6 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
       }),
     [projectionSettings, projectionRevision]
   )
-
-  const lastProjectionKeyRef = useRef<string | null>(null)
 
   const isCanvasEvent = (e: any) => {
     const target = e?.data?.originalEvent?.target as HTMLElement | null
@@ -260,22 +281,29 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
   }, [projectionSettings.type, setViewportFitScale, setViewportScale])
 
   useEffect(() => {
-    const viewport = viewportRef.current
-    if (!viewport || !projectionBounds) return
-    if (lastProjectionKeyRef.current === projectionKey) return
-    lastProjectionKeyRef.current = projectionKey
-    const paddingFactor = 0.08
-    const paddedWidth = projectionBounds.width * (1 + paddingFactor * 2)
-    const paddedHeight = projectionBounds.height * (1 + paddingFactor * 2)
-    viewport.fit(false, paddedWidth, paddedHeight)
-    const fitScale = viewport.scale?.x ?? 1
-    setViewportScale(fitScale)
-    setViewportFitScale(fitScale)
-    viewport.moveCenter({
-      x: projectionBounds.x + projectionBounds.width / 2,
-      y: projectionBounds.y + projectionBounds.height / 2,
-    })
-  }, [projectionBounds, projectionKey, setViewportFitScale, setViewportScale])
+    if (!viewportReady || !projectionFit) return
+    fitProjection()
+  }, [fitProjection, projectionFit, projectionKey, viewportReady])
+
+  useEffect(() => {
+    const handleHomeKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Home' || event.ctrlKey || event.metaKey || event.altKey) {
+        return
+      }
+      const target = event.target as HTMLElement | null
+      if (
+        target?.isContentEditable ||
+        target?.closest('input, textarea, select, [contenteditable="true"]')
+      ) {
+        return
+      }
+      event.preventDefault()
+      fitProjection()
+    }
+
+    window.addEventListener('keydown', handleHomeKey)
+    return () => window.removeEventListener('keydown', handleHomeKey)
+  }, [fitProjection])
 
   return (
     <>
@@ -313,7 +341,10 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
         </div>
       )}
 
-      <HUD />
+      <HUD
+        canFitProjection={projectionFit !== null}
+        onFitProjection={fitProjection}
+      />
       <Panel />
 
       <Application
@@ -323,7 +354,7 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
         onInit={(app) => (state.pixiApp = app)}
       >
         <viewport
-          ref={viewportRef}
+          ref={handleViewportRef}
           width={width}
           height={height}
           events={['move']}

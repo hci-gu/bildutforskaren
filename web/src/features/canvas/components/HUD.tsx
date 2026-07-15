@@ -1,4 +1,5 @@
 import React, { useEffect } from 'react'
+import { Focus } from 'lucide-react'
 import { PhotoView } from 'react-photo-view'
 import { useAtom, useAtomValue, useSetAtom } from 'jotai'
 import {
@@ -13,6 +14,11 @@ import {
 import { datasetApiUrl } from '@/shared/lib/api'
 import { TaggerPanel } from './TaggerPanel'
 import { TagResultsPanel } from './TagResultsPanel'
+import {
+  MINIMAP_DEAD_ZONE,
+  MINIMAP_MARGIN,
+  MINIMAP_SIZE,
+} from '../constants'
 
 const ImageDisplayer = () => {
   const buttonRef = React.useRef<HTMLButtonElement>(null)
@@ -65,7 +71,13 @@ const ImageDisplayer = () => {
   )
 }
 
-export const HUD = () => {
+export const HUD = ({
+  canFitProjection = false,
+  onFitProjection,
+}: {
+  canFitProjection?: boolean
+  onFitProjection?: () => void
+} = {}) => {
   const [selectionHistory, setSelectionHistory] = useAtom(selectionHistoryAtom)
   const setActiveEmbeddingIds = useSetAtom(activeEmbeddingIdsAtom)
   const activeEmbeddingIds = useAtomValue(activeEmbeddingIdsAtom)
@@ -84,6 +96,23 @@ export const HUD = () => {
   return (
     <>
       <ImageDisplayer />
+      {onFitProjection && <button
+        type="button"
+        className="glass-panel fixed z-10000 flex items-center gap-2 rounded-full px-3 py-2 text-xs text-white shadow-lg transition hover:bg-white/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 disabled:cursor-not-allowed disabled:opacity-40"
+        style={{
+          right: MINIMAP_MARGIN + MINIMAP_DEAD_ZONE,
+          bottom:
+            MINIMAP_MARGIN + MINIMAP_SIZE + MINIMAP_DEAD_ZONE * 2 + 12,
+        }}
+        onClick={onFitProjection}
+        disabled={!canFitProjection}
+        aria-label="Centrera och visa alla bilder"
+        title="Centrera och visa alla bilder (Home)"
+        data-canvas-ui="true"
+      >
+        <Focus aria-hidden="true" className="size-4" />
+        <span>Visa alla bilder</span>
+      </button>}
       {(selectedTags.length === 0 || selectedEmbedding) && (
         <TaggerPanel
           position={selectedTags.length > 0 ? 'left' : 'right'}

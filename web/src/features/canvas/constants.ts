@@ -10,6 +10,7 @@ export const CLICK_EPS = 8
 export const MINIMAP_SIZE = 250
 export const MINIMAP_PADDING = 16
 export const MINIMAP_MARGIN = 32
+export const MINIMAP_DEAD_ZONE = 2
 
 export const TEXT_BASE_SIZE = 40
 export const TEXT_HOVER_SIZE = 600

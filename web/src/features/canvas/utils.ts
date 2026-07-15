@@ -44,6 +44,46 @@ export const computeProjectionBounds = (embeddings: any[]) => {
   }
 }
 
+export const computeProjectionFit = (embeddings: any[]) => {
+  const validEmbeddings = embeddings.filter((embedding) => {
+    if (!embedding?.point) return false
+    const [nx, ny] = embedding.point
+    return Number.isFinite(nx) && Number.isFinite(ny)
+  })
+  const imageEmbeddings = validEmbeddings.filter(
+    (embedding) => embedding.type === 'image'
+  )
+  const embeddingsToFit = imageEmbeddings.length > 0
+    ? imageEmbeddings
+    : validEmbeddings
+
+  if (embeddingsToFit.length === 0) return null
+
+  const points = embeddingsToFit.map((embedding) => ({
+    x: embedding.point[0] * CANVAS_WIDTH,
+    y: embedding.point[1] * CANVAS_HEIGHT,
+  }))
+  const center = points.reduce(
+    (sum, point) => ({
+      x: sum.x + point.x / points.length,
+      y: sum.y + point.y / points.length,
+    }),
+    { x: 0, y: 0 }
+  )
+  let halfWidth = 0.5
+  let halfHeight = 0.5
+  points.forEach((point) => {
+    halfWidth = Math.max(halfWidth, Math.abs(point.x - center.x))
+    halfHeight = Math.max(halfHeight, Math.abs(point.y - center.y))
+  })
+
+  return {
+    center,
+    width: halfWidth * 2,
+    height: halfHeight * 2,
+  }
+}
+
 export const buildSelectionRect = (
   start: PIXI.PointData,
   end: PIXI.PointData
