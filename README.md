@@ -6,9 +6,9 @@
 
 Step by step guide to prepare the backend
 
-1. Setup backend dependencies (python) using `uv`
+1. Setup backend dependencies using `uv` python package manager. For CUDA compatible machines use flag `--extra cuda` otherwise, run
 ``` bash
-uv sync
+uv sync --extra cpu
 ```
 
 2. Acquire an image dataset. There are helper scripts to help download different image datasets
