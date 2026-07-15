@@ -17,7 +17,7 @@ uv sync --extra cpu
 
 3. Run the backend Flask application
 ``` bash
-uv run api.py
+uv run --no-sync api.py
 ``` 
 *   **Note**: On the first run with a new set of images in the `out/` directory (or the configured `IMAGE_ROOT`), the API will need to generate CLIP embeddings for all images. This can take some time depending on the number of images. These embeddings are then cached (by default in `.cache/clip_index.npz`), so subsequent startups will be much faster.
 

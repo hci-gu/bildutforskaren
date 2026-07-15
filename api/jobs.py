@@ -113,7 +113,7 @@ def process_uploaded_dataset(dataset_id: str) -> None:
             datasets.write_dataset_json(dataset_id, meta)
 
         _set_job_state(dataset_id, stage="ready", progress=1)
-        logging.info("Dataset {dataset_id} has finished processing and is ready for analysis")
+        logging.info(f"Dataset {dataset_id} has finished processing and is ready for analysis")
     except Exception as exc:
         logging.exception("Dataset processing failed for %s", dataset_id)
         try:
