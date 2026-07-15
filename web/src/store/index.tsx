@@ -471,6 +471,8 @@ export const projectionSettingsAtom = atom({
   groupTaggedByTag: false,
 })
 
+export const projectionViewModeAtom = atom<'2d' | '3d'>('2d')
+
 export const displaySettingsAtom = atom({
   colorPhotographer: false,
   showClusterImages: true,
@@ -1024,6 +1026,49 @@ export const projectedEmbeddingsAtom = atomFamily((type: string) =>
 
 export const loadableProjectedEmbeddingsAtom = atomFamily((type: string) =>
   loadable(projectedEmbeddingsAtom(type))
+)
+
+export const projectedEmbeddings3dAtom = atom(async (get) => {
+  const datasetId = get(activeDatasetIdAtom)
+  const embeddingsData = await get(filteredEmbeddingsAtom)
+  const projectionSettings = get(projectionSettingsAtom)
+  const searchResults = await get(searchImagesAtom)
+
+  if (!datasetId) return []
+
+  const imageItems = embeddingsData.filter((item: any) => item.type !== 'text')
+  const imageIds = imageItems.map((item: any) => Number(item.id))
+  if (imageIds.length === 0) return []
+
+  const data = await fetchUmapProjection(datasetId, imageIds, [], {
+    n_neighbors: projectionSettings.nNeighbors,
+    min_dist: projectionSettings.minDist,
+    n_components: 3,
+    spread: projectionSettings.spread,
+    seed: projectionSettings.seed,
+  })
+
+  const pointsById = new Map<number, [number, number, number]>()
+  for (let i = 0; i < data.image_ids.length; i++) {
+    pointsById.set(Number(data.image_ids[i]), data.image_points[i])
+  }
+  const matchedIds = new Set(searchResults.map((result: any) => Number(result.id)))
+
+  return imageItems
+    .map((item: any) => ({
+      id: Number(item.id),
+      point: pointsById.get(Number(item.id)),
+      type: 'image',
+      meta: {
+        ...item.metadata,
+        matched: matchedIds.has(Number(item.id)),
+      },
+    }))
+    .filter((item: any) => Array.isArray(item.point) && item.point.length === 3)
+})
+
+export const loadableProjectedEmbeddings3dAtom = loadable(
+  projectedEmbeddings3dAtom
 )
 
 export type SelectedEmbedding = {

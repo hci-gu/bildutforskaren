@@ -6,6 +6,7 @@ import {
   filterSettingsAtom,
   hoveredTextAtom,
   projectionSettingsAtom,
+  projectionViewModeAtom,
   searchQueryAtom,
   searchSettingsAtom,
   tagRefreshTriggerAtom,
@@ -86,6 +87,7 @@ const Search = () => {
 
 const ProjectionSettings = () => {
   const [settings, setSettings] = useAtom(projectionSettingsAtom)
+  const [viewMode, setViewMode] = useAtom(projectionViewModeAtom)
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target
@@ -100,23 +102,45 @@ const ProjectionSettings = () => {
         <CardTitle>Typ av visning</CardTitle>
       </CardHeader>
       <Select
-        value={settings.type}
-        onValueChange={(value) =>
-          setSettings((prev) => ({ ...prev, type: value }))
-        }
+        value={viewMode}
+        onValueChange={(value: '2d' | '3d') => setViewMode(value)}
       >
         <SelectTrigger className="w-[180px] border-white/20 bg-white/10 text-white">
-          <SelectValue placeholder="Type" />
+          <SelectValue placeholder="Dimension" />
         </SelectTrigger>
         <SelectContent>
-          <SelectItem value="umap">Projektion</SelectItem>
-          <SelectItem value="grid">Rutnät</SelectItem>
-          <SelectItem value="tagged">Taggade/otaggade</SelectItem>
-          <SelectItem value="sao">SAO-termer</SelectItem>
-          <SelectItem value="year">År</SelectItem>
+          <SelectItem value="2d">2D</SelectItem>
+          <SelectItem value="3d">3D</SelectItem>
         </SelectContent>
       </Select>
-      {settings.type === 'umap' && (
+      {viewMode === '3d' && (
+        <div className="text-xs text-white/70">
+          Vänsterklick + dra: rotera. Högerklick + dra: panorera. Hjul:
+          zooma.
+        </div>
+      )}
+      {viewMode === '2d' && (
+        <>
+          <Select
+            value={settings.type}
+            onValueChange={(value) =>
+              setSettings((prev) => ({ ...prev, type: value }))
+            }
+          >
+            <SelectTrigger className="w-[180px] border-white/20 bg-white/10 text-white">
+              <SelectValue placeholder="Type" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="umap">Projektion</SelectItem>
+              <SelectItem value="grid">Rutnät</SelectItem>
+              <SelectItem value="tagged">Taggade/otaggade</SelectItem>
+              <SelectItem value="sao">SAO-termer</SelectItem>
+              <SelectItem value="year">År</SelectItem>
+            </SelectContent>
+          </Select>
+        </>
+      )}
+      {(viewMode === '3d' || settings.type === 'umap') && (
         <>
           <CardHeader className="p-0 mt-2">
             <CardTitle>Inställningar för projektion</CardTitle>
@@ -183,7 +207,7 @@ const ProjectionSettings = () => {
           </div> */}
         </>
       )}
-      {settings.type === 'sao' && (
+      {viewMode === '2d' && settings.type === 'sao' && (
         <div className="flex items-center space-x-2">
           <Checkbox
             id="saoOnlyDataset"
@@ -204,7 +228,7 @@ const ProjectionSettings = () => {
           </label>
         </div>
       )}
-      {settings.type === 'tagged' && (
+      {viewMode === '2d' && settings.type === 'tagged' && (
         <div className="flex items-center space-x-2">
           <Checkbox
             id="groupTaggedByTag"
@@ -231,6 +255,7 @@ const ProjectionSettings = () => {
 
 const DisplaySettings = () => {
   const [settings, setSettings] = useAtom(displaySettingsAtom)
+  const viewMode = useAtomValue(projectionViewModeAtom)
 
   return (
     <div className="flex flex-col gap-2 mt-2">
@@ -238,7 +263,7 @@ const DisplaySettings = () => {
         <CardTitle>Visningsinställningar</CardTitle>
         <CardDescription>Ändra hur bilderna syns</CardDescription>
       </CardHeader>
-      <div className="flex items-center space-x-2">
+      {viewMode === '2d' && <div className="flex items-center space-x-2">
         <Checkbox
           id="terms"
           name="colorPhotographer"
@@ -256,8 +281,8 @@ const DisplaySettings = () => {
         >
           Färga fotograf
         </label>
-      </div>
-      <div className="flex items-center space-x-2">
+      </div>}
+      {viewMode === '2d' && <div className="flex items-center space-x-2">
         <Checkbox
           id="showClusterImages"
           name="showClusterImages"
@@ -275,7 +300,7 @@ const DisplaySettings = () => {
         >
           Visa klusterbilder
         </label>
-      </div>
+      </div>}
       <Label htmlFor="scale">Bildstorlek</Label>
       <Input
         id="scale"
@@ -498,10 +523,15 @@ const TaggedInfoPanel = () => {
 
 export default function Panel() {
   const settings = useAtomValue(projectionSettingsAtom)
+  const viewMode = useAtomValue(projectionViewModeAtom)
 
   return (
     <>
-      {settings.type === 'tagged' ? <TaggedInfoPanel /> : <TextPanel />}
+      {viewMode === '2d' && settings.type === 'tagged' ? (
+        <TaggedInfoPanel />
+      ) : (
+        <TextPanel />
+      )}
       <Card
         className="glass-panel absolute top-4 right-4 z-10 w-1/6 text-white shadow-lg"
         data-canvas-ui="true"
