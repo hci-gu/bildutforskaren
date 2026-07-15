@@ -80,6 +80,14 @@ def list_datasets() -> list[dict]:
 
 
 def create_dataset(name: str | None) -> dict:
+    """Creates a new dataset in the backend in directory: bildutforskaren/datasets/
+
+    Args:
+        name (str | None): The name of the dataaset the user provided
+
+    Returns:
+        data: dictionary containing dataset ID, metadata and status
+    """
     dataset_id = uuid.uuid4().hex
     data = {
         "dataset_id": dataset_id,
@@ -91,17 +99,21 @@ def create_dataset(name: str | None) -> dict:
         "metadata_source": "none",
     }
 
+    # Create directories
     ddir = _dataset_dir(dataset_id)
     (ddir / "original").mkdir(parents=True, exist_ok=True)
     (ddir / "thumb").mkdir(parents=True, exist_ok=True)
     (ddir / "cache").mkdir(parents=True, exist_ok=True)
     (ddir / "atlas").mkdir(parents=True, exist_ok=True)
 
+    # Create dataset.sqlite file
     db_path = dataset_db.dataset_db_path(ddir)
     conn = dataset_db.init_dataset_db(db_path)
     conn.close()
 
+    # Create dataset.json file
     write_dataset_json(dataset_id, data)
+
     return data
 
 

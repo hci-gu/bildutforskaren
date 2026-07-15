@@ -18,9 +18,19 @@ def _set_job_state(dataset_id: str, **updates) -> None:
 
 
 def process_uploaded_dataset(dataset_id: str) -> None:
+    """ Main image processing function that is called after .zip file has been sent to the backend and unzipped.
+        Process order
+        1. thumbnails from original image
+        2. Index
+
+    Args:
+        dataset_id (str): ID of the dataset
+    """
     cfg = datasets.get_dataset_config(dataset_id)
 
     try:
+
+        # Thumbnails
         _set_job_state(dataset_id, stage="thumbnails", progress=0)
 
         originals = indexing.collect_image_paths(cfg.original_root)
@@ -62,6 +72,7 @@ def process_uploaded_dataset(dataset_id: str) -> None:
         if processed == 0:
             raise RuntimeError("No valid images found in uploaded dataset")
 
+        # Index image files into database (dataset.sql)
         _set_job_state(dataset_id, stage="indexing", progress=0)
 
         image_paths = indexing.collect_image_paths(cfg.thumb_root)
@@ -91,6 +102,7 @@ def process_uploaded_dataset(dataset_id: str) -> None:
 
         ctx = context.build_context(cfg, progress_cb=_embedding_progress)
 
+        # Create atlas of 
         _set_job_state(dataset_id, stage="atlas", progress=0)
         atlas.ensure_atlas(cfg, ctx.image_paths)
 
@@ -100,7 +112,7 @@ def process_uploaded_dataset(dataset_id: str) -> None:
         datasets.write_dataset_json(dataset_id, meta)
 
         _set_job_state(dataset_id, stage="ready", progress=1)
-
+        logging.info("Dataset {dataset_id} has finished processing and is ready for analysis")
     except Exception as exc:
         logging.exception("Dataset processing failed for %s", dataset_id)
         try:

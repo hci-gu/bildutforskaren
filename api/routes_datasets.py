@@ -56,6 +56,7 @@ def datasets_route():
     if request.method == "GET":
         return jsonify(datasets.list_datasets())
 
+    # Frontent makes initial POST request when creating new dataset
     payload = request.get_json(silent=True) or {}
     name = payload.get("name")
     data = datasets.create_dataset(name)
@@ -141,22 +142,37 @@ def dataset_metadata_source(dataset_id: str):
 
 @bp.route("/datasets/<dataset_id>/upload-zip", methods=["POST"])
 def upload_zip(dataset_id: str):
+    """ Backend recieves a .zip file from frontend. We validate the data recieved
+
+    Args:
+        dataset_id (str): ID of dataset to upload
+
+    Returns:
+        _type_: _description_
+    """
+
+    # Check valid ID
     if not datasets.is_safe_dataset_id(dataset_id):
         return jsonify({"error": "Invalid dataset_id"}), 400
 
+    # Read from local .json config
     try:
         meta = datasets.read_dataset_json(dataset_id)
     except FileNotFoundError:
         return jsonify({"error": "Dataset not found"}), 404
 
+    # Try to send an already processed file
     if meta.get("status") != "created":
         return jsonify({"error": "Dataset is immutable and already uploaded/processed"}), 409
 
+    # We either sent an empty .zip or something went wrong in transfer
     if "file" not in request.files:
         return jsonify({"error": "Missing 'file' field"}), 400
 
+    # This contains the .zip file
     file = request.files["file"]
 
+    # Extra zip contents to original/ folder 
     try:
         extracted = datasets.extract_zip_to_originals(dataset_id, file.stream)
     except ValueError:
@@ -165,9 +181,11 @@ def upload_zip(dataset_id: str):
     if extracted == 0:
         return jsonify({"error": "Zip contained no supported image files"}), 400
 
+    # Update status created -> uploaded
     meta["status"] = "uploaded"
     datasets.write_dataset_json(dataset_id, meta)
 
+    # Start image pre-processing job in separate thread
     jobs.submit_processing(dataset_id)
 
     return jsonify({"dataset_id": dataset_id, "status": "processing", "extracted": extracted}), 202
