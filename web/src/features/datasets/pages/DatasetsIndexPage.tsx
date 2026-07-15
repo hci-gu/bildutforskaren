@@ -225,7 +225,7 @@ function DatasetsIndexPage() {
                     }`}
                     onClick={() => {
                       setDatasetId(dataset.dataset_id)
-                      navigate(`/datset/${dataset.dataset_id}`)
+                      navigate(`/dataset/${dataset.dataset_id}`)
                     }}
                   >
                     <div className="min-w-0 flex-1">

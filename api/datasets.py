@@ -67,6 +67,8 @@ def list_datasets() -> list[dict]:
         try:
             data = json.loads(meta_path.read_text(encoding="utf-8"))
             data = dict(data)
+            if data.get("status") == "deleted":
+                continue
             data.setdefault("metadata_source", "none")
             data["has_metadata_xlsx"] = (entry / "metadata.xlsx").exists()
             job = runtime.get_job_manager().get_state(dataset_id)
@@ -79,7 +81,24 @@ def list_datasets() -> list[dict]:
     return datasets
 
 
+def mark_dataset_deleted(dataset_id: str) -> dict:
+    data = read_dataset_json(dataset_id)
+    data = dict(data)
+    data["status"] = "deleted"
+    write_dataset_json(dataset_id, data)
+    logging.info(f"Marked dataset {dataset_id} as deleted")
+    return data
+
+
 def create_dataset(name: str | None) -> dict:
+    """Creates a new dataset in the backend in directory: bildutforskaren/datasets/
+
+    Args:
+        name (str | None): The name of the dataaset the user provided
+
+    Returns:
+        data: dictionary containing dataset ID, metadata and status
+    """
     dataset_id = uuid.uuid4().hex
     data = {
         "dataset_id": dataset_id,
@@ -91,17 +110,21 @@ def create_dataset(name: str | None) -> dict:
         "metadata_source": "none",
     }
 
+    # Create directories
     ddir = _dataset_dir(dataset_id)
     (ddir / "original").mkdir(parents=True, exist_ok=True)
     (ddir / "thumb").mkdir(parents=True, exist_ok=True)
     (ddir / "cache").mkdir(parents=True, exist_ok=True)
     (ddir / "atlas").mkdir(parents=True, exist_ok=True)
 
+    # Create dataset.sqlite file
     db_path = dataset_db.dataset_db_path(ddir)
     conn = dataset_db.init_dataset_db(db_path)
     conn.close()
 
+    # Create dataset.json file
     write_dataset_json(dataset_id, data)
+
     return data
 
 

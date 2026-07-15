@@ -12,8 +12,8 @@ from transformers import CLIPProcessor, CLIPModel
 
 @lru_cache(maxsize=1)
 def _load_clip():
-    logging.info("Loading CLIP model …")
     device = "cuda" if torch.cuda.is_available() else "cpu"
+    logging.info(f"Loading CLIP model on device: {device}")
     model = CLIPModel.from_pretrained("openai/clip-vit-large-patch14").to(device)
     processor = CLIPProcessor.from_pretrained(
         "openai/clip-vit-large-patch14",

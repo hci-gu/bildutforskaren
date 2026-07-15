@@ -11,8 +11,14 @@ import {
 } from '@/store'
 import {
   addImageTags,
+  fetchAverageSdxlGenerationStatus,
   fetchImageTagSuggestions,
   fetchImageTags,
+  fetchSdxlGenerationStatus,
+  generateImageFromAverageIpAdapterEmbedding,
+  generateImageFromAverageSdxlEmbedding,
+  generateImageFromIpAdapterEmbedding,
+  generateImageFromSdxlEmbedding,
   removeImageTags,
   searchSaoTerms,
 } from '@/shared/lib/api'
@@ -81,6 +87,18 @@ export const TaggerPanel = ({
   const [saving, setSaving] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
+  const [sdxlStatus, setSdxlStatus] = useState<any>(null)
+  const [averageSdxlStatus, setAverageSdxlStatus] = useState<any>(null)
+  const [generating, setGenerating] = useState(false)
+  const [generatedUrl, setGeneratedUrl] = useState<string | null>(null)
+
+  const selectedImageIds = useMemo(
+    () =>
+      selectedEmbeddingIds
+        .map((id) => Number(id))
+        .filter((id) => !Number.isNaN(id)),
+    [selectedEmbeddingIds]
+  )
 
   const existingLabels = useMemo(
     () => new Set(tags.map((tag) => tag.label.toLowerCase())),
@@ -109,6 +127,60 @@ export const TaggerPanel = ({
       cancelled = true
     }
   }, [datasetId, imageId, refreshKey])
+
+  useEffect(() => {
+    if (!datasetId || imageId === null || Number.isNaN(imageId)) {
+      setSdxlStatus(null)
+      return
+    }
+
+    let cancelled = false
+    const loadGenerationStatus = async () => {
+      try {
+        const data = await fetchSdxlGenerationStatus(datasetId, imageId)
+        if (!cancelled) setSdxlStatus(data)
+      } catch (err) {
+        if (!cancelled) setSdxlStatus(null)
+      }
+    }
+
+    loadGenerationStatus()
+    return () => {
+      cancelled = true
+    }
+  }, [datasetId, imageId])
+
+  useEffect(() => {
+    if (!datasetId || selectedImageIds.length <= 1) {
+      setAverageSdxlStatus(null)
+      return
+    }
+
+    let cancelled = false
+    const loadAverageStatus = async () => {
+      try {
+        const data = await fetchAverageSdxlGenerationStatus(
+          datasetId,
+          selectedImageIds
+        )
+        if (!cancelled) setAverageSdxlStatus(data)
+      } catch (err) {
+        if (!cancelled) setAverageSdxlStatus(null)
+      }
+    }
+
+    loadAverageStatus()
+    return () => {
+      cancelled = true
+    }
+  }, [datasetId, selectedImageIds])
+
+  useEffect(() => {
+    if (!generatedUrl) return
+    return () => {
+      URL.revokeObjectURL(generatedUrl)
+    }
+  }, [generatedUrl])
 
   useEffect(() => {
     if (!datasetId || imageId === null || Number.isNaN(imageId)) {
@@ -182,7 +254,7 @@ export const TaggerPanel = ({
       scheduleTaggedRefresh()
       bumpTagRefreshTrigger((v) => v + 1)
       bumpTagStatsRevision((v) => v + 1)
-    } catch (err) {
+    } catch {
       setError('Kunde inte lägga till tagg.')
     } finally {
       setSaving(null)
@@ -204,11 +276,176 @@ export const TaggerPanel = ({
       scheduleTaggedRefresh()
       bumpTagRefreshTrigger((v) => v + 1)
       bumpTagStatsRevision((v) => v + 1)
-    } catch (err) {
+    } catch {
       setError('Kunde inte ta bort tagg.')
     } finally {
       setSaving(null)
     }
+  }
+
+  const generatePreview = async (provider: 'sdxl' | 'ip_adapter') => {
+    if (!datasetId || imageId === null || Number.isNaN(imageId)) return
+    setGenerating(true)
+    setError(null)
+    try {
+      const seed = Date.now() % 2147483647
+      const blob =
+        provider === 'ip_adapter'
+          ? await generateImageFromIpAdapterEmbedding(datasetId, imageId, {
+              prompt: '',
+              steps: 4,
+              cfg: 0,
+              size: 512,
+              seed,
+              adapter_scale: 0.9,
+            })
+          : await generateImageFromSdxlEmbedding(datasetId, imageId, {
+              steps: 4,
+              cfg: 0.5,
+              size: 512,
+              seed,
+            })
+      if (generatedUrl) URL.revokeObjectURL(generatedUrl)
+      setGeneratedUrl(URL.createObjectURL(blob))
+    } catch (err) {
+      setError(
+        provider === 'ip_adapter'
+          ? 'Kunde inte generera bild från IP-Adapter-embedding.'
+          : 'Kunde inte generera bild från SDXL-embedding.'
+      )
+    } finally {
+      setGenerating(false)
+    }
+  }
+
+  const generateAveragePreview = async (provider: 'sdxl' | 'ip_adapter') => {
+    if (!datasetId || selectedImageIds.length <= 1) return
+    setGenerating(true)
+    setError(null)
+    try {
+      const seed = Date.now() % 2147483647
+      const blob =
+        provider === 'ip_adapter'
+          ? await generateImageFromAverageIpAdapterEmbedding(
+              datasetId,
+              selectedImageIds,
+              {
+                prompt: '',
+                steps: 4,
+                cfg: 0,
+                size: 512,
+                seed,
+                adapter_scale: 0.9,
+              }
+            )
+          : await generateImageFromAverageSdxlEmbedding(
+              datasetId,
+              selectedImageIds,
+              {
+                steps: 4,
+                cfg: 0.5,
+                size: 512,
+                seed,
+              }
+            )
+      if (generatedUrl) URL.revokeObjectURL(generatedUrl)
+      setGeneratedUrl(URL.createObjectURL(blob))
+    } catch (err) {
+      setError(
+        provider === 'ip_adapter'
+          ? 'Kunde inte generera bild från genomsnittlig IP-Adapter-embedding.'
+          : 'Kunde inte generera bild från genomsnittlig SDXL-embedding.'
+      )
+    } finally {
+      setGenerating(false)
+    }
+  }
+
+  const GenerationPanel = ({
+    mode,
+  }: {
+    mode: 'single' | 'average'
+  }) => {
+    const status = mode === 'single' ? sdxlStatus : averageSdxlStatus
+    const canGenerateSdxl =
+      mode === 'single'
+        ? !!status?.has_sdxl_embedding
+        : !!status?.can_generate
+    const canGenerateIpAdapter =
+      mode === 'single'
+        ? !!status?.has_ip_adapter_embedding
+        : !!status?.can_generate_ip_adapter
+    return (
+      <div className="space-y-2 rounded-lg border border-white/10 bg-white/5 p-3">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <div className="text-xs font-semibold text-white/80">
+              {mode === 'single' ? 'Bildgenerering' : 'Generera genomsnitt'}
+            </div>
+            <div className="mt-1 text-[10px] text-white/50">
+              {mode === 'single'
+                ? [
+                    status?.has_sdxl_embedding ? 'SDXL finns' : 'SDXL saknas',
+                    status?.has_ip_adapter_embedding ? 'IP finns' : 'IP saknas',
+                  ].join(' · ')
+                : status
+                  ? `SDXL ${status.available}/${status.total} · IP ${status.ip_adapter_available}/${status.total}`
+                  : 'Kontrollerar embeddings...'}
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              onClick={() =>
+                mode === 'single'
+                  ? generatePreview('ip_adapter')
+                  : generateAveragePreview('ip_adapter')
+              }
+              disabled={!canGenerateIpAdapter || generating}
+            >
+              {generating ? 'Genererar…' : 'Generera'}
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              onClick={() =>
+                mode === 'single'
+                  ? generatePreview('sdxl')
+                  : generateAveragePreview('sdxl')
+              }
+              disabled={!canGenerateSdxl || generating}
+            >
+              SDXL
+            </Button>
+          </div>
+        </div>
+        {mode === 'single' && status?.sdxl_prompt && (
+          <div className="line-clamp-2 text-[10px] text-white/50">
+            {status.sdxl_prompt}
+          </div>
+        )}
+        {mode === 'average' && status?.missing > 0 && (
+          <div className="text-[10px] text-white/50">
+            Saknar embeddings för {status.missing} valda bilder.
+          </div>
+        )}
+        {mode === 'average' && status?.ip_adapter_missing > 0 && (
+          <div className="text-[10px] text-white/50">
+            Saknar IP-Adapter-embeddings för {status.ip_adapter_missing} valda bilder.
+          </div>
+        )}
+        {generatedUrl && (
+          <img
+            src={generatedUrl}
+            alt="Genererad förhandsvisning"
+            className="aspect-square w-full rounded-md object-cover"
+          />
+        )}
+      </div>
+    )
   }
 
   if (!datasetId) return null
@@ -216,11 +453,23 @@ export const TaggerPanel = ({
     if (selectedEmbeddingIds.length > 1) {
       return (
         <Card
-          className="glass-panel fixed bottom-6 right-6 z-10000 w-80 text-white"
+          className={`glass-panel fixed z-10000 w-96 text-white shadow-xl ${
+            position === 'left' ? 'left-6' : 'right-6'
+          }`}
+          style={{ bottom: offsetBottom }}
           data-canvas-ui="true"
         >
-          <CardContent className="py-3 text-sm">
-            Välj en bild för att tagga.
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-semibold">
+              Valda bilder
+            </CardTitle>
+            <div className="text-xs text-white/70">
+              {selectedEmbeddingIds.length} bilder
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {error && <div className="text-xs text-red-300">{error}</div>}
+            <GenerationPanel mode="average" />
           </CardContent>
         </Card>
       )
@@ -246,6 +495,8 @@ export const TaggerPanel = ({
       </CardHeader>
       <CardContent className="flex flex-1 min-h-0 flex-col gap-3 overflow-hidden">
         {error && <div className="text-xs text-red-300">{error}</div>}
+
+        <GenerationPanel mode="single" />
 
         <div className="flex flex-wrap gap-2">
           {tags.length === 0 && (

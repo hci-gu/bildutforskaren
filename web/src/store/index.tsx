@@ -4,6 +4,7 @@ import {
   fetchDatasetImages,
   fetchDatasetTags,
   fetchDatasets,
+  fetchClusterPreviewManifest,
   fetchEmbeddingById,
   fetchEmbeddings,
   fetchSaoTermsUmap,
@@ -22,6 +23,7 @@ export const taggedImagesRevisionAtom = atom(0)
 export const tagStatsRevisionAtom = atom(0)
 export const tagRefreshTriggerAtom = atom(0)
 export const viewportScaleAtom = atom(1)
+export const viewportFitScaleAtom = atom(1)
 export const taggedOptimisticRevisionAtom = atom(0)
 
 type TaggedOverridesState = {
@@ -55,20 +57,17 @@ export const recentlyTaggedIdsAtom = atom<number[]>([])
 let taggedImagesRefreshTimer: ReturnType<typeof setTimeout> | null = null
 const TAGGED_IMAGES_REFRESH_DEBOUNCE_MS = 800
 
-export const scheduleTaggedImagesRefreshAtom = atom(
-  null,
-  (get, set) => {
-    const datasetId = get(activeDatasetIdAtom)
-    if (!datasetId) return
-    if (taggedImagesRefreshTimer) {
-      clearTimeout(taggedImagesRefreshTimer)
-    }
-    taggedImagesRefreshTimer = setTimeout(() => {
-      set(taggedImagesRevisionAtom, (v) => v + 1)
-      taggedImagesRefreshTimer = null
-    }, TAGGED_IMAGES_REFRESH_DEBOUNCE_MS)
+export const scheduleTaggedImagesRefreshAtom = atom(null, (get, set) => {
+  const datasetId = get(activeDatasetIdAtom)
+  if (!datasetId) return
+  if (taggedImagesRefreshTimer) {
+    clearTimeout(taggedImagesRefreshTimer)
   }
-)
+  taggedImagesRefreshTimer = setTimeout(() => {
+    set(taggedImagesRevisionAtom, (v) => v + 1)
+    taggedImagesRefreshTimer = null
+  }, TAGGED_IMAGES_REFRESH_DEBOUNCE_MS)
+})
 
 const normalizeTagLabel = (label: string) => label.trim().toLowerCase()
 
@@ -472,8 +471,11 @@ export const projectionSettingsAtom = atom({
   groupTaggedByTag: false,
 })
 
+export const projectionViewModeAtom = atom<'2d' | '3d'>('2d')
+
 export const displaySettingsAtom = atom({
   colorPhotographer: false,
+  showClusterImages: true,
   scale: 1,
 })
 
@@ -580,7 +582,9 @@ export const embeddingProjection = atomFamily((type: string) =>
       placeGrid(tagged, leftX, blockWidth)
       placeGrid(untagged, rightX, blockWidth)
 
-      const points = items.map((item: any) => positions.get(item.id) ?? [0, 0])
+      const points: [number, number][] = items.map(
+        (item: any) => positions.get(item.id) ?? [0, 0]
+      )
       setTaggedProjectionCache(cacheKey, { points, count: items.length })
       return points
     }
@@ -592,28 +596,69 @@ export const embeddingProjection = atomFamily((type: string) =>
       const imageIds = imageItems.map((item: any) => item.id)
       const includeTexts = !filterSettings.year && !filterSettings.photographer
       const texts = includeTexts ? get(textsAtom) : []
-
-      const data = await fetchUmapProjection(datasetId, imageIds, texts, {
+      const umapParams = {
         n_neighbors: projectionSettings.nNeighbors,
         min_dist: projectionSettings.minDist,
         n_components: 2,
         spread: projectionSettings.spread,
         seed: projectionSettings.seed,
-      })
+      }
+      const canUseBakedProjection =
+        datasetId &&
+        texts.length === 0 &&
+        !filterSettings.year &&
+        !filterSettings.photographer &&
+        Number(projectionSettings.nNeighbors) === 15 &&
+        Number(projectionSettings.minDist) === 0.1 &&
+        Number(projectionSettings.spread) === 1 &&
+        Number(projectionSettings.seed) === 1
+
+      if (canUseBakedProjection) {
+        try {
+          const manifest = await fetchClusterPreviewManifest(datasetId)
+          const imagePointsById = new Map<number, [number, number]>()
+          for (let i = 0; i < manifest.projection.image_ids.length; i++) {
+            imagePointsById.set(
+              manifest.projection.image_ids[i],
+              manifest.projection.image_points[i]
+            )
+          }
+          const allImagesHaveBakedPoints = imageItems.every((item: any) =>
+            imagePointsById.has(Number(item.id))
+          )
+          if (allImagesHaveBakedPoints) {
+            return embeddingsData.map((item: any) => {
+              if (item.type === 'text') return [0, 0]
+              return imagePointsById.get(Number(item.id)) ?? [0, 0]
+            })
+          }
+        } catch (error) {
+          // Fall through to live UMAP when no baked cluster projection exists.
+        }
+      }
+
+      const data = await fetchUmapProjection(
+        datasetId,
+        imageIds,
+        texts,
+        umapParams
+      )
       const imagePointsById = new Map<number, [number, number]>()
       for (let i = 0; i < data.image_ids.length; i++) {
         imagePointsById.set(data.image_ids[i], data.image_points[i])
       }
 
       let textIndex = 0
-      const embedding2d = embeddingsData.map((item: any) => {
-        if (item.type === 'text') {
-          const point = data.text_points?.[textIndex]
-          textIndex += 1
-          return point ?? [0, 0]
+      const embedding2d: [number, number][] = embeddingsData.map(
+        (item: any) => {
+          if (item.type === 'text') {
+            const point = data.text_points?.[textIndex]
+            textIndex += 1
+            return point ?? [0, 0]
+          }
+          return imagePointsById.get(item.id) ?? [0, 0]
         }
-        return imagePointsById.get(item.id) ?? [0, 0]
-      })
+      )
 
       return embedding2d
     } else if (projectionType === 'grid') {
@@ -684,6 +729,8 @@ export const embeddingProjection = atomFamily((type: string) =>
 
       return positions
     }
+
+    return []
   })
 )
 
@@ -979,6 +1026,49 @@ export const projectedEmbeddingsAtom = atomFamily((type: string) =>
 
 export const loadableProjectedEmbeddingsAtom = atomFamily((type: string) =>
   loadable(projectedEmbeddingsAtom(type))
+)
+
+export const projectedEmbeddings3dAtom = atom(async (get) => {
+  const datasetId = get(activeDatasetIdAtom)
+  const embeddingsData = await get(filteredEmbeddingsAtom)
+  const projectionSettings = get(projectionSettingsAtom)
+  const searchResults = await get(searchImagesAtom)
+
+  if (!datasetId) return []
+
+  const imageItems = embeddingsData.filter((item: any) => item.type !== 'text')
+  const imageIds = imageItems.map((item: any) => Number(item.id))
+  if (imageIds.length === 0) return []
+
+  const data = await fetchUmapProjection(datasetId, imageIds, [], {
+    n_neighbors: projectionSettings.nNeighbors,
+    min_dist: projectionSettings.minDist,
+    n_components: 3,
+    spread: projectionSettings.spread,
+    seed: projectionSettings.seed,
+  })
+
+  const pointsById = new Map<number, [number, number, number]>()
+  for (let i = 0; i < data.image_ids.length; i++) {
+    pointsById.set(Number(data.image_ids[i]), data.image_points[i])
+  }
+  const matchedIds = new Set(searchResults.map((result: any) => Number(result.id)))
+
+  return imageItems
+    .map((item: any) => ({
+      id: Number(item.id),
+      point: pointsById.get(Number(item.id)),
+      type: 'image',
+      meta: {
+        ...item.metadata,
+        matched: matchedIds.has(Number(item.id)),
+      },
+    }))
+    .filter((item: any) => Array.isArray(item.point) && item.point.length === 3)
+})
+
+export const loadableProjectedEmbeddings3dAtom = loadable(
+  projectedEmbeddings3dAtom
 )
 
 export type SelectedEmbedding = {

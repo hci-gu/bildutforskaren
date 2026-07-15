@@ -10,6 +10,7 @@ import {
   selectedEmbeddingAtom,
   selectedEmbeddingIdsAtom,
   tagRefreshTriggerAtom,
+  viewportFitScaleAtom,
   viewportScaleAtom,
 } from '@/store'
 import { state } from './canvasState'
@@ -22,6 +23,7 @@ import { EmbeddingsLayer } from './components/EmbeddingsLayer'
 import { SelectionRect } from './components/SelectionRect'
 import { Minimap } from './components/Minimap'
 import { HUD } from './components/HUD'
+import { HomeLogoLink } from '@/shared/components/HomeLogoLink'
 
 extend({
   Viewport,
@@ -49,10 +51,12 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
   const setSelectedEmbedding = useSetAtom(selectedEmbeddingAtom)
   const setSelectedEmbeddingIds = useSetAtom(selectedEmbeddingIdsAtom)
   const setViewportScale = useSetAtom(viewportScaleAtom)
+  const setViewportFitScale = useSetAtom(viewportFitScaleAtom)
 
   const projectionSettings = useAtomValue(projectionSettingsAtom)
   const projectionRevision = useAtomValue(projectionRevisionAtom)
   const tagRefreshTrigger = useAtomValue(tagRefreshTriggerAtom)
+  const viewportFitScale = useAtomValue(viewportFitScaleAtom)
 
   const [showTagRefresh, setShowTagRefresh] = useState(false)
 
@@ -75,16 +79,12 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
   useEffect(() => {
     if (mainEmbeddingsLoadable.state === 'hasData') {
       setRawEmbeddings(mainEmbeddingsLoadable.data as any[])
-    } else if (mainEmbeddingsLoadable.state === 'loading') {
-      setRawEmbeddings([])
     }
   }, [mainEmbeddingsLoadable])
 
   useEffect(() => {
     if (minimapEmbeddingsLoadable.state === 'hasData') {
       setRawMinimapEmbeddings(minimapEmbeddingsLoadable.data as any[])
-    } else if (minimapEmbeddingsLoadable.state === 'loading') {
-      setRawMinimapEmbeddings([])
     }
   }, [minimapEmbeddingsLoadable])
 
@@ -190,25 +190,27 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
     const viewport = viewportRef.current
     if (!viewport) return
     const updateScale = () => {
-      setViewportScale(viewport.scale?.x ?? 1)
+      const scale = viewport.scale?.x ?? 1
+      setViewportScale(scale)
+      setViewportFitScale((prev) => Math.min(prev, scale))
     }
     const updateBounds = () => {
       if (typeof (viewport as any).getVisibleBounds === 'function') {
-        setVisibleBounds((viewport as any).getVisibleBounds())
+        const bounds = (viewport as any).getVisibleBounds()
+        setVisibleBounds(bounds)
         return
       }
       const topLeft = viewport.toWorld(new PIXI.Point(0, 0))
       const bottomRight = viewport.toWorld(
         new PIXI.Point(viewport.screenWidth, viewport.screenHeight)
       )
-      setVisibleBounds(
-        new PIXI.Rectangle(
-          topLeft.x,
-          topLeft.y,
-          bottomRight.x - topLeft.x,
-          bottomRight.y - topLeft.y
-        )
+      const bounds = new PIXI.Rectangle(
+        topLeft.x,
+        topLeft.y,
+        bottomRight.x - topLeft.x,
+        bottomRight.y - topLeft.y
       )
+      setVisibleBounds(bounds)
     }
     updateScale()
     updateBounds()
@@ -222,7 +224,7 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
       viewport.off('moved', updateBounds)
       viewport.off('zoomed', updateBounds)
     }
-  }, [setViewportScale])
+  }, [setViewportScale, viewportFitScale])
 
   useEffect(() => {
     if (projectionSettings.type !== 'sao') return
@@ -234,6 +236,7 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
       if (Math.abs(nextScale - lastScale) > 0.01) {
         lastScale = nextScale
         setViewportScale(nextScale)
+        setViewportFitScale((prev) => Math.min(prev, nextScale))
         if (typeof (viewport as any).getVisibleBounds === 'function') {
           setVisibleBounds((viewport as any).getVisibleBounds())
         } else {
@@ -254,7 +257,7 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
     }
     const interval = setInterval(tick, 150)
     return () => clearInterval(interval)
-  }, [projectionSettings.type, setViewportScale])
+  }, [projectionSettings.type, setViewportFitScale, setViewportScale])
 
   useEffect(() => {
     const viewport = viewportRef.current
@@ -265,20 +268,25 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
     const paddedWidth = projectionBounds.width * (1 + paddingFactor * 2)
     const paddedHeight = projectionBounds.height * (1 + paddingFactor * 2)
     viewport.fit(false, paddedWidth, paddedHeight)
+    const fitScale = viewport.scale?.x ?? 1
+    setViewportScale(fitScale)
+    setViewportFitScale(fitScale)
     viewport.moveCenter({
       x: projectionBounds.x + projectionBounds.width / 2,
       y: projectionBounds.y + projectionBounds.height / 2,
     })
-  }, [projectionBounds, projectionKey])
+  }, [projectionBounds, projectionKey, setViewportFitScale, setViewportScale])
 
   return (
     <>
+      <HomeLogoLink />
+
       {(!allLoaded || rawEmbeddings.length === 0) && (
         <h1
           style={{
             position: 'absolute',
             top: 44,
-            left: 44,
+            left: 84,
             color: 'white',
             fontSize: 24,
             zIndex: 1000,
@@ -408,22 +416,21 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
             }
           }}
         >
-          {allLoaded && !isProjecting && (
+          {allLoaded && (
             <EmbeddingsLayer
-              key={`main_${projectionKey}`}
               type="main"
               masterAtlas={masterAtlas}
               atlasMeta={atlasMeta}
               particleContainerRefs={particleContainerRefs}
+              rawEmbeddings={rawEmbeddings}
               visibleBounds={visibleBounds}
             />
           )}
           <SelectionRect selectionRect={selectionRect} />
         </viewport>
 
-        {allLoaded && !isProjecting && projectionSettings.type === 'umap' && (
+        {allLoaded && projectionSettings.type === 'umap' && (
           <Minimap
-            key={`minimap_${projectionKey}`}
             allLoaded={allLoaded}
             masterAtlas={masterAtlas}
             atlasMeta={atlasMeta}

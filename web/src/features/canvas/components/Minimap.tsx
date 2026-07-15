@@ -122,6 +122,7 @@ export const Minimap: React.FC<{
           masterAtlas={masterAtlas}
           atlasMeta={atlasMeta}
           particleContainerRefs={particleContainerRefs}
+          rawEmbeddings={rawEmbeddings}
         />
         {/* @ts-ignore */}
         <pixiGraphics ref={minimapFrameRef} />

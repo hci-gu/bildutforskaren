@@ -1,9 +1,15 @@
+import { lazy, Suspense } from 'react'
 import { useAtomValue } from 'jotai'
-import { loadableEmbeddingsAtom } from '@/store'
+import { loadableEmbeddingsAtom, projectionViewModeAtom } from '@/store'
 import { CanvasScene } from './CanvasScene'
+
+const Umap3DScene = lazy(() =>
+  import('./Umap3DScene').then((module) => ({ default: module.Umap3DScene }))
+)
 
 const EmbeddingsFetchWrapper = () => {
   const embeddings = useAtomValue(loadableEmbeddingsAtom)
+  const viewMode = useAtomValue(projectionViewModeAtom)
 
   if (embeddings.state === 'loading') {
     return (
@@ -23,7 +29,19 @@ const EmbeddingsFetchWrapper = () => {
     )
   }
 
-  return <CanvasScene />
+  return viewMode === '3d' ? (
+    <Suspense
+      fallback={
+        <div className="fixed inset-0 flex items-center justify-center bg-[#07090e] text-white">
+          Laddar 3D-visning…
+        </div>
+      }
+    >
+      <Umap3DScene />
+    </Suspense>
+  ) : (
+    <CanvasScene />
+  )
 }
 
 export default EmbeddingsFetchWrapper

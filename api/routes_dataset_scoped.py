@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import pickle
 
+import io
 import json
 import re
 
@@ -15,14 +16,40 @@ from api import atlas
 from api import clip_service
 from api import dataset_db
 from api import datasets
+from api import image_roundtrip
 from api import indexing
 from api import context as context_builder
 from api import runtime
+from api.clustering import ClusteringConfig, fit_model
 
 
 bp = Blueprint("dataset_scoped", __name__)
 
-UMAP_CACHE_VERSION = 5
+UMAP_CACHE_VERSION = 6
+
+_CLUSTER_DESCRIPTION_CANDIDATES = [
+    "portraits",
+    "people indoors",
+    "people outdoors",
+    "groups of people",
+    "children",
+    "buildings",
+    "city streets",
+    "interiors",
+    "landscapes",
+    "nature scenes",
+    "water views",
+    "vehicles",
+    "objects",
+    "documents",
+    "artworks",
+    "text and signs",
+    "black and white photos",
+    "color photos",
+    "close-up details",
+    "wide scenes",
+]
+_CLUSTER_DESCRIPTION_EMBEDDINGS: np.ndarray | None = None
 
 
 def _get_context(dataset_id: str):
@@ -112,6 +139,30 @@ def _get_dataset_db(dataset_id: str):
     if not db_path.exists():
         return None, cfg, db_path
     return dataset_db.connect_dataset_db(db_path), cfg, db_path
+
+
+def _get_cluster_description_embeddings() -> np.ndarray:
+    global _CLUSTER_DESCRIPTION_EMBEDDINGS
+    if _CLUSTER_DESCRIPTION_EMBEDDINGS is None:
+        prompts = [
+            f"a photo of {description}"
+            for description in _CLUSTER_DESCRIPTION_CANDIDATES
+        ]
+        _CLUSTER_DESCRIPTION_EMBEDDINGS = clip_service.embed_text(prompts)
+    return _CLUSTER_DESCRIPTION_EMBEDDINGS
+
+
+def _label_for_embedding(embedding: np.ndarray) -> dict:
+    description_embeddings = _get_cluster_description_embeddings()
+    query = embedding.astype("float32", copy=False)
+    norm = max(1e-12, float(np.linalg.norm(query)))
+    query = query / norm
+    scores = description_embeddings @ query
+    best_idx = int(np.argmax(scores))
+    return {
+        "label": _CLUSTER_DESCRIPTION_CANDIDATES[best_idx],
+        "score": float(scores[best_idx]),
+    }
 
 
 def _require_image_id(conn, image_id: int):
@@ -542,6 +593,138 @@ def tag_suggestions(dataset_id: str, image_id: int):
         return jsonify(results)
     finally:
         conn.close()
+
+
+@bp.route("/datasets/<dataset_id>/images/<int:image_id>/sdxl-generation-status", methods=["GET"])
+def sdxl_generation_status(dataset_id: str, image_id: int):
+    try:
+        return jsonify(image_roundtrip.image_embedding_status(dataset_id, image_id))
+    except IndexError:
+        return jsonify({"error": "Image ID not found"}), 404
+
+
+@bp.route("/datasets/<dataset_id>/images/<int:image_id>/generate-from-sdxl-embedding", methods=["POST"])
+def generate_from_sdxl_embedding(dataset_id: str, image_id: int):
+    payload = request.get_json(silent=True) or {}
+    try:
+        image = image_roundtrip.generate_image_from_saved_embedding(
+            dataset_id,
+            image_id,
+            steps=int(payload.get("steps") or 4),
+            cfg=float(payload.get("cfg") if payload.get("cfg") is not None else 0.5),
+            size=int(payload.get("size") or 512),
+            seed=int(payload.get("seed") or 1),
+        )
+    except IndexError:
+        return jsonify({"error": "Image ID not found"}), 404
+    except FileNotFoundError:
+        return jsonify({"error": "SDXL embedding not found"}), 404
+    except Exception as exc:
+        logging.exception("Failed to generate image for %s/%s", dataset_id, image_id)
+        return jsonify({"error": str(exc)}), 500
+
+    return send_file(io.BytesIO(image), mimetype="image/png")
+
+
+@bp.route("/datasets/<dataset_id>/images/<int:image_id>/generate-from-ip-adapter-embedding", methods=["POST"])
+def generate_from_ip_adapter_embedding(dataset_id: str, image_id: int):
+    payload = request.get_json(silent=True) or {}
+    try:
+        image = image_roundtrip.generate_image_from_saved_ip_adapter_embedding(
+            dataset_id,
+            image_id,
+            prompt=str(payload.get("prompt") or ""),
+            negative_prompt=str(payload.get("negative_prompt") or ""),
+            steps=int(payload.get("steps") or 4),
+            cfg=float(payload.get("cfg") if payload.get("cfg") is not None else 0.0),
+            size=int(payload.get("size") or 512),
+            seed=int(payload.get("seed") or 1),
+            adapter_scale=float(
+                payload.get("adapter_scale")
+                if payload.get("adapter_scale") is not None
+                else 0.9
+            ),
+        )
+    except IndexError:
+        return jsonify({"error": "Image ID not found"}), 404
+    except FileNotFoundError:
+        return jsonify({"error": "IP-Adapter embedding not found"}), 404
+    except Exception as exc:
+        logging.exception("Failed to generate IP-Adapter image for %s/%s", dataset_id, image_id)
+        return jsonify({"error": str(exc)}), 500
+
+    return send_file(io.BytesIO(image), mimetype="image/png")
+
+
+@bp.route("/datasets/<dataset_id>/sdxl-average-generation-status", methods=["POST"])
+def sdxl_average_generation_status(dataset_id: str):
+    payload = request.get_json(silent=True) or {}
+    image_ids = _parse_image_ids(payload.get("image_ids")) or []
+    try:
+        return jsonify(image_roundtrip.average_embedding_status(dataset_id, image_ids))
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except IndexError:
+        return jsonify({"error": "Image ID not found"}), 404
+
+
+@bp.route("/datasets/<dataset_id>/generate-from-average-sdxl-embedding", methods=["POST"])
+def generate_from_average_sdxl_embedding(dataset_id: str):
+    payload = request.get_json(silent=True) or {}
+    image_ids = _parse_image_ids(payload.get("image_ids")) or []
+    try:
+        image = image_roundtrip.generate_image_from_average_embedding(
+            dataset_id,
+            image_ids,
+            steps=int(payload.get("steps") or 4),
+            cfg=float(payload.get("cfg") if payload.get("cfg") is not None else 0.5),
+            size=int(payload.get("size") or 512),
+            seed=int(payload.get("seed") or 1),
+        )
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except IndexError:
+        return jsonify({"error": "Image ID not found"}), 404
+    except FileNotFoundError as exc:
+        return jsonify({"error": str(exc)}), 404
+    except Exception as exc:
+        logging.exception("Failed to generate average image for %s", dataset_id)
+        return jsonify({"error": str(exc)}), 500
+
+    return send_file(io.BytesIO(image), mimetype="image/png")
+
+
+@bp.route("/datasets/<dataset_id>/generate-from-average-ip-adapter-embedding", methods=["POST"])
+def generate_from_average_ip_adapter_embedding(dataset_id: str):
+    payload = request.get_json(silent=True) or {}
+    image_ids = _parse_image_ids(payload.get("image_ids")) or []
+    try:
+        image = image_roundtrip.generate_image_from_average_ip_adapter_embedding(
+            dataset_id,
+            image_ids,
+            prompt=str(payload.get("prompt") or ""),
+            negative_prompt=str(payload.get("negative_prompt") or ""),
+            steps=int(payload.get("steps") or 4),
+            cfg=float(payload.get("cfg") if payload.get("cfg") is not None else 0.0),
+            size=int(payload.get("size") or 512),
+            seed=int(payload.get("seed") or 1),
+            adapter_scale=float(
+                payload.get("adapter_scale")
+                if payload.get("adapter_scale") is not None
+                else 0.9
+            ),
+        )
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except IndexError:
+        return jsonify({"error": "Image ID not found"}), 404
+    except FileNotFoundError as exc:
+        return jsonify({"error": str(exc)}), 404
+    except Exception as exc:
+        logging.exception("Failed to generate average IP-Adapter image for %s", dataset_id)
+        return jsonify({"error": str(exc)}), 500
+
+    return send_file(io.BytesIO(image), mimetype="image/png")
 
 
 @bp.route("/datasets/<dataset_id>/seed-tags-from-metadata", methods=["POST"])
@@ -1104,6 +1287,46 @@ def assign_tag_to_images(dataset_id: str):
         conn.close()
 
 
+@bp.route("/datasets/<dataset_id>/clustering", methods=["POST"])
+def cluster_dataset_projection(dataset_id: str):
+    ctx = _get_context(dataset_id)
+    payload = request.get_json(silent=True) or {}
+    if "X" not in payload:
+        return jsonify({"error": "Missing 'X'"}), 400
+
+    image_ids = payload.get("image_ids")
+    if not isinstance(image_ids, list) or any(not isinstance(i, int) for i in image_ids):
+        return jsonify({"error": "'image_ids' must be a list of integers"}), 400
+    if any(i < 0 or i >= len(ctx.embeddings) for i in image_ids):
+        return jsonify({"error": "One or more image_ids are out of range"}), 400
+
+    try:
+        points = np.asarray(payload["X"], dtype=float)
+        clustering_config = ClusteringConfig.from_dict(payload.get("clustering"))
+        clustering_result = fit_model(points, clustering_config)
+    except (TypeError, ValueError) as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    if points.shape[0] != len(image_ids):
+        return jsonify({"error": "'X' and 'image_ids' must have the same length"}), 400
+
+    embeddings = ctx.embeddings.cpu().numpy().astype("float32")
+    for cluster in clustering_result.clusters:
+        cluster_image_ids = [
+            image_ids[index]
+            for index in cluster.point_indices
+            if 0 <= index < len(image_ids)
+        ]
+        if not cluster_image_ids:
+            continue
+        avg_embedding = embeddings[cluster_image_ids].mean(axis=0)
+        label = _label_for_embedding(avg_embedding)
+        cluster.label = label["label"]
+        cluster.label_score = label["score"]
+
+    return jsonify(clustering_result.to_dict())
+
+
 @bp.route("/datasets/<dataset_id>/umap", methods=["GET", "POST"])
 def get_umap(dataset_id: str):
     ctx = _get_context(dataset_id)
@@ -1143,6 +1366,7 @@ def get_umap(dataset_id: str):
             n_components=int(params.get("n_components", 2)),
             spread=float(params.get("spread", 1.0)),
             metric="cosine",
+            random_state=int(params.get("seed", 42)),
             transform_seed=int(params.get("seed", 42)),
         )
 

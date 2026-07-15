@@ -137,6 +137,12 @@ const DatasetInfoRoute = () => {
   return <DatasetPage />
 }
 
+const DatasetInfoRedirect = () => {
+  const { id } = useParams<{ id: string }>()
+  if (!id) return <Navigate to="/" replace />
+  return <Navigate to={`/dataset/${id}`} replace />
+}
+
 const ActiveDatasetCanvasRedirect = () => {
   const datasetId = useAtomValue(activeDatasetIdAtom)
   if (!datasetId) return <Navigate to="/" replace />
@@ -187,7 +193,7 @@ function App() {
           <Route path="/" element={<IndexPage />} />
 
           <Route path="/dataset/:id" element={<DatasetInfoRoute />} />
-          <Route path="/datset/:id" element={<DatasetInfoRoute />} />
+          <Route path="/datset/:id" element={<DatasetInfoRedirect />} />
           <Route path="/dataset/:id/canvas" element={<DatasetCanvasRoute />} />
           <Route path="/dataset/:id/street-view" element={<DatasetStreetViewRoute />} />
 

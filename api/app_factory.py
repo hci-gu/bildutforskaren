@@ -7,6 +7,7 @@ from flask_cors import CORS
 
 from api import config
 from api.runtime import init_runtime
+from api.clustering import bp as clustering_bp
 from api.routes_datasets import bp as datasets_bp
 from api.routes_dataset_scoped import bp as dataset_scoped_bp
 from api.routes_terms import bp as terms_bp
@@ -33,6 +34,7 @@ def create_app() -> Flask:
 
     app.register_blueprint(datasets_bp)
     app.register_blueprint(dataset_scoped_bp)
+    app.register_blueprint(clustering_bp)
     app.register_blueprint(terms_bp)
 
     return app

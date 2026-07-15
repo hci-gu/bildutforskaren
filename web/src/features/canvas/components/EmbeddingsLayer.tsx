@@ -3,10 +3,10 @@ import { useAtomValue, useSetAtom } from 'jotai'
 import { useTick } from '@pixi/react'
 import * as PIXI from 'pixi.js'
 import {
+  activeDatasetIdAtom,
   displaySettingsAtom,
   filterSettingsAtom,
   hoveredTextAtom,
-  projectedEmbeddingsAtom,
   projectionSettingsAtom,
   searchQueryAtom,
   selectedEmbeddingIdsAtom,
@@ -18,10 +18,17 @@ import {
   steerSuggestionsAtom,
   steerTaggedIdsAtom,
   steerTargetPointAtom,
+  viewportFitScaleAtom,
   viewportScaleAtom,
   recentlyTaggedIdsAtom,
   selectedTagsAtom,
 } from '@/store'
+import {
+  clusterPreviewImageUrl,
+  fetchClusterPreviewManifest,
+  type ClusterPreview,
+  type ClusterPreviewManifest,
+} from '@/shared/lib/api'
 import {
   BASE_SCALE,
   CANVAS_HEIGHT,
@@ -37,15 +44,75 @@ import { colorForMetadata } from '../utils'
 import type { AtlasMeta } from '../hooks/useAtlasLoader'
 import { state } from '../canvasState'
 
+const clusterTextureCache = new Map<string, Promise<PIXI.Texture>>()
+const CLUSTER_LEVEL_ZOOM_STEP = 2
+
+const textureFromUrl = async (url: string) => {
+  const asset = await PIXI.Assets.load(url)
+  if (asset instanceof PIXI.Texture) return asset
+  if (asset?.texture instanceof PIXI.Texture) return asset.texture
+  throw new Error(`Cluster preview did not load as a Pixi texture: ${url}`)
+}
+
+const clusterPreviewSize = (cluster: ClusterPreview) => {
+  const width = Math.max(0, Number(cluster.bounds.width) || 0) * CANVAS_WIDTH
+  const height = Math.max(0, Number(cluster.bounds.height) || 0) * CANVAS_HEIGHT
+  return Math.sqrt(Math.max(width * height, 0) * 0.25)
+}
+
+const clusterLevel = (cluster: ClusterPreview) =>
+  Math.max(1, Math.floor(Number(cluster.level) || 1))
+
+const clusterWorldBounds = (cluster: ClusterPreview) => {
+  const minX = Number(cluster.bounds.min_x) * CANVAS_WIDTH
+  const minY = Number(cluster.bounds.min_y) * CANVAS_HEIGHT
+  return {
+    x: minX,
+    y: minY,
+    width: Math.max(0, Number(cluster.bounds.width) || 0) * CANVAS_WIDTH,
+    height: Math.max(0, Number(cluster.bounds.height) || 0) * CANVAS_HEIGHT,
+  }
+}
+
+const clusterIntersectsBounds = (cluster: ClusterPreview, bounds?: PIXI.Rectangle | null) => {
+  if (!bounds) return true
+  const clusterBounds = clusterWorldBounds(cluster)
+  if (clusterBounds.width === 0 && clusterBounds.height === 0) {
+    const [nx, ny] = cluster.centroid
+    const x = nx * CANVAS_WIDTH
+    const y = ny * CANVAS_HEIGHT
+    return (
+      x >= bounds.x &&
+      x <= bounds.x + bounds.width &&
+      y >= bounds.y &&
+      y <= bounds.y + bounds.height
+    )
+  }
+  return (
+    clusterBounds.x <= bounds.x + bounds.width &&
+    clusterBounds.x + clusterBounds.width >= bounds.x &&
+    clusterBounds.y <= bounds.y + bounds.height &&
+    clusterBounds.y + clusterBounds.height >= bounds.y
+  )
+}
+
 export const EmbeddingsLayer: React.FC<{
   type: 'main' | 'minimap'
   masterAtlas: Record<number, PIXI.Spritesheet>
   atlasMeta: AtlasMeta
   particleContainerRefs: React.RefObject<PIXI.ParticleContainer | null>[]
+  rawEmbeddings: any[]
   visibleBounds?: PIXI.Rectangle | null
-}> = ({ type, masterAtlas, atlasMeta, particleContainerRefs, visibleBounds }) => {
+}> = ({
+  type,
+  masterAtlas,
+  atlasMeta,
+  particleContainerRefs,
+  rawEmbeddings,
+  visibleBounds,
+}) => {
   const searchQuery = useAtomValue(searchQueryAtom)
-  const rawEmbeddings = useAtomValue(projectedEmbeddingsAtom(type))
+  const datasetId = useAtomValue(activeDatasetIdAtom)
   const displaySettings = useAtomValue(displaySettingsAtom)
   const filterSettings = useAtomValue(filterSettingsAtom)
   const projectionSettings = useAtomValue(projectionSettingsAtom)
@@ -62,10 +129,71 @@ export const EmbeddingsLayer: React.FC<{
   const setSteerSeedIds = useSetAtom(steerSeedIdsAtom)
   const setSteerSuggestedResults = useSetAtom(steerSuggestedResultsAtom)
   const viewportScale = useAtomValue(viewportScaleAtom)
+  const viewportFitScale = useAtomValue(viewportFitScaleAtom)
   const setSelectedTags = useSetAtom(selectedTagsAtom)
   const recentlyTaggedIds = useAtomValue(recentlyTaggedIdsAtom)
 
   const textEmbeddings = rawEmbeddings.filter((e: any) => e.type === 'text')
+  const usesDefaultClusterProjection =
+    projectionSettings.type === 'umap' &&
+    Number(projectionSettings.nNeighbors) === 15 &&
+    Number(projectionSettings.minDist) === 0.1 &&
+    Number(projectionSettings.spread) === 1 &&
+    Number(projectionSettings.seed) === 1 &&
+    !filterSettings.year &&
+    !filterSettings.photographer
+  const [clusterManifest, setClusterManifest] =
+    useState<ClusterPreviewManifest | null>(null)
+  const bakedClusters = useMemo(
+    () => clusterManifest?.clusters.filter((cluster) => cluster.has_image) ?? [],
+    [clusterManifest]
+  )
+  const maxClusterLevel = useMemo(
+    () => Math.max(1, ...bakedClusters.map((cluster) => clusterLevel(cluster))),
+    [bakedClusters]
+  )
+  const activeClusterLevel = useMemo(() => {
+    if (maxClusterLevel <= 1 || bakedClusters.length === 0) return 1
+    const zoomSpanRatio = Math.max(
+      1,
+      viewportScale / Math.max(1e-6, viewportFitScale)
+    )
+    return Math.min(
+      maxClusterLevel,
+      Math.max(1, 1 + Math.floor(Math.log(zoomSpanRatio) / Math.log(CLUSTER_LEVEL_ZOOM_STEP)))
+    )
+  }, [
+    bakedClusters,
+    maxClusterLevel,
+    viewportFitScale,
+    viewportScale,
+  ])
+  const visibleClusterPreviews = useMemo(
+    () =>
+      bakedClusters.filter((cluster) => {
+        if (clusterLevel(cluster) !== activeClusterLevel) return false
+        return (
+          clusterIntersectsBounds(cluster, visibleBounds)
+        )
+      }),
+    [activeClusterLevel, bakedClusters, visibleBounds]
+  )
+  const preloadClusterPreviews = useMemo(
+    () =>
+      bakedClusters.filter((cluster) => {
+        const level = clusterLevel(cluster)
+        return (
+          level >= activeClusterLevel &&
+          level <= Math.min(maxClusterLevel, activeClusterLevel + 1) &&
+          clusterIntersectsBounds(cluster, visibleBounds)
+        )
+      }),
+    [activeClusterLevel, bakedClusters, maxClusterLevel, visibleBounds]
+  )
+  const showClusterImages = displaySettings.showClusterImages !== false
+  const [clusterTextures, setClusterTextures] = useState<Map<string, PIXI.Texture>>(
+    () => new Map()
+  )
   const shouldCullSao = projectionSettings.type === 'sao' && !projectionSettings.saoOnlyDataset
   const displayedTextEmbeddings =
     shouldCullSao && visibleBounds
@@ -131,6 +259,78 @@ export const EmbeddingsLayer: React.FC<{
       y: sum.y / points.length,
     }
   }, [projectionSettings.type, rawEmbeddings, steerSuggestions, steerTaggedSet])
+
+  useEffect(() => {
+    if (type !== 'main' || !usesDefaultClusterProjection || !datasetId) {
+      setClusterManifest(null)
+      return
+    }
+
+    let cancelled = false
+    fetchClusterPreviewManifest(datasetId)
+      .then((manifest) => {
+        if (!cancelled) setClusterManifest(manifest)
+      })
+      .catch(() => {
+        if (!cancelled) setClusterManifest(null)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [datasetId, type, usesDefaultClusterProjection])
+
+  useEffect(() => {
+    if (
+      type !== 'main' ||
+      !usesDefaultClusterProjection ||
+      !datasetId ||
+      !showClusterImages
+    ) {
+      setClusterTextures(new Map())
+      return
+    }
+
+    let cancelled = false
+    const loadClusterTextures = async () => {
+      for (const cluster of preloadClusterPreviews) {
+        if (cancelled) break
+        const key = `${datasetId}:${cluster.id}`
+        if (!clusterTextureCache.has(key)) {
+          const url = clusterPreviewImageUrl(datasetId, cluster.id)
+          clusterTextureCache.set(
+            key,
+            textureFromUrl(url)
+          )
+        }
+
+        try {
+          const texture = await clusterTextureCache.get(key)
+          if (!texture || cancelled) return
+          setClusterTextures((prev) => {
+            if (prev.get(cluster.id) === texture) return prev
+            const next = new Map(prev)
+            next.set(cluster.id, texture)
+            return next
+          })
+        } catch (error) {
+          clusterTextureCache.delete(key)
+          console.error('Failed to generate cluster preview:', error)
+        }
+      }
+    }
+
+    loadClusterTextures()
+    return () => {
+      cancelled = true
+    }
+  }, [
+    datasetId,
+    showClusterImages,
+    type,
+    usesDefaultClusterProjection,
+    preloadClusterPreviews,
+  ])
 
   const steerDisplayPoint = steerTargetPoint ?? steerTaggedCentroid
   const steerDragActiveRef = useRef(false)
@@ -583,6 +783,30 @@ export const EmbeddingsLayer: React.FC<{
             }}
           />
         )}
+        {type === 'main' &&
+          usesDefaultClusterProjection &&
+          showClusterImages &&
+          visibleClusterPreviews.map((cluster) => {
+            const texture = clusterTextures.get(cluster.id)
+            const [nx, ny] = cluster.centroid
+            const x = nx * CANVAS_WIDTH
+            const y = ny * CANVAS_HEIGHT
+            const size = clusterPreviewSize(cluster) * displaySettings.scale
+            if (!texture) {
+              return null
+            }
+            return (
+              <pixiContainer key={`cluster_image_${cluster.id}`} x={x} y={y}>
+                <pixiSprite
+                  texture={texture}
+                  anchor={0.5}
+                  width={size}
+                  height={size}
+                  eventMode="none"
+                />
+              </pixiContainer>
+            )
+          })}
         {displayedTextEmbeddings.map((embed: any, index: number) => {
           const [nx, ny] = embed.point ? embed.point : [0, 0]
           const textKey = String(embed.id ?? embed.text ?? index)
