@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import math
 import pickle
 
 import io
@@ -26,6 +27,14 @@ from api.clustering import ClusteringConfig, fit_model
 bp = Blueprint("dataset_scoped", __name__)
 
 UMAP_CACHE_VERSION = 6
+
+TAG_SUGGESTION_MIN_NEIGHBOR_SUPPORT = 2
+TAG_SUGGESTION_MIN_NEIGHBOR_SIMILARITY = 0.25
+TAG_SUGGESTION_SEMANTIC_STDDEV_THRESHOLD = 1.0
+TAG_SUGGESTION_NEIGHBOR_WEIGHT = 0.6
+TAG_SUGGESTION_SEMANTIC_WEIGHT = 0.4
+TAG_SUGGESTION_MIN_PREVALENCE_WEIGHT = 0.25
+TAG_SUGGESTION_POOL_MULTIPLIER = 10
 
 _CLUSTER_DESCRIPTION_CANDIDATES = [
     "portraits",
@@ -490,6 +499,8 @@ def tag_suggestions(dataset_id: str, image_id: int):
             return jsonify({"error": "'k' must be an integer"}), 400
         k = max(1, min(k, 200))
 
+        from api import sao_terms
+
         rows = conn.execute(
             """
             SELECT t.label
@@ -499,12 +510,16 @@ def tag_suggestions(dataset_id: str, image_id: int):
             """,
             (image_id,),
         ).fetchall()
-        existing = {r["label"].strip().lower() for r in rows if r["label"]}
+        existing = {
+            sao_terms.normalize_label(r["label"])
+            for r in rows
+            if r["label"]
+        }
 
-        results = []
-
-        # Neighbor-tag propagation (manual tags) to improve over time.
-        neighbor_scores: dict[str, float] = {}
+        # Propagate manually curated tags from visual neighbors. Evidence is
+        # normalized by support and global prevalence so common tags do not win
+        # merely because they occur often.
+        neighbor_evidence: dict[str, dict] = {}
         q = ctx.embeddings[image_id].cpu().numpy().astype("float32")
         q = q.reshape(1, -1)
         D, I = ctx.faiss_index.search(q, min(k + 1, len(ctx.embeddings)))
@@ -515,7 +530,7 @@ def tag_suggestions(dataset_id: str, image_id: int):
             placeholder = ",".join("?" for _ in neighbor_ids)
             tag_rows = conn.execute(
                 f"""
-                SELECT it.image_id, t.label
+                SELECT DISTINCT it.image_id, t.label
                 FROM image_tags it
                 JOIN tags t ON t.id = it.tag_id
                 WHERE it.source IN ('manual', 'legacy_xlsx') AND it.image_id IN ({placeholder})
@@ -528,69 +543,216 @@ def tag_suggestions(dataset_id: str, image_id: int):
                 label = (row["label"] or "").strip()
                 if not label:
                     continue
-                if label.lower() in existing:
+                label_key = sao_terms.normalize_label(label)
+                if label_key in existing:
                     continue
                 dist = id_to_dist.get(int(row["image_id"]), 2.0)
                 sim = max(0.0, 1.0 - dist / 2.0)
-                neighbor_scores[label] = neighbor_scores.get(label, 0.0) + sim
-
-        if neighbor_scores:
-            for label, score in sorted(
-                neighbor_scores.items(), key=lambda item: (-item[1], item[0].lower())
-            ):
-                results.append(
+                evidence = neighbor_evidence.setdefault(
+                    label_key,
                     {
-                        "id": None,
                         "label": label,
-                        "score": float(score),
-                        "source": "auto_neighbors",
-                    }
+                        "max_similarity": 0.0,
+                        "image_similarities": {},
+                    },
                 )
-                if len(results) >= limit:
-                    break
+                neighbor_image_id = int(row["image_id"])
+                evidence["image_similarities"][neighbor_image_id] = max(
+                    sim,
+                    evidence["image_similarities"].get(neighbor_image_id, 0.0),
+                )
+                evidence["max_similarity"] = max(evidence["max_similarity"], sim)
 
-        if len(results) < limit:
-            from api import sao_terms
+        frequency_rows = conn.execute(
+            """
+            SELECT t.label, COUNT(DISTINCT it.image_id) AS frequency
+            FROM image_tags it
+            JOIN tags t ON t.id = it.tag_id
+            WHERE it.source IN ('manual', 'legacy_xlsx')
+            GROUP BY t.id
+            """
+        ).fetchall()
+        global_frequency: dict[str, int] = {}
+        for row in frequency_rows:
+            label_key = sao_terms.normalize_label(row["label"] or "")
+            if label_key:
+                global_frequency[label_key] = max(
+                    global_frequency.get(label_key, 0), int(row["frequency"])
+                )
 
-            embeddings, terms = sao_terms.get_embeddings()
-            if embeddings.size == 0:
-                return jsonify(results)
+        total_tagged_row = conn.execute(
+            """
+            SELECT COUNT(DISTINCT image_id) AS count
+            FROM image_tags
+            WHERE source IN ('manual', 'legacy_xlsx')
+            """
+        ).fetchone()
+        total_tagged = int(total_tagged_row["count"]) if total_tagged_row else 0
 
+        neighbor_candidates: list[dict] = []
+        for label_key, evidence in neighbor_evidence.items():
+            similarities = evidence["image_similarities"].values()
+            support = len(evidence["image_similarities"])
+            max_similarity = float(evidence["max_similarity"])
+            if support < TAG_SUGGESTION_MIN_NEIGHBOR_SUPPORT:
+                continue
+            if max_similarity < TAG_SUGGESTION_MIN_NEIGHBOR_SIMILARITY:
+                continue
+
+            average_similarity = sum(similarities) / support
+            frequency = max(support, global_frequency.get(label_key, support))
+            if total_tagged > 1:
+                inverse_frequency = math.log(
+                    (total_tagged + 1) / (frequency + 1)
+                ) / math.log(total_tagged + 1)
+            else:
+                inverse_frequency = 0.0
+            prevalence_weight = TAG_SUGGESTION_MIN_PREVALENCE_WEIGHT + (
+                1.0 - TAG_SUGGESTION_MIN_PREVALENCE_WEIGHT
+            ) * max(0.0, min(1.0, inverse_frequency))
+            support_confidence = support / (support + 2.0)
+            raw_score = average_similarity * support_confidence * prevalence_weight
+            neighbor_candidates.append(
+                {
+                    "key": label_key,
+                    "label": evidence["label"],
+                    "raw_score": raw_score,
+                    "support": support,
+                    "frequency": frequency,
+                }
+            )
+
+        neighbor_candidates.sort(
+            key=lambda item: (-item["raw_score"], item["label"].lower())
+        )
+
+        # Score SAO on every request instead of using it only as a fallback. A
+        # dataset-adaptive threshold suppresses terms that are not meaningfully
+        # above the image's baseline similarity to the vocabulary.
+        semantic_candidates: list[dict] = []
+        embeddings, terms = sao_terms.get_embeddings()
+        if embeddings.size:
             query = ctx.embeddings[image_id].cpu().numpy().astype("float32")
             query /= max(1e-12, float((query * query).sum()) ** 0.5)
-            scores = embeddings @ query
-
-            blocked = {r["label"].strip().lower() for r in results}
-            if existing or blocked:
-                mask = np.ones(len(terms), dtype=bool)
-                for i, term in enumerate(terms):
-                    label_norm = term["label"].strip().lower()
-                    if label_norm in existing or label_norm in blocked:
-                        mask[i] = False
-                scores = scores.copy()
-                scores[~mask] = -1.0
-
-            sao_k = min((limit - len(results)) * 5, len(terms))
-            idx = np.argpartition(-scores, sao_k - 1)[:sao_k]
-            idx = idx[np.argsort(-scores[idx])]
-
-            for i in idx:
-                term = terms[int(i)]
-                label = term["label"]
-                if label.strip().lower() in existing or label.strip().lower() in blocked:
-                    continue
-                results.append(
-                    {
-                        "id": term["id"],
-                        "label": label,
-                        "score": float(scores[int(i)]),
-                        "source": "auto_sao",
-                    }
+            semantic_scores = embeddings @ query
+            allowed_indices = np.array(
+                [
+                    i
+                    for i, term in enumerate(terms)
+                    if sao_terms.normalize_label(term["label"]) not in existing
+                ],
+                dtype=np.int64,
+            )
+            if allowed_indices.size:
+                allowed_scores = semantic_scores[allowed_indices]
+                semantic_threshold = float(
+                    allowed_scores.mean()
+                    + TAG_SUGGESTION_SEMANTIC_STDDEV_THRESHOLD
+                    * allowed_scores.std()
                 )
-                if len(results) >= limit:
-                    break
+                confident_mask = allowed_scores >= semantic_threshold
+                confident_indices = allowed_indices[confident_mask]
+                pool_size = min(
+                    max(limit * TAG_SUGGESTION_POOL_MULTIPLIER, 25),
+                    len(confident_indices),
+                )
+                if pool_size:
+                    confident_scores = semantic_scores[confident_indices]
+                    top = np.argpartition(-confident_scores, pool_size - 1)[:pool_size]
+                    top = top[np.argsort(-confident_scores[top])]
+                    for position in top:
+                        term_idx = int(confident_indices[int(position)])
+                        term = terms[term_idx]
+                        semantic_candidates.append(
+                            {
+                                "key": sao_terms.normalize_label(term["label"]),
+                                "id": term["id"],
+                                "label": term["label"],
+                                "raw_score": float(semantic_scores[term_idx]),
+                            }
+                        )
 
-        return jsonify(results)
+        # Rank calibration makes the two score families comparable without
+        # assuming that neighbor confidence and CLIP cosine have the same scale.
+        candidates: dict[str, dict] = {}
+        neighbor_pool_size = min(
+            max(limit * TAG_SUGGESTION_POOL_MULTIPLIER, 25),
+            len(neighbor_candidates),
+        )
+        for rank, item in enumerate(neighbor_candidates[:neighbor_pool_size]):
+            candidate = candidates.setdefault(
+                item["key"],
+                {"id": None, "label": item["label"]},
+            )
+            candidate["neighbor_confidence"] = (
+                neighbor_pool_size - rank
+            ) / neighbor_pool_size
+            candidate["neighbor_score"] = float(item["raw_score"])
+            candidate["support"] = int(item["support"])
+            candidate["frequency"] = int(item["frequency"])
+
+        semantic_pool_size = len(semantic_candidates)
+        for rank, item in enumerate(semantic_candidates):
+            candidate = candidates.setdefault(
+                item["key"],
+                {"id": item["id"], "label": item["label"]},
+            )
+            candidate["id"] = item["id"]
+            candidate["label"] = item["label"]
+            candidate["semantic_confidence"] = (
+                semantic_pool_size - rank
+            ) / semantic_pool_size
+            candidate["semantic_score"] = float(item["raw_score"])
+
+        ranked: list[dict] = []
+        for candidate in candidates.values():
+            neighbor_confidence = float(candidate.get("neighbor_confidence", 0.0))
+            semantic_confidence = float(candidate.get("semantic_confidence", 0.0))
+            candidate["score"] = (
+                TAG_SUGGESTION_NEIGHBOR_WEIGHT * neighbor_confidence
+                + TAG_SUGGESTION_SEMANTIC_WEIGHT * semantic_confidence
+            )
+            if neighbor_confidence and semantic_confidence:
+                candidate["source"] = "auto_hybrid"
+            elif neighbor_confidence:
+                candidate["source"] = "auto_neighbors"
+            else:
+                candidate["source"] = "auto_sao"
+            candidate.pop("neighbor_confidence", None)
+            candidate.pop("semantic_confidence", None)
+            ranked.append(candidate)
+
+        ranked.sort(key=lambda item: (-item["score"], item["label"].lower()))
+
+        # When both sources have confident candidates, reserve a place for each
+        # before filling the remaining slots by the blended score.
+        selected: list[dict] = []
+        selected_labels: set[str] = set()
+
+        def add_best(source_field: str) -> None:
+            for candidate in ranked:
+                label_key = sao_terms.normalize_label(candidate["label"])
+                if label_key in selected_labels or source_field not in candidate:
+                    continue
+                selected.append(candidate)
+                selected_labels.add(label_key)
+                return
+
+        if limit >= 2 and neighbor_candidates and semantic_candidates:
+            add_best("neighbor_score")
+            add_best("semantic_score")
+
+        for candidate in ranked:
+            if len(selected) >= limit:
+                break
+            label_key = sao_terms.normalize_label(candidate["label"])
+            if label_key in selected_labels:
+                continue
+            selected.append(candidate)
+            selected_labels.add(label_key)
+
+        selected.sort(key=lambda item: (-item["score"], item["label"].lower()))
+        return jsonify(selected[:limit])
     finally:
         conn.close()
 
