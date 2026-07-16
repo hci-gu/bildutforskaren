@@ -4,8 +4,8 @@ import { Application, extend } from '@pixi/react'
 import * as PIXI from 'pixi.js'
 import { useAtomValue, useSetAtom } from 'jotai'
 import {
+  activeDatasetIdAtom,
   loadableProjectedEmbeddingsAtom,
-  projectionRevisionAtom,
   projectionSettingsAtom,
   selectedEmbeddingAtom,
   selectedEmbeddingIdsAtom,
@@ -13,6 +13,8 @@ import {
   viewportFitScaleAtom,
   viewportScaleAtom,
 } from '@/store'
+import { Link } from 'react-router'
+import datasetIcon from '@/assets/settings-button.png'
 import { state } from './canvasState'
 import { Viewport } from './ViewPort'
 import Panel from './Panel'
@@ -44,6 +46,7 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
   const dragStart = useRef<PIXI.PointData | null>(null)
   const selectionStart = useRef<PIXI.PointData | null>(null)
   const selectionActiveRef = useRef(false)
+  const lastFittedViewTypeRef = useRef<string | null>(null)
   const [selectionRect, setSelectionRect] = useState<PIXI.Rectangle | null>(null)
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const refreshUntilRef = useRef(0)
@@ -53,8 +56,8 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
   const setViewportScale = useSetAtom(viewportScaleAtom)
   const setViewportFitScale = useSetAtom(viewportFitScaleAtom)
 
+  const datasetId = useAtomValue(activeDatasetIdAtom)
   const projectionSettings = useAtomValue(projectionSettingsAtom)
-  const projectionRevision = useAtomValue(projectionRevisionAtom)
   const tagRefreshTrigger = useAtomValue(tagRefreshTriggerAtom)
   const viewportFitScale = useAtomValue(viewportFitScaleAtom)
 
@@ -79,14 +82,18 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
   )
 
   const [rawEmbeddings, setRawEmbeddings] = useState<any[]>([])
+  const [rawEmbeddingsViewType, setRawEmbeddingsViewType] = useState<
+    string | null
+  >(null)
   const [rawMinimapEmbeddings, setRawMinimapEmbeddings] = useState<any[]>([])
   const [visibleBounds, setVisibleBounds] = useState<PIXI.Rectangle | null>(null)
 
   useEffect(() => {
     if (mainEmbeddingsLoadable.state === 'hasData') {
       setRawEmbeddings(mainEmbeddingsLoadable.data as any[])
+      setRawEmbeddingsViewType(projectionSettings.type)
     }
-  }, [mainEmbeddingsLoadable])
+  }, [mainEmbeddingsLoadable, projectionSettings.type])
 
   useEffect(() => {
     if (minimapEmbeddingsLoadable.state === 'hasData') {
@@ -155,15 +162,6 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
     setViewportScale(fitScale)
     setViewportFitScale(fitScale)
   }, [projectionFit, setViewportFitScale, setViewportScale])
-
-  const projectionKey = useMemo(
-    () =>
-      JSON.stringify({
-        projectionSettings,
-        projectionRevision,
-      }),
-    [projectionSettings, projectionRevision]
-  )
 
   const isCanvasEvent = (e: any) => {
     const target = e?.data?.originalEvent?.target as HTMLElement | null
@@ -282,8 +280,17 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
 
   useEffect(() => {
     if (!viewportReady || !projectionFit) return
+    if (rawEmbeddingsViewType !== projectionSettings.type) return
+    if (lastFittedViewTypeRef.current === projectionSettings.type) return
     fitProjection()
-  }, [fitProjection, projectionFit, projectionKey, viewportReady])
+    lastFittedViewTypeRef.current = projectionSettings.type
+  }, [
+    fitProjection,
+    projectionFit,
+    projectionSettings.type,
+    rawEmbeddingsViewType,
+    viewportReady,
+  ])
 
   useEffect(() => {
     const handleHomeKey = (event: KeyboardEvent) => {
@@ -308,6 +315,22 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
   return (
     <>
       <HomeLogoLink />
+      {datasetId && (
+        <Link
+          to={`/dataset/${datasetId}`}
+          aria-label="Tillbaka till aktuellt dataset"
+          title="Tillbaka till aktuellt dataset"
+          data-canvas-ui="true"
+          className="absolute top-4 left-18 z-20 block h-12 w-12 overflow-hidden rounded-xl shadow-lg transition-transform hover:scale-105 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+        >
+          <img
+            src={datasetIcon}
+            alt=""
+            className="h-full w-full object-cover"
+            draggable={false}
+          />
+        </Link>
+      )}
 
       {(!allLoaded || rawEmbeddings.length === 0) && (
         <h1
