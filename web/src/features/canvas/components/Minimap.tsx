@@ -1,8 +1,13 @@
-import React, { useEffect, useMemo, useRef } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef } from 'react'
 import * as PIXI from 'pixi.js'
 import type { Viewport } from '../ViewPort'
 import { computeProjectionBounds } from '../utils'
-import { MINIMAP_MARGIN, MINIMAP_PADDING, MINIMAP_SIZE } from '../constants'
+import {
+  MINIMAP_DEAD_ZONE,
+  MINIMAP_MARGIN,
+  MINIMAP_PADDING,
+  MINIMAP_SIZE,
+} from '../constants'
 import { EmbeddingsLayer } from './EmbeddingsLayer'
 import type { AtlasMeta } from '../hooks/useAtlasLoader'
 
@@ -26,6 +31,9 @@ export const Minimap: React.FC<{
   projectionType,
 }) => {
   const minimapFrameRef = useRef<PIXI.Graphics>(null)
+  const minimapSurfaceRef = useRef<PIXI.Graphics>(null)
+  const isPanningRef = useRef(false)
+  const redrawViewportFrameRef = useRef<() => void>(() => undefined)
 
   const minimapBounds = useMemo(
     () => computeProjectionBounds(rawEmbeddings),
@@ -55,6 +63,28 @@ export const Minimap: React.FC<{
     }
   }, [minimapBounds])
 
+  const panToPointer = useCallback(
+    (event: PIXI.FederatedPointerEvent) => {
+      const viewport = viewportRef.current
+      const surface = minimapSurfaceRef.current
+      if (!viewport || !surface) return
+
+      const point = event.getLocalPosition(surface)
+      viewport.moveCenter({
+        x:
+          (point.x - minimapTransform.position.x) /
+            minimapTransform.scale +
+          minimapTransform.pivot.x,
+        y:
+          (point.y - minimapTransform.position.y) /
+            minimapTransform.scale +
+          minimapTransform.pivot.y,
+      })
+      redrawViewportFrameRef.current()
+    },
+    [minimapTransform, viewportRef]
+  )
+
   useEffect(() => {
     const viewport = viewportRef.current
     const g = minimapFrameRef.current
@@ -81,51 +111,102 @@ export const Minimap: React.FC<{
       if (projectionType === 'umap' && b.width < 25000) {
         g.rect(b.x, b.y, b.width, b.height)
         g.fill({ color: 'white', alpha: 0.1 })
-        g.stroke({ color: 'white', width: 100 })
-        g.fill()
+        g.stroke({ color: 'white', width: 1 / minimapTransform.scale })
       }
     }
 
+    redrawViewportFrameRef.current = draw
     draw()
     viewport.on('moved', draw)
+    viewport.on('zoomed', draw)
     return () => {
+      redrawViewportFrameRef.current = () => undefined
       viewport.off('moved', draw)
+      viewport.off('zoomed', draw)
     }
-  }, [projectionType, viewportRef])
+  }, [minimapTransform.scale, projectionType, viewportRef])
 
   if (!allLoaded) return null
+
+  const minimapOuterSize = MINIMAP_SIZE + MINIMAP_DEAD_ZONE * 2
 
   return (
     <pixiContainer
       position={{
-        x: windowSize.width - MINIMAP_SIZE - MINIMAP_MARGIN,
-        y: windowSize.height - MINIMAP_SIZE - MINIMAP_MARGIN,
+        x: windowSize.width - minimapOuterSize - MINIMAP_MARGIN,
+        y: windowSize.height - minimapOuterSize - MINIMAP_MARGIN,
       }}
-      width={MINIMAP_SIZE}
-      height={MINIMAP_SIZE}
+      width={minimapOuterSize}
+      height={minimapOuterSize}
     >
       <pixiGraphics
         draw={(g) => {
-          g.rect(0, 0, MINIMAP_SIZE, MINIMAP_SIZE)
-          g.fill({ color: 'black', alpha: 0.75 })
-          g.stroke({ color: 'white', width: 1 })
-          g.fill()
+          g.rect(0, 0, minimapOuterSize, minimapOuterSize)
+          g.fill({ color: 'black', alpha: 0.001 })
         }}
+        eventMode="static"
+        onPointerDown={(event: PIXI.FederatedPointerEvent) =>
+          event.stopPropagation()
+        }
+        onPointerMove={(event: PIXI.FederatedPointerEvent) =>
+          event.stopPropagation()
+        }
+        onPointerUp={(event: PIXI.FederatedPointerEvent) =>
+          event.stopPropagation()
+        }
+        onPointerUpOutside={(event: PIXI.FederatedPointerEvent) =>
+          event.stopPropagation()
+        }
+        onWheel={(event: PIXI.FederatedWheelEvent) => event.stopPropagation()}
       />
       <pixiContainer
-        scale={minimapTransform.scale}
-        position={minimapTransform.position}
-        pivot={minimapTransform.pivot}
+        position={{ x: MINIMAP_DEAD_ZONE, y: MINIMAP_DEAD_ZONE }}
       >
-        <EmbeddingsLayer
-          type="minimap"
-          masterAtlas={masterAtlas}
-          atlasMeta={atlasMeta}
-          particleContainerRefs={particleContainerRefs}
-          rawEmbeddings={rawEmbeddings}
+        <pixiGraphics
+          ref={minimapSurfaceRef}
+          draw={(g) => {
+            g.rect(0, 0, MINIMAP_SIZE, MINIMAP_SIZE)
+            g.fill({ color: 'black', alpha: 0.75 })
+            g.stroke({ color: 'white', width: 1 })
+          }}
+          eventMode="static"
+          cursor="grab"
+          onPointerDown={(event: PIXI.FederatedPointerEvent) => {
+            event.stopPropagation()
+            isPanningRef.current = true
+            panToPointer(event)
+          }}
+          onPointerMove={(event: PIXI.FederatedPointerEvent) => {
+            event.stopPropagation()
+            if (isPanningRef.current) panToPointer(event)
+          }}
+          onPointerUp={(event: PIXI.FederatedPointerEvent) => {
+            event.stopPropagation()
+            isPanningRef.current = false
+          }}
+          onPointerUpOutside={(event: PIXI.FederatedPointerEvent) => {
+            event.stopPropagation()
+            isPanningRef.current = false
+          }}
+          onWheel={(event: PIXI.FederatedWheelEvent) =>
+            event.stopPropagation()
+          }
         />
-        {/* @ts-ignore */}
-        <pixiGraphics ref={minimapFrameRef} />
+        <pixiContainer
+          scale={minimapTransform.scale}
+          position={minimapTransform.position}
+          pivot={minimapTransform.pivot}
+        >
+          <EmbeddingsLayer
+            type="minimap"
+            masterAtlas={masterAtlas}
+            atlasMeta={atlasMeta}
+            particleContainerRefs={particleContainerRefs}
+            rawEmbeddings={rawEmbeddings}
+          />
+          {/* @ts-ignore */}
+          <pixiGraphics ref={minimapFrameRef} />
+        </pixiContainer>
       </pixiContainer>
     </pixiContainer>
   )

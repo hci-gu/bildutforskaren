@@ -1,11 +1,11 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import '@pixi/events'
 import { Application, extend } from '@pixi/react'
 import * as PIXI from 'pixi.js'
 import { useAtomValue, useSetAtom } from 'jotai'
 import {
+  activeDatasetIdAtom,
   loadableProjectedEmbeddingsAtom,
-  projectionRevisionAtom,
   projectionSettingsAtom,
   selectedEmbeddingAtom,
   selectedEmbeddingIdsAtom,
@@ -13,11 +13,13 @@ import {
   viewportFitScaleAtom,
   viewportScaleAtom,
 } from '@/store'
+import { Link } from 'react-router'
+import datasetIcon from '@/assets/settings-button.png'
 import { state } from './canvasState'
 import { Viewport } from './ViewPort'
 import Panel from './Panel'
 import { CANVAS_HEIGHT, CANVAS_WIDTH, CLICK_EPS } from './constants'
-import { buildSelectionRect, computeProjectionBounds, pointIntersectsParticle } from './utils'
+import { buildSelectionRect, computeProjectionFit, pointIntersectsParticle } from './utils'
 import { useAtlasLoader } from './hooks/useAtlasLoader'
 import { EmbeddingsLayer } from './components/EmbeddingsLayer'
 import { SelectionRect } from './components/SelectionRect'
@@ -44,6 +46,7 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
   const dragStart = useRef<PIXI.PointData | null>(null)
   const selectionStart = useRef<PIXI.PointData | null>(null)
   const selectionActiveRef = useRef(false)
+  const lastFittedViewTypeRef = useRef<string | null>(null)
   const [selectionRect, setSelectionRect] = useState<PIXI.Rectangle | null>(null)
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const refreshUntilRef = useRef(0)
@@ -53,14 +56,20 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
   const setViewportScale = useSetAtom(viewportScaleAtom)
   const setViewportFitScale = useSetAtom(viewportFitScaleAtom)
 
+  const datasetId = useAtomValue(activeDatasetIdAtom)
   const projectionSettings = useAtomValue(projectionSettingsAtom)
-  const projectionRevision = useAtomValue(projectionRevisionAtom)
   const tagRefreshTrigger = useAtomValue(tagRefreshTriggerAtom)
   const viewportFitScale = useAtomValue(viewportFitScaleAtom)
 
   const [showTagRefresh, setShowTagRefresh] = useState(false)
 
   const viewportRef = useRef<Viewport>(null)
+  const [viewportReady, setViewportReady] = useState(false)
+
+  const handleViewportRef = useCallback((viewport: Viewport | null) => {
+    viewportRef.current = viewport
+    if (viewport) setViewportReady(true)
+  }, [])
 
   const [windowSize, setWindowSize] = useState(() => ({
     width: typeof window === 'undefined' ? width : window.innerWidth,
@@ -73,14 +82,18 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
   )
 
   const [rawEmbeddings, setRawEmbeddings] = useState<any[]>([])
+  const [rawEmbeddingsViewType, setRawEmbeddingsViewType] = useState<
+    string | null
+  >(null)
   const [rawMinimapEmbeddings, setRawMinimapEmbeddings] = useState<any[]>([])
   const [visibleBounds, setVisibleBounds] = useState<PIXI.Rectangle | null>(null)
 
   useEffect(() => {
     if (mainEmbeddingsLoadable.state === 'hasData') {
       setRawEmbeddings(mainEmbeddingsLoadable.data as any[])
+      setRawEmbeddingsViewType(projectionSettings.type)
     }
-  }, [mainEmbeddingsLoadable])
+  }, [mainEmbeddingsLoadable, projectionSettings.type])
 
   useEffect(() => {
     if (minimapEmbeddingsLoadable.state === 'hasData') {
@@ -128,21 +141,27 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
     )
   }, [numSheets])
 
-  const projectionBounds = useMemo(
-    () => computeProjectionBounds(rawEmbeddings),
+  const projectionFit = useMemo(
+    () => computeProjectionFit(rawEmbeddings),
     [rawEmbeddings]
   )
 
-  const projectionKey = useMemo(
-    () =>
-      JSON.stringify({
-        projectionSettings,
-        projectionRevision,
-      }),
-    [projectionSettings, projectionRevision]
-  )
+  const fitProjection = useCallback(() => {
+    const viewport = viewportRef.current
+    if (!viewport || !projectionFit) return
 
-  const lastProjectionKeyRef = useRef<string | null>(null)
+    const paddingFactor = 0.08
+    viewport.fit(
+      false,
+      projectionFit.width * (1 + paddingFactor * 2),
+      projectionFit.height * (1 + paddingFactor * 2)
+    )
+    viewport.moveCenter(projectionFit.center)
+
+    const fitScale = viewport.scale?.x ?? 1
+    setViewportScale(fitScale)
+    setViewportFitScale(fitScale)
+  }, [projectionFit, setViewportFitScale, setViewportScale])
 
   const isCanvasEvent = (e: any) => {
     const target = e?.data?.originalEvent?.target as HTMLElement | null
@@ -260,26 +279,58 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
   }, [projectionSettings.type, setViewportFitScale, setViewportScale])
 
   useEffect(() => {
-    const viewport = viewportRef.current
-    if (!viewport || !projectionBounds) return
-    if (lastProjectionKeyRef.current === projectionKey) return
-    lastProjectionKeyRef.current = projectionKey
-    const paddingFactor = 0.08
-    const paddedWidth = projectionBounds.width * (1 + paddingFactor * 2)
-    const paddedHeight = projectionBounds.height * (1 + paddingFactor * 2)
-    viewport.fit(false, paddedWidth, paddedHeight)
-    const fitScale = viewport.scale?.x ?? 1
-    setViewportScale(fitScale)
-    setViewportFitScale(fitScale)
-    viewport.moveCenter({
-      x: projectionBounds.x + projectionBounds.width / 2,
-      y: projectionBounds.y + projectionBounds.height / 2,
-    })
-  }, [projectionBounds, projectionKey, setViewportFitScale, setViewportScale])
+    if (!viewportReady || !projectionFit) return
+    if (rawEmbeddingsViewType !== projectionSettings.type) return
+    if (lastFittedViewTypeRef.current === projectionSettings.type) return
+    fitProjection()
+    lastFittedViewTypeRef.current = projectionSettings.type
+  }, [
+    fitProjection,
+    projectionFit,
+    projectionSettings.type,
+    rawEmbeddingsViewType,
+    viewportReady,
+  ])
+
+  useEffect(() => {
+    const handleHomeKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Home' || event.ctrlKey || event.metaKey || event.altKey) {
+        return
+      }
+      const target = event.target as HTMLElement | null
+      if (
+        target?.isContentEditable ||
+        target?.closest('input, textarea, select, [contenteditable="true"]')
+      ) {
+        return
+      }
+      event.preventDefault()
+      fitProjection()
+    }
+
+    window.addEventListener('keydown', handleHomeKey)
+    return () => window.removeEventListener('keydown', handleHomeKey)
+  }, [fitProjection])
 
   return (
     <>
       <HomeLogoLink />
+      {datasetId && (
+        <Link
+          to={`/dataset/${datasetId}`}
+          aria-label="Tillbaka till aktuellt dataset"
+          title="Tillbaka till aktuellt dataset"
+          data-canvas-ui="true"
+          className="absolute top-4 left-18 z-20 block h-12 w-12 overflow-hidden rounded-xl shadow-lg transition-transform hover:scale-105 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+        >
+          <img
+            src={datasetIcon}
+            alt=""
+            className="h-full w-full object-cover"
+            draggable={false}
+          />
+        </Link>
+      )}
 
       {(!allLoaded || rawEmbeddings.length === 0) && (
         <h1
@@ -313,7 +364,10 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
         </div>
       )}
 
-      <HUD />
+      <HUD
+        canFitProjection={projectionFit !== null}
+        onFitProjection={fitProjection}
+      />
       <Panel />
 
       <Application
@@ -323,7 +377,7 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
         onInit={(app) => (state.pixiApp = app)}
       >
         <viewport
-          ref={viewportRef}
+          ref={handleViewportRef}
           width={width}
           height={height}
           events={['move']}
