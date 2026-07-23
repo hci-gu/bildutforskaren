@@ -8,6 +8,26 @@ Root utilities such as `get_images.py`, `fortepan_downloader.py`, and `transform
 
 The React frontend lives in `web/`. Domain code is grouped under `web/src/features/` (`canvas`, `datasets`, `images`, and `streetview`), global state under `web/src/store/`, reusable UI and API helpers under `web/src/shared/`, and assets under `web/src/assets/`. Static files belong in `web/public/`. Deployment manifests are in `deploy/`; container configuration is in `web/Dockerfile` and `web/nginx.conf`. Keep generated data, virtual environments, and build output untracked.
 
+## Model Roles & Data Flow
+
+| Model or algorithm | Input modality | Output | When and why it is used |
+| --- | --- | --- | --- |
+| CLIP (`openai/clip-vit-large-patch14`) | RGB images or text prompts | Normalized vectors in a shared image-text semantic space | Indexes datasets; supports text-to-image search, similarity lookup, tag suggestions, SAO term embeddings, and projection input. |
+| Florence-2 (`microsoft/Florence-2-large`, `<MORE_DETAILED_CAPTION>`) | RGB image plus a caption task token | Detailed natural-language description | Runs during image roundtrip to describe each image and provide source text for an SDXL-compatible prompt. |
+| SDXL-Turbo (`stabilityai/sdxl-turbo`) | Caption-derived text prompts, saved text-conditioning tensors, or averaged tensors | `prompt_embeds` and `pooled_prompt_embeds`, or a generated PNG | Creates reconstructive previews for individual images and semantic previews for averaged selections. |
+| SDXL IP-Adapter (`h94/IP-Adapter`) | RGB reference image; optionally text during generation | Image-conditioning tensors consumed by SDXL, then a generated PNG | Creates visually conditioned image and cluster previews, preserving appearance more directly than caption-derived conditioning. |
+| PCA | CLIP image vectors | Lower-dimensional numeric vectors and a reusable transform | Reduces and caches CLIP features before downstream projection work. It does not caption or generate images. |
+| UMAP | Image embedding vectors | Two-dimensional coordinates | Lays out images on the canvas and supplies coordinates for clustering. Its coordinates are not semantic or generative embeddings. |
+
+The primary pipelines are:
+
+- Image → CLIP index
+- Image → Florence caption → SDXL text embedding → generated preview
+- Image → IP-Adapter embedding → generated preview
+- CLIP vectors → PCA/UMAP → visualization and clustering
+
+CLIP, SDXL, IP-Adapter, PCA, and UMAP outputs serve different consumers and are not interchangeable.
+
 ## Build, Test, and Development Commands
 
 - `uv sync --extra cpu` installs backend dependencies; use `--extra cuda` on supported GPU hosts.
