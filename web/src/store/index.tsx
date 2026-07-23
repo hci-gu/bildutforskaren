@@ -14,6 +14,7 @@ import {
   searchByImage,
   searchByText,
 } from '@/shared/lib/api'
+import { closePhotoViewer } from '@/shared/lib/photoViewer'
 
 export const activeDatasetIdAtom = atom<string | null>(null)
 
@@ -1119,7 +1120,16 @@ export type SelectedEmbedding = {
   meta: Record<string, unknown>
 }
 
-export const selectedEmbeddingAtom = atom<SelectedEmbedding | null>(null)
+const selectedEmbeddingValueAtom = atom<SelectedEmbedding | null>(null)
+export const selectedEmbeddingAtom = atom(
+  (get) => get(selectedEmbeddingValueAtom),
+  (_get, set, value: SelectedEmbedding | null) => {
+    if (value === null) {
+      closePhotoViewer()
+    }
+    set(selectedEmbeddingValueAtom, value)
+  }
+)
 export const selectedEmbeddingIdsAtom = atom<string[]>([])
 export const selectedTagsAtom = atom<string[]>([])
 export const steerSuggestionsAtom = atom(false)

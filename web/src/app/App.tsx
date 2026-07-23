@@ -1,4 +1,11 @@
-import { Route, Routes, Navigate, useParams, Link } from 'react-router'
+import {
+  Route,
+  Routes,
+  Navigate,
+  useParams,
+  useLocation,
+  Link,
+} from 'react-router'
 import IndexPage from '@/features/datasets/pages/DatasetsIndexPage'
 import ImagePage from '@/features/images/pages/ImagePage'
 import DatasetPage from '@/features/datasets/pages/DatasetPage'
@@ -14,6 +21,10 @@ import { useDatasetStatus } from '@/features/datasets/hooks/useDatasetStatus'
 import { fetchImageMetadata } from '@/shared/lib/api'
 import { DatasetStatusPanel } from '@/features/datasets/components/DatasetStatusPanel'
 import { StatusMessage } from '@/shared/components/StatusMessage'
+import {
+  clearPhotoViewerClose,
+  registerPhotoViewerClose,
+} from '@/shared/lib/photoViewer'
 
 const DatasetCanvasRoute = () => {
   const { id } = useParams<{ id: string }>()
@@ -157,14 +168,24 @@ const ActiveDatasetStreetViewRedirect = () => {
 
 function App() {
   const setSelectedEmbedding = useSetAtom(selectedEmbeddingAtom)
+  const location = useLocation()
+
+  useEffect(() => {
+    setSelectedEmbedding(null)
+  }, [location.pathname, setSelectedEmbedding])
 
   return (
     <ThemeProvider defaultTheme="dark">
       <PhotoProvider
         onVisibleChange={(visible) => {
           if (!visible) {
+            clearPhotoViewerClose()
             setSelectedEmbedding(null)
           }
+        }}
+        toolbarRender={({ onClose }) => {
+          registerPhotoViewerClose(() => onClose())
+          return null
         }}
         onIndexChange={(index: number, state: any) => {
           try {

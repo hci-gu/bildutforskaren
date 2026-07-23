@@ -165,6 +165,8 @@ export const HUD = ({
         type: 'graph',
       }))
       setProjectionRevision((value) => value + 1)
+      setSelectedEmbeddingIds([])
+      setSelectedEmbedding(null)
       setShowGraphForm(false)
     } catch (error) {
       setGraphError(
