@@ -65,6 +65,40 @@ export type ClusterPreviewManifest = {
   clusters: ClusterPreview[]
 }
 
+export type GraphLayout = 'force' | 'concentric'
+
+export type GraphNetworkRequest = {
+  root_image_id: number
+  max_depth: number
+  neighbors_per_node: number
+  max_nodes: number
+  min_similarity: number
+}
+
+export type GraphNetworkNode = {
+  id: number
+  depth: number
+  parent_id: number | null
+  similarity_to_parent: number | null
+  similarity_to_root: number
+  positions: Record<GraphLayout, [number, number]>
+}
+
+export type GraphNetworkEdge = {
+  source: number
+  target: number
+  similarity: number
+  kind: 'tree' | 'cross'
+}
+
+export type GraphNetworkResponse = {
+  dataset_id: string
+  root_image_id: number
+  parameters: Omit<GraphNetworkRequest, 'root_image_id'>
+  nodes: GraphNetworkNode[]
+  edges: GraphNetworkEdge[]
+}
+
 export const API_URL =
   import.meta.env.VITE_API_URL || 'http://localhost:3000'
 // export const API_URL = 'https://bildutforskaren-api.prod.appadem.in'
@@ -319,6 +353,20 @@ export const fetchUmapProjection = async (
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ image_ids: imageIds, texts, params }),
   })
+}
+
+export const createGraphNetwork = async (
+  datasetId: string,
+  payload: GraphNetworkRequest
+) => {
+  return await fetchJson<GraphNetworkResponse>(
+    datasetApiUrl(datasetId, '/graph-network'),
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }
+  )
 }
 
 export const fetchClusters = async (

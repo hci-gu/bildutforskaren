@@ -472,6 +472,12 @@ export const projectionSettingsAtom = atom({
 })
 
 export const projectionViewModeAtom = atom<'2d' | '3d'>('2d')
+export const graphNetworksAtom = atom<
+  Record<string, import('@/shared/lib/api').GraphNetworkResponse>
+>({})
+export const graphLayoutAtom = atom<import('@/shared/lib/api').GraphLayout>(
+  'concentric'
+)
 
 export const displaySettingsAtom = atom({
   colorPhotographer: false,
@@ -738,8 +744,45 @@ export const projectedEmbeddingsAtom = atomFamily((type: string) =>
   atom(async (get) => {
     let embeddingsData = await get(filteredEmbeddingsAtom)
     const projectionSettings = get(projectionSettingsAtom)
-    const projection = await get(embeddingProjection(type))
     const result = await get(searchImagesAtom)
+
+    if (type !== 'minimap' && projectionSettings.type === 'graph') {
+      const datasetId = get(activeDatasetIdAtom)
+      const graph = datasetId ? get(graphNetworksAtom)[datasetId] : null
+      if (!graph) return []
+
+      const allEmbeddings = await get(embeddingsAtom)
+      const embeddingsById = new Map<number, any>(
+        allEmbeddings.map((item: any) => [Number(item.id), item])
+      )
+      const layout = get(graphLayoutAtom)
+      const matchedById = new Map<number, any>(
+        result.map((item: any) => [Number(item.id), item])
+      )
+      return graph.nodes
+        .map((node) => {
+          const item = embeddingsById.get(node.id)
+          if (!item) return null
+          const matched = matchedById.get(node.id)
+          return {
+            id: node.id,
+            point: node.positions[layout],
+            type: 'image',
+            meta: {
+              ...item.metadata,
+              graphDepth: node.depth,
+              graphParentId: node.parent_id,
+              graphSimilarityToParent: node.similarity_to_parent,
+              graphSimilarityToRoot: node.similarity_to_root,
+              matched: !!matched,
+              matchedDistance: matched ? matched.distance : null,
+            },
+          }
+        })
+        .filter(Boolean)
+    }
+
+    const projection = await get(embeddingProjection(type))
 
     if (projectionSettings.type === 'sao') {
       const saoData = await get(saoTermsUmapAtom)
