@@ -6,6 +6,7 @@ import {
   activeDatasetIdAtom,
   displaySettingsAtom,
   filterSettingsAtom,
+  graphNetworksAtom,
   hoveredTextAtom,
   projectionSettingsAtom,
   searchQueryAtom,
@@ -116,6 +117,7 @@ export const EmbeddingsLayer: React.FC<{
   const displaySettings = useAtomValue(displaySettingsAtom)
   const filterSettings = useAtomValue(filterSettingsAtom)
   const projectionSettings = useAtomValue(projectionSettingsAtom)
+  const graphNetworks = useAtomValue(graphNetworksAtom)
   const hoveredText = useAtomValue(hoveredTextAtom)
   const selectedEmbeddingIds = useAtomValue(selectedEmbeddingIdsAtom)
   const steerSuggestions = useAtomValue(steerSuggestionsAtom)
@@ -132,6 +134,10 @@ export const EmbeddingsLayer: React.FC<{
   const viewportFitScale = useAtomValue(viewportFitScaleAtom)
   const setSelectedTags = useSetAtom(selectedTagsAtom)
   const recentlyTaggedIds = useAtomValue(recentlyTaggedIdsAtom)
+  const graphRootId =
+    datasetId && projectionSettings.type === 'graph'
+      ? graphNetworks[datasetId]?.root_image_id
+      : null
 
   const textEmbeddings = rawEmbeddings.filter((e: any) => e.type === 'text')
   const usesDefaultClusterProjection =
@@ -383,7 +389,10 @@ export const EmbeddingsLayer: React.FC<{
       return { targetScale, tint }
     }
 
-    if (projectionSettings.type === 'umap') {
+    if (
+      projectionSettings.type === 'umap' ||
+      projectionSettings.type === 'graph'
+    ) {
       targetScale = BASE_SCALE * displaySettings.scale * 5
     }
     if (searchQuery.length && !embed.meta.matched) {
@@ -399,13 +408,22 @@ export const EmbeddingsLayer: React.FC<{
     if (isSteerActive && !isSteerTagged && !isSteerSuggested && !isSelected) {
       targetScale *= 0.5
     }
-    if (isSelected) {
+    if (projectionSettings.type === 'graph' && Number(embed.id) === graphRootId) {
+      targetScale *= 1.8
+      tint = 0xffaa33
+    } else if (isSelected) {
       targetScale *= 1.6
       tint = 0xffaa33
     }
 
     return { targetScale, tint }
-  }, [displaySettings, projectionSettings.type, searchQuery, type])
+  }, [
+    displaySettings,
+    graphRootId,
+    projectionSettings.type,
+    searchQuery,
+    type,
+  ])
 
   useEffect(() => {
     if (!steerSuggestions || projectionSettings.type !== 'umap') return

@@ -4,6 +4,8 @@ import {
   activeDatasetIdAtom,
   displaySettingsAtom,
   filterSettingsAtom,
+  graphLayoutAtom,
+  graphNetworksAtom,
   hoveredTextAtom,
   projectionSettingsAtom,
   projectionViewModeAtom,
@@ -88,6 +90,10 @@ const Search = () => {
 const ProjectionSettings = () => {
   const [settings, setSettings] = useAtom(projectionSettingsAtom)
   const [viewMode, setViewMode] = useAtom(projectionViewModeAtom)
+  const [graphLayout, setGraphLayout] = useAtom(graphLayoutAtom)
+  const datasetId = useAtomValue(activeDatasetIdAtom)
+  const graphNetworks = useAtomValue(graphNetworksAtom)
+  const hasGraph = !!datasetId && !!graphNetworks[datasetId]
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target
@@ -135,9 +141,37 @@ const ProjectionSettings = () => {
               <SelectItem value="grid">Rutnät</SelectItem>
               <SelectItem value="tagged">Taggade/otaggade</SelectItem>
               <SelectItem value="sao">SAO-termer</SelectItem>
+              <SelectItem value="graph" disabled={!hasGraph}>
+                Graph network
+              </SelectItem>
               <SelectItem value="year">År</SelectItem>
             </SelectContent>
           </Select>
+        </>
+      )}
+      {viewMode === '2d' && settings.type === 'graph' && (
+        <>
+          <CardHeader className="p-0 mt-2">
+            <CardTitle>Graph layout</CardTitle>
+          </CardHeader>
+          <div className="grid grid-cols-2 gap-2">
+            <Button
+              type="button"
+              variant={graphLayout === 'concentric' ? 'secondary' : 'outline'}
+              onClick={() => setGraphLayout('concentric')}
+              className="h-auto px-2 py-2 text-xs"
+            >
+              Concentric shells
+            </Button>
+            <Button
+              type="button"
+              variant={graphLayout === 'force' ? 'secondary' : 'outline'}
+              onClick={() => setGraphLayout('force')}
+              className="h-auto px-2 py-2 text-xs"
+            >
+              Free force
+            </Button>
+          </div>
         </>
       )}
       {(viewMode === '3d' || settings.type === 'umap') && (

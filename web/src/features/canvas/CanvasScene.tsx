@@ -5,6 +5,8 @@ import * as PIXI from 'pixi.js'
 import { useAtomValue, useSetAtom } from 'jotai'
 import {
   activeDatasetIdAtom,
+  graphLayoutAtom,
+  graphNetworksAtom,
   loadableProjectedEmbeddingsAtom,
   projectionSettingsAtom,
   selectedEmbeddingAtom,
@@ -25,6 +27,7 @@ import { EmbeddingsLayer } from './components/EmbeddingsLayer'
 import { SelectionRect } from './components/SelectionRect'
 import { Minimap } from './components/Minimap'
 import { HUD } from './components/HUD'
+import { GraphNetworkLayer } from './components/GraphNetworkLayer'
 import { HomeLogoLink } from '@/shared/components/HomeLogoLink'
 
 extend({
@@ -55,9 +58,13 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
   const setSelectedEmbeddingIds = useSetAtom(selectedEmbeddingIdsAtom)
   const setViewportScale = useSetAtom(viewportScaleAtom)
   const setViewportFitScale = useSetAtom(viewportFitScaleAtom)
+  const setProjectionSettings = useSetAtom(projectionSettingsAtom)
 
   const datasetId = useAtomValue(activeDatasetIdAtom)
   const projectionSettings = useAtomValue(projectionSettingsAtom)
+  const graphLayout = useAtomValue(graphLayoutAtom)
+  const graphNetworks = useAtomValue(graphNetworksAtom)
+  const activeGraph = datasetId ? graphNetworks[datasetId] : null
   const tagRefreshTrigger = useAtomValue(tagRefreshTriggerAtom)
   const viewportFitScale = useAtomValue(viewportFitScaleAtom)
 
@@ -87,13 +94,36 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
   >(null)
   const [rawMinimapEmbeddings, setRawMinimapEmbeddings] = useState<any[]>([])
   const [visibleBounds, setVisibleBounds] = useState<PIXI.Rectangle | null>(null)
+  const projectionViewKey =
+    projectionSettings.type === 'graph'
+      ? [
+          projectionSettings.type,
+          datasetId,
+          activeGraph?.root_image_id,
+          activeGraph?.nodes.length,
+          activeGraph?.parameters.max_depth,
+          activeGraph?.parameters.neighbors_per_node,
+          activeGraph?.parameters.max_nodes,
+          activeGraph?.parameters.min_similarity,
+          graphLayout,
+        ].join(':')
+      : projectionSettings.type
+
+  useEffect(() => {
+    if (projectionSettings.type === 'graph' && !activeGraph) {
+      setProjectionSettings((previous) => ({
+        ...previous,
+        type: 'umap',
+      }))
+    }
+  }, [activeGraph, projectionSettings.type, setProjectionSettings])
 
   useEffect(() => {
     if (mainEmbeddingsLoadable.state === 'hasData') {
       setRawEmbeddings(mainEmbeddingsLoadable.data as any[])
-      setRawEmbeddingsViewType(projectionSettings.type)
+      setRawEmbeddingsViewType(projectionViewKey)
     }
-  }, [mainEmbeddingsLoadable, projectionSettings.type])
+  }, [mainEmbeddingsLoadable, projectionViewKey])
 
   useEffect(() => {
     if (minimapEmbeddingsLoadable.state === 'hasData') {
@@ -280,14 +310,14 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
 
   useEffect(() => {
     if (!viewportReady || !projectionFit) return
-    if (rawEmbeddingsViewType !== projectionSettings.type) return
-    if (lastFittedViewTypeRef.current === projectionSettings.type) return
+    if (rawEmbeddingsViewType !== projectionViewKey) return
+    if (lastFittedViewTypeRef.current === projectionViewKey) return
     fitProjection()
-    lastFittedViewTypeRef.current = projectionSettings.type
+    lastFittedViewTypeRef.current = projectionViewKey
   }, [
     fitProjection,
     projectionFit,
-    projectionSettings.type,
+    projectionViewKey,
     rawEmbeddingsViewType,
     viewportReady,
   ])
@@ -471,14 +501,17 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
           }}
         >
           {allLoaded && (
-            <EmbeddingsLayer
-              type="main"
-              masterAtlas={masterAtlas}
-              atlasMeta={atlasMeta}
-              particleContainerRefs={particleContainerRefs}
-              rawEmbeddings={rawEmbeddings}
-              visibleBounds={visibleBounds}
-            />
+            <>
+              {projectionSettings.type === 'graph' && <GraphNetworkLayer />}
+              <EmbeddingsLayer
+                type="main"
+                masterAtlas={masterAtlas}
+                atlasMeta={atlasMeta}
+                particleContainerRefs={particleContainerRefs}
+                rawEmbeddings={rawEmbeddings}
+                visibleBounds={visibleBounds}
+              />
+            </>
           )}
           <SelectionRect selectionRect={selectionRect} />
         </viewport>

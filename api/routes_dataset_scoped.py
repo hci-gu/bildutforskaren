@@ -19,6 +19,7 @@ from api import dataset_db
 from api import datasets
 from api import image_roundtrip
 from api import indexing
+from api.graph_network import GraphNetworkParameters, build_graph_network
 from api import context as context_builder
 from api import runtime
 from api.clustering import ClusteringConfig, fit_model
@@ -250,6 +251,59 @@ def get_embedding(dataset_id: str, image_id: int):
     if 0 <= image_id < len(ctx.embeddings):
         return jsonify(ctx.embeddings[image_id].tolist())
     abort(404, description="Image ID not found")
+
+
+def _graph_integer_parameter(payload: dict, name: str, default: int, minimum: int, maximum: int):
+    value = payload.get(name, default)
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"'{name}' must be an integer")
+    if not minimum <= value <= maximum:
+        raise ValueError(f"'{name}' must be between {minimum} and {maximum}")
+    return value
+
+
+def _graph_similarity_parameter(payload: dict) -> float:
+    value = payload.get("min_similarity", 0.75)
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError("'min_similarity' must be a number")
+    value = float(value)
+    if not math.isfinite(value) or not 0.0 <= value <= 1.0:
+        raise ValueError("'min_similarity' must be between 0 and 1")
+    return value
+
+
+@bp.route("/datasets/<dataset_id>/graph-network", methods=["POST"])
+def create_graph_network(dataset_id: str):
+    ctx = _get_context(dataset_id)
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify({"error": "Expected a JSON object"}), 400
+
+    root_image_id = payload.get("root_image_id")
+    if isinstance(root_image_id, bool) or not isinstance(root_image_id, int):
+        return jsonify({"error": "'root_image_id' must be an integer"}), 400
+    if not 0 <= root_image_id < len(ctx.embeddings):
+        return jsonify({"error": "Root image ID not found"}), 404
+
+    try:
+        parameters = GraphNetworkParameters(
+            max_depth=_graph_integer_parameter(payload, "max_depth", 3, 1, 5),
+            neighbors_per_node=_graph_integer_parameter(
+                payload, "neighbors_per_node", 4, 1, 10
+            ),
+            max_nodes=_graph_integer_parameter(payload, "max_nodes", 60, 2, 200),
+            min_similarity=_graph_similarity_parameter(payload),
+        )
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    result = build_graph_network(
+        ctx.embeddings.cpu().numpy().astype("float32"),
+        ctx.faiss_index,
+        root_image_id,
+        parameters,
+    )
+    return jsonify({"dataset_id": dataset_id, **result})
 
 
 @bp.route("/datasets/<dataset_id>/embedding-for-text", methods=["GET"])
