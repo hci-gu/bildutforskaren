@@ -5,6 +5,11 @@ import * as PIXI from 'pixi.js'
 import { useAtomValue, useSetAtom } from 'jotai'
 import {
   activeDatasetIdAtom,
+  anchorAnalysisCandidateIdsAtom,
+  anchorAnalysisStaleAtom,
+  anchorAnalysisTrayCollapsedAtom,
+  anchorAnalysisTrayHeightAtom,
+  anchorAnalysisTrayOpenAtom,
   graphLayoutAtom,
   graphNetworksAtom,
   loadableProjectedEmbeddingsAtom,
@@ -28,6 +33,8 @@ import { SelectionRect } from './components/SelectionRect'
 import { Minimap } from './components/Minimap'
 import { HUD } from './components/HUD'
 import { GraphNetworkLayer } from './components/GraphNetworkLayer'
+import { AnchorAnalysisOverlay } from './components/AnchorAnalysisOverlay'
+import { AnchorAnalysisTray } from './components/AnchorAnalysisTray'
 import { HomeLogoLink } from '@/shared/components/HomeLogoLink'
 
 extend({
@@ -45,11 +52,20 @@ type Props = {
   height?: number
 }
 
+type ProjectedEmbedding = {
+  id: string | number
+  point?: [number, number]
+  type: string
+  text?: string
+  meta?: Record<string, unknown>
+}
+
 export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) => {
   const dragStart = useRef<PIXI.PointData | null>(null)
   const selectionStart = useRef<PIXI.PointData | null>(null)
   const selectionActiveRef = useRef(false)
   const lastFittedViewTypeRef = useRef<string | null>(null)
+  const previousTrayOpenRef = useRef(false)
   const [selectionRect, setSelectionRect] = useState<PIXI.Rectangle | null>(null)
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const refreshUntilRef = useRef(0)
@@ -67,6 +83,11 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
   const activeGraph = datasetId ? graphNetworks[datasetId] : null
   const tagRefreshTrigger = useAtomValue(tagRefreshTriggerAtom)
   const viewportFitScale = useAtomValue(viewportFitScaleAtom)
+  const trayOpen = useAtomValue(anchorAnalysisTrayOpenAtom)
+  const trayCollapsed = useAtomValue(anchorAnalysisTrayCollapsedAtom)
+  const trayHeight = useAtomValue(anchorAnalysisTrayHeightAtom)
+  const analyzedCandidateIds = useAtomValue(anchorAnalysisCandidateIdsAtom)
+  const setAnchorAnalysisStale = useSetAtom(anchorAnalysisStaleAtom)
 
   const [showTagRefresh, setShowTagRefresh] = useState(false)
 
@@ -88,12 +109,24 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
     loadableProjectedEmbeddingsAtom('minimap')
   )
 
-  const [rawEmbeddings, setRawEmbeddings] = useState<any[]>([])
+  const [rawEmbeddings, setRawEmbeddings] = useState<ProjectedEmbedding[]>([])
   const [rawEmbeddingsViewType, setRawEmbeddingsViewType] = useState<
     string | null
   >(null)
-  const [rawMinimapEmbeddings, setRawMinimapEmbeddings] = useState<any[]>([])
+  const [rawMinimapEmbeddings, setRawMinimapEmbeddings] = useState<
+    ProjectedEmbedding[]
+  >([])
   const [visibleBounds, setVisibleBounds] = useState<PIXI.Rectangle | null>(null)
+  const candidateIds = useMemo(
+    () =>
+      rawEmbeddings
+        .filter((item) => item.type === 'image')
+        .map((item) => Number(item.id))
+        .filter((id: number) => Number.isInteger(id)),
+    [rawEmbeddings]
+  )
+  const trayOffset = trayOpen ? (trayCollapsed ? 52 : trayHeight) : 0
+  const canvasHeight = Math.max(240, windowSize.height - trayOffset)
   const projectionViewKey =
     projectionSettings.type === 'graph'
       ? [
@@ -120,14 +153,16 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
 
   useEffect(() => {
     if (mainEmbeddingsLoadable.state === 'hasData') {
-      setRawEmbeddings(mainEmbeddingsLoadable.data as any[])
+      setRawEmbeddings(mainEmbeddingsLoadable.data as ProjectedEmbedding[])
       setRawEmbeddingsViewType(projectionViewKey)
     }
   }, [mainEmbeddingsLoadable, projectionViewKey])
 
   useEffect(() => {
     if (minimapEmbeddingsLoadable.state === 'hasData') {
-      setRawMinimapEmbeddings(minimapEmbeddingsLoadable.data as any[])
+      setRawMinimapEmbeddings(
+        minimapEmbeddingsLoadable.data as ProjectedEmbedding[]
+      )
     }
   }, [minimapEmbeddingsLoadable])
 
@@ -211,18 +246,41 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
     const viewport = viewportRef.current
     if (!viewport) return
     state.viewport = viewport
+    state.pixiApp?.renderer.resize(windowSize.width, canvasHeight)
     if (typeof (viewport as any).resize === 'function') {
       ;(viewport as any).resize(
         windowSize.width,
-        windowSize.height,
+        canvasHeight,
         width,
         height
       )
     } else {
       viewport.screenWidth = windowSize.width
-      viewport.screenHeight = windowSize.height
+      viewport.screenHeight = canvasHeight
     }
-  }, [windowSize.width, windowSize.height, width, height])
+  }, [canvasHeight, windowSize.width, width, height])
+
+  useEffect(() => {
+    const current = [...candidateIds].sort((a, b) => a - b)
+    if (
+      analyzedCandidateIds.length > 0 &&
+      (current.length !== analyzedCandidateIds.length ||
+        current.some((id, index) => id !== analyzedCandidateIds[index]))
+    ) {
+      setAnchorAnalysisStale(true)
+    }
+  }, [analyzedCandidateIds, candidateIds, setAnchorAnalysisStale])
+
+  useEffect(() => {
+    const trayVisibilityChanged = trayOpen !== previousTrayOpenRef.current
+    previousTrayOpenRef.current = trayOpen
+    if (!trayVisibilityChanged) return
+    const timer = window.setTimeout(() => {
+      state.pixiApp?.renderer.resize(windowSize.width, canvasHeight)
+      fitProjection()
+    }, 0)
+    return () => window.clearTimeout(timer)
+  }, [canvasHeight, fitProjection, trayOpen, windowSize.width])
 
   useEffect(() => {
     const viewport = viewportRef.current
@@ -397,12 +455,14 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
       <HUD
         canFitProjection={projectionFit !== null}
         onFitProjection={fitProjection}
+        candidateIds={candidateIds}
+        bottomOffset={trayOffset}
       />
       <Panel />
 
       <Application
         width={windowSize.width}
-        height={windowSize.height}
+        height={canvasHeight}
         backgroundAlpha={0}
         onInit={(app) => (state.pixiApp = app)}
       >
@@ -511,6 +571,9 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
                 rawEmbeddings={rawEmbeddings}
                 visibleBounds={visibleBounds}
               />
+              {projectionSettings.type === 'umap' && (
+                <AnchorAnalysisOverlay rawEmbeddings={rawEmbeddings} />
+              )}
             </>
           )}
           <SelectionRect selectionRect={selectionRect} />
@@ -523,12 +586,17 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
             atlasMeta={atlasMeta}
             particleContainerRefs={minimapParticleContainerRefs}
             rawEmbeddings={rawMinimapEmbeddings}
-            windowSize={windowSize}
+            windowSize={{ ...windowSize, height: canvasHeight }}
             viewportRef={viewportRef}
             projectionType={projectionSettings.type}
           />
         )}
       </Application>
+      <AnchorAnalysisTray
+        candidateIds={candidateIds}
+        rawEmbeddings={rawEmbeddings}
+        atlasMeta={atlasMeta}
+      />
     </>
   )
 }

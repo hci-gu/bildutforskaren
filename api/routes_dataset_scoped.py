@@ -19,6 +19,7 @@ from api import dataset_db
 from api import datasets
 from api import image_roundtrip
 from api import indexing
+from api.anchor_analysis import AnchorAnalysisParameters, analyze_anchor_paths
 from api.graph_network import GraphNetworkParameters, build_graph_network
 from api import context as context_builder
 from api import runtime
@@ -251,6 +252,77 @@ def get_embedding(dataset_id: str, image_id: int):
     if 0 <= image_id < len(ctx.embeddings):
         return jsonify(ctx.embeddings[image_id].tolist())
     abort(404, description="Image ID not found")
+
+
+def _anchor_id_list(payload: dict, name: str) -> list[int]:
+    value = payload.get(name)
+    if not isinstance(value, list) or not value:
+        raise ValueError(f"'{name}' must be a non-empty list of image IDs")
+    if any(isinstance(item, bool) or not isinstance(item, int) for item in value):
+        raise ValueError(f"'{name}' must contain only integer image IDs")
+    return list(dict.fromkeys(value))
+
+
+def _anchor_parameter(
+    parameters: dict,
+    name: str,
+    default: int,
+    minimum: int,
+    maximum: int,
+) -> int:
+    value = parameters.get(name, default)
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"'{name}' must be an integer")
+    if not minimum <= value <= maximum:
+        raise ValueError(f"'{name}' must be between {minimum} and {maximum}")
+    return value
+
+
+@bp.route("/datasets/<dataset_id>/anchor-analysis", methods=["POST"])
+def create_anchor_analysis(dataset_id: str):
+    ctx = _get_context(dataset_id)
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify({"error": "Expected a JSON object"}), 400
+
+    try:
+        anchor_a_ids = _anchor_id_list(payload, "anchor_a_ids")
+        anchor_b_ids = _anchor_id_list(payload, "anchor_b_ids")
+        if set(anchor_a_ids) & set(anchor_b_ids):
+            raise ValueError("Anchor groups A and B must be disjoint")
+
+        candidate_ids = _anchor_id_list(payload, "candidate_ids")
+        candidate_ids = list(
+            dict.fromkeys([*candidate_ids, *anchor_a_ids, *anchor_b_ids])
+        )
+        image_count = len(ctx.embeddings)
+        all_ids = [*anchor_a_ids, *anchor_b_ids, *candidate_ids]
+        if any(image_id < 0 or image_id >= image_count for image_id in all_ids):
+            raise ValueError("One or more image IDs are out of range")
+
+        raw_parameters = payload.get("parameters", {})
+        if not isinstance(raw_parameters, dict):
+            raise ValueError("'parameters' must be an object")
+        parameters = AnchorAnalysisParameters(
+            path_steps=_anchor_parameter(
+                raw_parameters, "path_steps", 11, 5, 31
+            ),
+            retrieval_count=_anchor_parameter(
+                raw_parameters, "retrieval_count", 5, 1, 20
+            ),
+            graph_k=_anchor_parameter(raw_parameters, "graph_k", 10, 2, 50),
+        )
+        result = analyze_anchor_paths(
+            ctx.embeddings.cpu().numpy().astype("float32"),
+            anchor_a_ids,
+            anchor_b_ids,
+            candidate_ids,
+            parameters,
+        )
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    return jsonify({"dataset_id": dataset_id, **result})
 
 
 def _graph_integer_parameter(payload: dict, name: str, default: int, minimum: int, maximum: int):

@@ -99,6 +99,86 @@ export type GraphNetworkResponse = {
   edges: GraphNetworkEdge[]
 }
 
+export type AnchorAnalysisParameters = {
+  path_steps: number
+  retrieval_count: number
+  graph_k: number
+}
+
+export type AnchorAnalysisPoint = {
+  image_id: number
+  sim_a: number
+  sim_b: number
+  t: number
+  t_clipped: number
+  line_residual: number
+  segment_residual: number
+  contrast: number
+  commonality: number
+}
+
+export type AnchorAnalysisPath = {
+  connected: boolean
+  path_ids: number[]
+  edges: Array<{
+    source: number
+    target: number
+    distance: number
+    similarity: number
+  }>
+  total_length: number | null
+  maximum_jump: number | null
+}
+
+export type AnchorAnalysisResponse = {
+  dataset_id: string
+  anchors: {
+    a: {
+      ids: number[]
+      size: number
+      coherence: number
+      medoid_id: number
+      similarity_to_other: number
+    }
+    b: {
+      ids: number[]
+      size: number
+      coherence: number
+      medoid_id: number
+      similarity_to_other: number
+    }
+    similarity: number
+  }
+  points: AnchorAnalysisPoint[]
+  axis: {
+    bins: Array<{
+      index: number
+      t_start: number
+      t_end: number
+      image_id: number | null
+      residual: number | null
+    }>
+    path_ids: number[]
+  }
+  interpolation: {
+    angle: number
+    steps: Array<{
+      index: number
+      t: number
+      angle: number
+      retrievals: Array<{ image_id: number; similarity: number }>
+      best_similarity: number | null
+    }>
+    path_ids: number[]
+  }
+  graph: {
+    k: number
+    shortest: AnchorAnalysisPath
+    supported: AnchorAnalysisPath
+  }
+  parameters: AnchorAnalysisParameters
+}
+
 export const API_URL =
   import.meta.env.VITE_API_URL || 'http://localhost:3000'
 // export const API_URL = 'https://bildutforskaren-api.prod.appadem.in'
@@ -365,6 +445,27 @@ export const createGraphNetwork = async (
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
+    }
+  )
+}
+
+export const createAnchorAnalysis = async (
+  datasetId: string,
+  payload: {
+    anchor_a_ids: number[]
+    anchor_b_ids: number[]
+    candidate_ids: number[]
+    parameters: AnchorAnalysisParameters
+  },
+  signal?: AbortSignal
+) => {
+  return await fetchJson<AnchorAnalysisResponse>(
+    datasetApiUrl(datasetId, '/anchor-analysis'),
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal,
     }
   )
 }
