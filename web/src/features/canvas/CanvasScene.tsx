@@ -246,6 +246,7 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
     const viewport = viewportRef.current
     if (!viewport) return
     state.viewport = viewport
+    state.pixiApp?.renderer.resize(windowSize.width, canvasHeight)
     if (typeof (viewport as any).resize === 'function') {
       ;(viewport as any).resize(
         windowSize.width,
@@ -271,12 +272,15 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
   }, [analyzedCandidateIds, candidateIds, setAnchorAnalysisStale])
 
   useEffect(() => {
-    const justOpened = trayOpen && !previousTrayOpenRef.current
+    const trayVisibilityChanged = trayOpen !== previousTrayOpenRef.current
     previousTrayOpenRef.current = trayOpen
-    if (!justOpened) return
-    const timer = window.setTimeout(() => fitProjection(), 0)
+    if (!trayVisibilityChanged) return
+    const timer = window.setTimeout(() => {
+      state.pixiApp?.renderer.resize(windowSize.width, canvasHeight)
+      fitProjection()
+    }, 0)
     return () => window.clearTimeout(timer)
-  }, [fitProjection, trayOpen])
+  }, [canvasHeight, fitProjection, trayOpen, windowSize.width])
 
   useEffect(() => {
     const viewport = viewportRef.current

@@ -4,6 +4,7 @@ import {
   ChevronDown,
   ChevronUp,
   RefreshCw,
+  Route,
   SlidersHorizontal,
   X,
 } from 'lucide-react'
@@ -188,33 +189,11 @@ const ScatterPlot = ({
         (1 - (point[yKey] - minY) / (maxY - minY)) * plotHeight,
     })
 
-    const priority = [
-      ...points.filter((point) => anchorASet.has(point.image_id)),
-      ...points.filter((point) => anchorBSet.has(point.image_id)),
-      ...points.filter((point) => pathSet.has(point.image_id)),
-      ...points,
-    ]
-    const occupied = new Set<string>()
-    const thumbnailIds: number[] = []
-    const seen = new Set<number>()
-    for (const point of priority) {
-      if (seen.has(point.image_id)) continue
-      seen.add(point.image_id)
-      const pointPosition = position(point)
-      const cell = `${Math.floor(pointPosition.x / 42)}:${Math.floor(pointPosition.y / 34)}`
-      const forced =
-        anchorASet.has(point.image_id) ||
-        anchorBSet.has(point.image_id) ||
-        pathSet.has(point.image_id)
-      if (forced || (!occupied.has(cell) && thumbnailIds.length < 30)) {
-        thumbnailIds.push(point.image_id)
-        occupied.add(cell)
-      }
-    }
+    const thumbnailIds = points
+      .filter((point) => pathSet.has(point.image_id))
+      .map((point) => point.image_id)
     return { minX, maxX, minY, maxY, position, thumbnailIds }
   }, [
-    anchorASet,
-    anchorBSet,
     height,
     margin.bottom,
     margin.left,
@@ -370,6 +349,70 @@ const ScatterPlot = ({
   )
 }
 
+const PathRail = ({
+  datasetId,
+  atlasMeta,
+  pathIds,
+  activeId,
+  onFocus,
+}: {
+  datasetId: string
+  atlasMeta: AtlasMeta
+  pathIds: number[]
+  activeId: number | null
+  onFocus: (imageId: number) => void
+}) => {
+  if (!pathIds.length) {
+    return (
+      <div className="flex h-full items-center justify-center text-sm text-white/55">
+        No path is available for this method.
+      </div>
+    )
+  }
+
+  return (
+    <div
+      className="flex h-full items-center overflow-x-auto px-6 py-5"
+      role="list"
+      aria-label={`Image path with ${pathIds.length} steps`}
+    >
+      {pathIds.map((imageId, index) => (
+        <React.Fragment key={`${imageId}_${index}`}>
+          {index > 0 && (
+            <div
+              className="min-w-12 text-center text-xl text-white/30"
+              aria-hidden="true"
+            >
+              →
+            </div>
+          )}
+          <button
+            type="button"
+            role="listitem"
+            className={`group relative z-0 min-w-28 transform-gpu rounded-xl p-3 text-center text-xs transition duration-200 ease-out hover:z-10 hover:-translate-y-3 hover:scale-[1.12] hover:bg-white/10 hover:shadow-[0_18px_45px_rgba(0,0,0,0.55)] focus-visible:z-10 focus-visible:-translate-y-3 focus-visible:scale-[1.12] focus-visible:bg-white/10 ${
+              activeId === imageId
+                ? '-translate-y-1 bg-white/10 ring-2 ring-emerald-300'
+                : ''
+            }`}
+            onClick={() => onFocus(imageId)}
+            aria-label={`Focus path step ${index + 1}, image ${imageId}`}
+          >
+            <AtlasThumbnail
+              datasetId={datasetId}
+              imageId={imageId}
+              atlasMeta={atlasMeta}
+              className="mx-auto mb-2 h-20 w-20 rounded-lg ring-1 ring-white/20 transition duration-200 group-hover:brightness-110 group-hover:ring-2 group-hover:ring-white/80 group-focus-visible:brightness-110 group-focus-visible:ring-2 group-focus-visible:ring-white/80"
+              size={80}
+            />
+            <span className="block text-white/55">Step {index + 1}</span>
+            <span className="block">#{imageId}</span>
+          </button>
+        </React.Fragment>
+      ))}
+    </div>
+  )
+}
+
 export const AnchorAnalysisTray: React.FC<Props> = ({
   candidateIds,
   rawEmbeddings,
@@ -389,10 +432,12 @@ export const AnchorAnalysisTray: React.FC<Props> = ({
   const error = useAtomValue(anchorAnalysisErrorAtom)
   const stale = useAtomValue(anchorAnalysisStaleAtom)
   const setStale = useSetAtom(anchorAnalysisStaleAtom)
+  const selectedIds = useAtomValue(selectedEmbeddingIdsAtom)
   const setSelectedIds = useSetAtom(selectedEmbeddingIdsAtom)
   const setSelectedEmbedding = useSetAtom(selectedEmbeddingAtom)
   const analyze = useAnchorAnalysis(candidateIds)
   const [dragging, setDragging] = useState(false)
+  const [displayPath, setDisplayPath] = useState(false)
 
   useEffect(() => {
     if (!dragging) return
@@ -431,6 +476,27 @@ export const AnchorAnalysisTray: React.FC<Props> = ({
     }
   }
 
+  const focusPathImage = (imageId: number) => {
+    const item = pointByImage.get(imageId)
+    setSelectedIds([String(imageId)])
+    setSelectedEmbedding(null)
+    if (!item?.point || !state.viewport) return
+    const position = {
+      x: CANVAS_OFFSET_X + item.point[0] * CANVAS_WIDTH,
+      y: CANVAS_OFFSET_Y + item.point[1] * CANVAS_HEIGHT,
+    }
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      state.viewport.moveCenter(position)
+      return
+    }
+    state.viewport.animate({
+      position,
+      time: 650,
+      ease: 'easeInOutCubic',
+      removeOnInterrupt: true,
+    })
+  }
+
   const graphPath = result?.graph[graphMode]
   const pathIds =
     tab === 'interpolation'
@@ -438,6 +504,10 @@ export const AnchorAnalysisTray: React.FC<Props> = ({
       : tab === 'graph'
         ? graphPath?.path_ids ?? []
         : result?.axis.path_ids ?? []
+
+  useEffect(() => {
+    if (!pathIds.length) setDisplayPath(false)
+  }, [pathIds.length])
 
   const updateParameter = (
     key: keyof typeof parameters,
@@ -564,6 +634,19 @@ export const AnchorAnalysisTray: React.FC<Props> = ({
               )}
             </div>
             <div className="flex items-center gap-2">
+              <button
+                type="button"
+                className={`flex items-center gap-1 rounded-full px-3 py-1.5 ${
+                  displayPath
+                    ? 'bg-violet-300 text-black'
+                    : 'border border-white/20 hover:bg-white/10'
+                } disabled:cursor-not-allowed disabled:opacity-40`}
+                onClick={() => setDisplayPath((value) => !value)}
+                disabled={!result || pathIds.length === 0}
+                aria-pressed={displayPath}
+              >
+                <Route size={14} /> Display path
+              </button>
               <details className="relative">
                 <summary className="flex cursor-pointer list-none items-center gap-1 rounded-full border border-white/20 px-3 py-1.5 hover:bg-white/10">
                   <SlidersHorizontal size={14} /> Advanced
@@ -635,7 +718,18 @@ export const AnchorAnalysisTray: React.FC<Props> = ({
 
           {result && datasetId && status !== 'loading' && (
             <div className="min-h-0 flex-1">
-              {tab === 'axis' && (
+              {displayPath && (
+                <PathRail
+                  datasetId={datasetId}
+                  atlasMeta={atlasMeta}
+                  pathIds={pathIds}
+                  activeId={
+                    selectedIds.length === 1 ? Number(selectedIds[0]) : null
+                  }
+                  onFocus={focusPathImage}
+                />
+              )}
+              {!displayPath && tab === 'axis' && (
                 <ScatterPlot
                   datasetId={datasetId}
                   atlasMeta={atlasMeta}
@@ -650,7 +744,7 @@ export const AnchorAnalysisTray: React.FC<Props> = ({
                   onSelect={selectImage}
                 />
               )}
-              {tab === 'affinity' && (
+              {!displayPath && tab === 'affinity' && (
                 <ScatterPlot
                   datasetId={datasetId}
                   atlasMeta={atlasMeta}
@@ -665,7 +759,7 @@ export const AnchorAnalysisTray: React.FC<Props> = ({
                   onSelect={selectImage}
                 />
               )}
-              {tab === 'interpolation' && (
+              {!displayPath && tab === 'interpolation' && (
                 <div className="flex h-full gap-3 overflow-x-auto pb-2">
                   {result.interpolation.steps.map((step) => (
                     <div
@@ -707,7 +801,7 @@ export const AnchorAnalysisTray: React.FC<Props> = ({
                   ))}
                 </div>
               )}
-              {tab === 'graph' && (
+              {!displayPath && tab === 'graph' && (
                 <div className="flex h-full min-h-0 flex-col">
                   <div className="mb-3 flex items-center gap-2 text-xs">
                     {(['shortest', 'supported'] as const).map((mode) => (
