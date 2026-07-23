@@ -480,6 +480,38 @@ export const graphLayoutAtom = atom<import('@/shared/lib/api').GraphLayout>(
   'concentric'
 )
 
+export type AnchorAnalysisTab = 'axis' | 'affinity' | 'interpolation' | 'graph'
+export type AnchorGraphMode = 'shortest' | 'supported'
+
+export const anchorGroupsAtom = atom<{
+  a: string[]
+  b: string[]
+}>({ a: [], b: [] })
+export const anchorAnalysisResultAtom =
+  atom<import('@/shared/lib/api').AnchorAnalysisResponse | null>(null)
+export const anchorAnalysisStatusAtom = atom<'idle' | 'loading' | 'ready' | 'error'>(
+  'idle'
+)
+export const anchorAnalysisErrorAtom = atom<string | null>(null)
+export const anchorAnalysisStaleAtom = atom(false)
+export const anchorAnalysisCandidateIdsAtom = atom<number[]>([])
+export const anchorAnalysisTabAtom = atom<AnchorAnalysisTab>('axis')
+export const anchorGraphModeAtom = atom<AnchorGraphMode>('supported')
+export const anchorAnalysisCompareAtom = atom(false)
+export const anchorAnalysisParametersAtom =
+  atom<import('@/shared/lib/api').AnchorAnalysisParameters>({
+    path_steps: 11,
+    retrieval_count: 5,
+    graph_k: 10,
+  })
+export const anchorAnalysisTrayOpenAtom = atom(false)
+export const anchorAnalysisTrayCollapsedAtom = atom(false)
+export const anchorAnalysisTrayHeightAtom = atom(
+  typeof window === 'undefined'
+    ? 320
+    : Math.max(240, Math.round(window.innerHeight * 0.34))
+)
+
 export const displaySettingsAtom = atom({
   colorPhotographer: false,
   showClusterImages: true,

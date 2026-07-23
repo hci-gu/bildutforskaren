@@ -1,10 +1,23 @@
-import React, { useEffect, useState } from 'react'
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import { Focus } from 'lucide-react'
 import { PhotoView } from 'react-photo-view'
 import { useAtom, useAtomValue, useSetAtom } from 'jotai'
 import {
   activeDatasetIdAtom,
   activeEmbeddingIdsAtom,
+  anchorAnalysisCandidateIdsAtom,
+  anchorAnalysisErrorAtom,
+  anchorAnalysisResultAtom,
+  anchorAnalysisStaleAtom,
+  anchorAnalysisStatusAtom,
+  anchorAnalysisTrayOpenAtom,
+  anchorGroupsAtom,
   graphLayoutAtom,
   graphNetworksAtom,
   projectionSettingsAtom,
@@ -27,10 +40,11 @@ import {
   MINIMAP_MARGIN,
   MINIMAP_SIZE,
 } from '../constants'
+import { useAnchorAnalysis } from '../hooks/useAnchorAnalysis'
 
-const ImageDisplayer = () => {
+const ImageDisplayer = ({ bottomOffset = 0 }: { bottomOffset?: number }) => {
   const buttonRef = React.useRef<HTMLButtonElement>(null)
-  const selectedEmbedding = useAtomValue<any>(selectedEmbeddingAtom)
+  const selectedEmbedding = useAtomValue(selectedEmbeddingAtom)
   const datasetId = useAtomValue(activeDatasetIdAtom)
 
   useEffect(() => {
@@ -61,7 +75,10 @@ const ImageDisplayer = () => {
       </PhotoView>
       <div className="metadata-panel-anchor" data-has-meta={Object.keys(meta).length > 0 ? '1' : '0'} />
       {Object.keys(meta).length > 0 && (
-      <div className="glass-panel fixed bottom-4 left-4 z-10000 max-w-sm rounded-lg p-3 text-xs text-white">
+      <div
+        className="glass-panel fixed left-4 z-10000 max-w-sm rounded-lg p-3 text-xs text-white"
+        style={{ bottom: 16 + bottomOffset }}
+      >
           <div className="mb-2 text-[10px] uppercase tracking-wide text-white/60">
             From metadata
           </div>
@@ -82,9 +99,13 @@ const ImageDisplayer = () => {
 export const HUD = ({
   canFitProjection = false,
   onFitProjection,
+  candidateIds = [],
+  bottomOffset = 0,
 }: {
   canFitProjection?: boolean
   onFitProjection?: () => void
+  candidateIds?: number[]
+  bottomOffset?: number
 } = {}) => {
   const [selectionHistory, setSelectionHistory] = useAtom(selectionHistoryAtom)
   const setActiveEmbeddingIds = useSetAtom(activeEmbeddingIdsAtom)
@@ -94,6 +115,17 @@ export const HUD = ({
   const setGraphLayout = useSetAtom(graphLayoutAtom)
   const setProjectionSettings = useSetAtom(projectionSettingsAtom)
   const setProjectionViewMode = useSetAtom(projectionViewModeAtom)
+  const [anchorGroups, setAnchorGroups] = useAtom(anchorGroupsAtom)
+  const setAnchorResult = useSetAtom(anchorAnalysisResultAtom)
+  const setAnchorStatus = useSetAtom(anchorAnalysisStatusAtom)
+  const setAnchorAnalysisError = useSetAtom(anchorAnalysisErrorAtom)
+  const setAnchorStale = useSetAtom(anchorAnalysisStaleAtom)
+  const [analyzedCandidates, setAnalyzedCandidates] = useAtom(
+    anchorAnalysisCandidateIdsAtom
+  )
+  const setAnchorTrayOpen = useSetAtom(anchorAnalysisTrayOpenAtom)
+  const analyzeAnchors = useAnchorAnalysis(candidateIds)
+  const previousDatasetId = useRef<string | null>(null)
 
   const setSelectedEmbedding = useSetAtom(selectedEmbeddingAtom)
   const setSelectedEmbeddingIds = useSetAtom(selectedEmbeddingIdsAtom)
@@ -111,10 +143,97 @@ export const HUD = ({
   })
   const [isCreatingGraph, setIsCreatingGraph] = useState(false)
   const [graphError, setGraphError] = useState<string | null>(null)
+  const [anchorSelectionError, setAnchorSelectionError] = useState<string | null>(
+    null
+  )
   const hasMeta =
     !!selectedEmbedding &&
     selectedEmbedding.meta &&
     Object.keys(selectedEmbedding.meta).length > 0
+
+  const validSelectedIds = useMemo(
+    () =>
+      selectedEmbeddingIds.filter((id) => {
+        const numericId = Number(id)
+        return Number.isInteger(numericId) && candidateIds.includes(numericId)
+      }),
+    [candidateIds, selectedEmbeddingIds]
+  )
+  const selectionOverlapsA = validSelectedIds.some((id) =>
+    anchorGroups.a.includes(id)
+  )
+  const selectionOverlapsB = validSelectedIds.some((id) =>
+    anchorGroups.b.includes(id)
+  )
+
+  const resetAnchors = useCallback(() => {
+    setAnchorGroups({ a: [], b: [] })
+    setAnchorResult(null)
+    setAnchorStatus('idle')
+    setAnchorAnalysisError(null)
+    setAnchorSelectionError(null)
+    setAnchorStale(false)
+    setAnalyzedCandidates([])
+    setAnchorTrayOpen(false)
+    setSelectedEmbeddingIds([])
+    setSelectedEmbedding(null)
+  }, [
+    setAnalyzedCandidates,
+    setAnchorAnalysisError,
+    setAnchorGroups,
+    setAnchorResult,
+    setAnchorStale,
+    setAnchorStatus,
+    setAnchorTrayOpen,
+    setSelectedEmbedding,
+    setSelectedEmbeddingIds,
+  ])
+
+  const setAnchor = (target: 'a' | 'b') => {
+    const opposite = target === 'a' ? anchorGroups.b : anchorGroups.a
+    if (!validSelectedIds.length) {
+      setAnchorSelectionError('Select one or more dataset images first.')
+      return
+    }
+    if (validSelectedIds.some((id) => opposite.includes(id))) {
+      setAnchorSelectionError('Anchor groups A and B cannot share an image.')
+      return
+    }
+    setAnchorGroups((previous) => ({
+      ...previous,
+      [target]: [...validSelectedIds],
+    }))
+    setAnchorResult(null)
+    setAnchorStatus('idle')
+    setAnchorAnalysisError(null)
+    setAnchorStale(false)
+    setAnchorTrayOpen(false)
+    setAnchorSelectionError(null)
+    setSelectedEmbeddingIds([])
+    setSelectedEmbedding(null)
+  }
+
+  useEffect(() => {
+    if (previousDatasetId.current === null) {
+      previousDatasetId.current = datasetId
+      return
+    }
+    if (previousDatasetId.current !== datasetId) {
+      previousDatasetId.current = datasetId
+      resetAnchors()
+    }
+  }, [datasetId, resetAnchors])
+
+  useEffect(() => {
+    if (!analyzedCandidates.length) return
+    const current = [...candidateIds].sort((a, b) => a - b)
+    if (
+      current.length !== analyzedCandidates.length ||
+      current.some((id, index) => id !== analyzedCandidates[index])
+    ) {
+      setAnchorStale(true)
+    }
+  }, [analyzedCandidates, candidateIds, setAnchorStale])
 
   useEffect(() => {
     if (selectedEmbeddingIds.length !== 1) {
@@ -179,14 +298,18 @@ export const HUD = ({
 
   return (
     <>
-      <ImageDisplayer />
+      <ImageDisplayer bottomOffset={bottomOffset} />
       {onFitProjection && <button
         type="button"
         className="glass-panel fixed z-10000 flex items-center gap-2 rounded-full px-3 py-2 text-xs text-white shadow-lg transition hover:bg-white/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 disabled:cursor-not-allowed disabled:opacity-40"
         style={{
           right: MINIMAP_MARGIN + MINIMAP_DEAD_ZONE,
           bottom:
-            MINIMAP_MARGIN + MINIMAP_SIZE + MINIMAP_DEAD_ZONE * 2 + 12,
+            MINIMAP_MARGIN +
+            MINIMAP_SIZE +
+            MINIMAP_DEAD_ZONE * 2 +
+            12 +
+            bottomOffset,
         }}
         onClick={onFitProjection}
         disabled={!canFitProjection}
@@ -200,14 +323,19 @@ export const HUD = ({
       {(selectedTags.length === 0 || selectedEmbedding) && (
         <TaggerPanel
           position={selectedTags.length > 0 ? 'left' : 'right'}
-          offsetBottom={selectedEmbedding && hasMeta ? 220 : 24}
+          offsetBottom={
+            (selectedEmbedding && hasMeta ? 220 : 24) + bottomOffset
+          }
         />
       )}
       {selectedTags.length > 0 && <TagResultsPanel />}
 
 
       {selectionHistory.length > 0 && (
-        <div className="fixed bottom-6 left-6 z-10000">
+        <div
+          className="fixed left-6 z-10000"
+          style={{ bottom: 24 + bottomOffset }}
+        >
           <button
             className="glass-panel rounded-full px-3 py-2 text-xs text-white transition hover:bg-white/15"
             onClick={() => {
@@ -228,9 +356,12 @@ export const HUD = ({
         </div>
       )}
 
-      {selectedEmbeddingIds.length > 0 && (
+      {(selectedEmbeddingIds.length > 0 ||
+        anchorGroups.a.length > 0 ||
+        anchorGroups.b.length > 0) && (
         <div
-          className="glass-panel fixed bottom-6 left-1/2 z-10000 flex -translate-x-1/2 items-center gap-3 rounded-full px-4 py-2 text-sm text-white"
+          className="glass-panel fixed left-1/2 z-10000 flex max-w-[calc(100vw-2rem)] -translate-x-1/2 flex-wrap items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm text-white"
+          style={{ bottom: 24 + bottomOffset }}
           data-canvas-ui="true"
         >
           {showGraphForm && selectedEmbeddingIds.length === 1 && (
@@ -359,30 +490,139 @@ export const HUD = ({
               </div>
             </div>
           )}
-          <span>{selectedEmbeddingIds.length} images selected</span>
-          <button
-            className="rounded-full border border-white/30 px-3 py-1 text-xs hover:bg-white/10"
-            onClick={() => {
-              setSelectedEmbeddingIds([])
-              setSelectedEmbedding(null)
-            }}
-          >
-            Deselect
-          </button>
-          <button
-            className="rounded-full bg-white/90 px-3 py-1 text-xs text-black hover:bg-white"
-            onClick={() => {
-              if (selectedEmbeddingIds.length > 0) {
-                setSelectionHistory((prev) => [...prev, activeEmbeddingIds])
-                setActiveEmbeddingIds(selectedEmbeddingIds)
-                setSelectedEmbeddingIds([])
-                setSelectedEmbedding(null)
-                setProjectionRevision((v) => v + 1)
+          {selectedEmbeddingIds.length > 0 && (
+            <>
+              <span>{selectedEmbeddingIds.length} images selected</span>
+              <button
+                className="rounded-full border border-white/30 px-3 py-1 text-xs hover:bg-white/10"
+                onClick={() => {
+                  setSelectedEmbeddingIds([])
+                  setSelectedEmbedding(null)
+                }}
+              >
+                Deselect
+              </button>
+              <button
+                className="rounded-full bg-white/90 px-3 py-1 text-xs text-black hover:bg-white"
+                onClick={() => {
+                  setSelectionHistory((prev) => [...prev, activeEmbeddingIds])
+                  setActiveEmbeddingIds(selectedEmbeddingIds)
+                  setSelectedEmbeddingIds([])
+                  setSelectedEmbedding(null)
+                  setProjectionRevision((v) => v + 1)
+                }}
+              >
+                Reproject with selection
+              </button>
+            </>
+          )}
+          {anchorGroups.a.length === 0 && selectedEmbeddingIds.length > 0 && (
+            <button
+              type="button"
+              className="rounded-full bg-amber-300 px-3 py-1 text-xs text-black hover:bg-amber-200"
+              onClick={() => setAnchor('a')}
+              disabled={selectionOverlapsB}
+              title={
+                selectionOverlapsB
+                  ? 'Selection overlaps anchor B'
+                  : 'Use selection as anchor A'
               }
-            }}
-          >
-            Reproject with selection
-          </button>
+            >
+              Set as A
+            </button>
+          )}
+          {anchorGroups.a.length > 0 &&
+            anchorGroups.b.length === 0 &&
+            selectedEmbeddingIds.length > 0 && (
+              <>
+                <button
+                  type="button"
+                  className="rounded-full border border-amber-300/60 px-3 py-1 text-xs text-amber-100 hover:bg-amber-300/10"
+                  onClick={() => setAnchor('a')}
+                  disabled={selectionOverlapsB}
+                  title={
+                    selectionOverlapsB
+                      ? 'Selection overlaps anchor B'
+                      : 'Replace anchor A'
+                  }
+                >
+                  Replace A
+                </button>
+                <button
+                  type="button"
+                  className="rounded-full bg-cyan-300 px-3 py-1 text-xs text-black hover:bg-cyan-200"
+                  onClick={() => setAnchor('b')}
+                  disabled={selectionOverlapsA}
+                  title={
+                    selectionOverlapsA
+                      ? 'Selection overlaps anchor A'
+                      : 'Use selection as anchor B'
+                  }
+                >
+                  Set as B
+                </button>
+              </>
+            )}
+          {anchorGroups.a.length > 0 &&
+            anchorGroups.b.length > 0 &&
+            selectedEmbeddingIds.length > 0 && (
+              <>
+                <button
+                  type="button"
+                  className="rounded-full border border-amber-300/60 px-3 py-1 text-xs text-amber-100 hover:bg-amber-300/10"
+                  onClick={() => setAnchor('a')}
+                  disabled={selectionOverlapsB}
+                  title={
+                    selectionOverlapsB
+                      ? 'Selection overlaps anchor B'
+                      : 'Replace anchor A'
+                  }
+                >
+                  Replace A
+                </button>
+                <button
+                  type="button"
+                  className="rounded-full border border-cyan-300/60 px-3 py-1 text-xs text-cyan-100 hover:bg-cyan-300/10"
+                  onClick={() => setAnchor('b')}
+                  disabled={selectionOverlapsA}
+                  title={
+                    selectionOverlapsA
+                      ? 'Selection overlaps anchor A'
+                      : 'Replace anchor B'
+                  }
+                >
+                  Replace B
+                </button>
+              </>
+            )}
+          {anchorGroups.a.length > 0 && (
+            <span className="rounded-full bg-amber-400/15 px-2 py-1 text-xs text-amber-100">
+              A · {anchorGroups.a.length}
+            </span>
+          )}
+          {anchorGroups.b.length > 0 && (
+            <span className="rounded-full bg-cyan-400/15 px-2 py-1 text-xs text-cyan-100">
+              B · {anchorGroups.b.length}
+            </span>
+          )}
+          {anchorGroups.a.length > 0 && anchorGroups.b.length > 0 && (
+            <button
+              type="button"
+              className="rounded-full bg-emerald-300 px-3 py-1 text-xs text-black hover:bg-emerald-200"
+              onClick={() => void analyzeAnchors()}
+            >
+              Analyze paths
+            </button>
+          )}
+          {(anchorGroups.a.length > 0 || anchorGroups.b.length > 0) && (
+            <button
+              type="button"
+              className="rounded-full border border-white/25 px-3 py-1 text-xs hover:bg-white/10"
+              onClick={resetAnchors}
+            >
+              Clear anchors
+            </button>
+          )}
           {selectedEmbeddingIds.length === 1 && (
             <button
               type="button"
@@ -395,6 +635,19 @@ export const HUD = ({
               Create graph network
             </button>
           )}
+          {anchorSelectionError && (
+            <span className="w-full text-center text-[11px] text-red-300">
+              {anchorSelectionError}
+            </span>
+          )}
+          {!anchorSelectionError &&
+            selectedEmbeddingIds.length > 0 &&
+            (selectionOverlapsA || selectionOverlapsB) && (
+              <span className="w-full text-center text-[11px] text-amber-200">
+                This selection overlaps an existing anchor; the conflicting
+                replace action is disabled.
+              </span>
+            )}
         </div>
       )}
     </>
