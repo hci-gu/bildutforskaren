@@ -80,18 +80,6 @@ export const GraphNetworkLayer: React.FC = () => {
         }}
         eventMode="none"
       />
-
-      <pixiGraphics
-        x={CANVAS_WIDTH / 2}
-        y={CANVAS_HEIGHT / 2}
-        draw={(graphics) => {
-          graphics.clear()
-          graphics.circle(0, 0, 46)
-          graphics.fill({ color: 0xffaa33, alpha: 0.08 })
-          graphics.stroke({ color: 0xffaa33, width: 5, alpha: 0.95 })
-        }}
-        eventMode="none"
-      />
     </pixiContainer>
   )
 }
