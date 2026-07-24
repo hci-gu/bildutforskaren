@@ -31,7 +31,7 @@ export const useAnchorAnalysis = (candidateIds: number[]) => {
   const setTrayOpen = useSetAtom(anchorAnalysisTrayOpenAtom)
   const setTrayCollapsed = useSetAtom(anchorAnalysisTrayCollapsedAtom)
   const setTrayHeight = useSetAtom(anchorAnalysisTrayHeightAtom)
-  const setProjectionViewMode = useSetAtom(projectionViewModeAtom)
+  const projectionViewMode = useAtomValue(projectionViewModeAtom)
   const setProjectionSettings = useSetAtom(projectionSettingsAtom)
 
   return useCallback(async () => {
@@ -49,8 +49,9 @@ export const useAnchorAnalysis = (candidateIds: number[]) => {
     const controller = new AbortController()
     activeController = controller
 
-    setProjectionViewMode('2d')
-    setProjectionSettings((previous) => ({ ...previous, type: 'umap' }))
+    if (projectionViewMode === '2d') {
+      setProjectionSettings((previous) => ({ ...previous, type: 'umap' }))
+    }
     setTrayOpen(true)
     setTrayCollapsed(false)
     setTrayHeight((previous) => {
@@ -91,10 +92,10 @@ export const useAnchorAnalysis = (candidateIds: number[]) => {
     groups.a,
     groups.b,
     parameters,
+    projectionViewMode,
     setAnalyzedCandidates,
     setError,
     setProjectionSettings,
-    setProjectionViewMode,
     setResult,
     setStale,
     setStatus,

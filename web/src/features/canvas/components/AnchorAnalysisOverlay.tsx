@@ -13,6 +13,7 @@ import {
   CANVAS_OFFSET_Y,
   CANVAS_WIDTH,
 } from '../constants'
+import { getAnchorAnalysisDisplayPaths } from '../anchorAnalysisPaths'
 
 type Props = {
   rawEmbeddings: Array<{
@@ -20,12 +21,6 @@ type Props = {
     type: string
     point?: [number, number]
   }>
-}
-
-const PATH_COLORS = {
-  axis: 0xf8fafc,
-  interpolation: 0xa78bfa,
-  graph: 0x34d399,
 }
 
 export const AnchorAnalysisOverlay: React.FC<Props> = ({ rawEmbeddings }) => {
@@ -46,32 +41,7 @@ export const AnchorAnalysisOverlay: React.FC<Props> = ({ rawEmbeddings }) => {
   )
 
   const paths = useMemo(() => {
-    if (!result) return []
-    const graphPath = result.graph[graphMode].path_ids
-    if (compare) {
-      return [
-        { key: 'axis', ids: result.axis.path_ids, color: PATH_COLORS.axis },
-        {
-          key: 'interpolation',
-          ids: result.interpolation.path_ids,
-          color: PATH_COLORS.interpolation,
-        },
-        { key: 'graph', ids: graphPath, color: PATH_COLORS.graph },
-      ]
-    }
-    if (tab === 'interpolation') {
-      return [
-        {
-          key: 'interpolation',
-          ids: result.interpolation.path_ids,
-          color: PATH_COLORS.interpolation,
-        },
-      ]
-    }
-    if (tab === 'graph') {
-      return [{ key: 'graph', ids: graphPath, color: PATH_COLORS.graph }]
-    }
-    return [{ key: 'axis', ids: result.axis.path_ids, color: PATH_COLORS.axis }]
+    return getAnchorAnalysisDisplayPaths(result, tab, graphMode, compare)
   }, [compare, graphMode, result, tab])
 
   if (!groups.a.length && !groups.b.length && !result) return null

@@ -45,10 +45,11 @@ type Props = {
   rawEmbeddings: Array<{
     id: string | number
     type: string
-    point?: [number, number]
+    point?: [number, number] | [number, number, number]
     meta?: Record<string, unknown>
   }>
   atlasMeta: AtlasMeta
+  onNavigateImage?: (imageId: number, openOriginal: boolean) => void
 }
 
 const SCATTER_WIDTH = 920
@@ -417,6 +418,7 @@ export const AnchorAnalysisTray: React.FC<Props> = ({
   candidateIds,
   rawEmbeddings,
   atlasMeta,
+  onNavigateImage,
 }) => {
   const [open, setOpen] = useAtom(anchorAnalysisTrayOpenAtom)
   const [collapsed, setCollapsed] = useAtom(anchorAnalysisTrayCollapsedAtom)
@@ -465,6 +467,10 @@ export const AnchorAnalysisTray: React.FC<Props> = ({
   )
 
   const selectImage = (imageId: number) => {
+    if (onNavigateImage) {
+      onNavigateImage(imageId, true)
+      return
+    }
     const item = pointByImage.get(imageId)
     setSelectedIds([String(imageId)])
     setSelectedEmbedding({ id: imageId, meta: item?.meta ?? {} })
@@ -477,6 +483,10 @@ export const AnchorAnalysisTray: React.FC<Props> = ({
   }
 
   const focusPathImage = (imageId: number) => {
+    if (onNavigateImage) {
+      onNavigateImage(imageId, false)
+      return
+    }
     const item = pointByImage.get(imageId)
     setSelectedIds([String(imageId)])
     setSelectedEmbedding(null)
