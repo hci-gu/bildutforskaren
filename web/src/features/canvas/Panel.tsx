@@ -108,45 +108,46 @@ const ProjectionSettings = () => {
         <CardTitle>Typ av visning</CardTitle>
       </CardHeader>
       <Select
-        value={viewMode}
-        onValueChange={(value: '2d' | '3d') => setViewMode(value)}
+        value={settings.type}
+        onValueChange={(value) => {
+          setSettings((prev) => ({ ...prev, type: value }))
+          if (value !== 'umap') setViewMode('2d')
+        }}
       >
         <SelectTrigger className="w-[180px] border-white/20 bg-white/10 text-white">
-          <SelectValue placeholder="Dimension" />
+          <SelectValue placeholder="Type" />
         </SelectTrigger>
         <SelectContent>
-          <SelectItem value="2d">2D</SelectItem>
-          <SelectItem value="3d">3D</SelectItem>
+          <SelectItem value="umap">Projektion</SelectItem>
+          <SelectItem value="grid">Rutnät</SelectItem>
+          <SelectItem value="tagged">Taggade/otaggade</SelectItem>
+          <SelectItem value="sao">SAO-termer</SelectItem>
+          <SelectItem value="graph" disabled={!hasGraph}>
+            Graph network
+          </SelectItem>
+          <SelectItem value="year">År</SelectItem>
         </SelectContent>
       </Select>
-      {viewMode === '3d' && (
-        <div className="text-xs text-white/70">
-          Vänsterklick + dra: rotera. Högerklick + dra: panorera. Hjul:
-          zooma.
-        </div>
-      )}
-      {viewMode === '2d' && (
+      {settings.type === 'umap' && (
         <>
           <Select
-            value={settings.type}
-            onValueChange={(value) =>
-              setSettings((prev) => ({ ...prev, type: value }))
-            }
+            value={viewMode}
+            onValueChange={(value: '2d' | '3d') => setViewMode(value)}
           >
             <SelectTrigger className="w-[180px] border-white/20 bg-white/10 text-white">
-              <SelectValue placeholder="Type" />
+              <SelectValue placeholder="Dimension" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="umap">Projektion</SelectItem>
-              <SelectItem value="grid">Rutnät</SelectItem>
-              <SelectItem value="tagged">Taggade/otaggade</SelectItem>
-              <SelectItem value="sao">SAO-termer</SelectItem>
-              <SelectItem value="graph" disabled={!hasGraph}>
-                Graph network
-              </SelectItem>
-              <SelectItem value="year">År</SelectItem>
+              <SelectItem value="2d">2D</SelectItem>
+              <SelectItem value="3d">3D</SelectItem>
             </SelectContent>
           </Select>
+          {viewMode === '3d' && (
+            <div className="text-xs text-white/70">
+              Vänsterklick + dra: rotera. Högerklick + dra: panorera. Hjul:
+              zooma.
+            </div>
+          )}
         </>
       )}
       {viewMode === '2d' && settings.type === 'graph' && (
@@ -174,7 +175,7 @@ const ProjectionSettings = () => {
           </div>
         </>
       )}
-      {(viewMode === '3d' || settings.type === 'umap') && (
+      {settings.type === 'umap' && (
         <>
           <CardHeader className="p-0 mt-2">
             <CardTitle>Inställningar för projektion</CardTitle>

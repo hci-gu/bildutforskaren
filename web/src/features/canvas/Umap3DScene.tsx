@@ -1,9 +1,16 @@
-import { useCallback, useEffect, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useAtomValue, useSetAtom } from 'jotai'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import {
   activeDatasetIdAtom,
+  anchorAnalysisCompareAtom,
+  anchorAnalysisResultAtom,
+  anchorAnalysisTabAtom,
+  anchorAnalysisTrayCollapsedAtom,
+  anchorAnalysisTrayHeightAtom,
+  anchorAnalysisTrayOpenAtom,
+  anchorGraphModeAtom,
   displaySettingsAtom,
   loadableProjectedEmbeddings3dAtom,
   selectedEmbeddingAtom,
@@ -12,6 +19,8 @@ import {
 import { datasetApiUrl, fetchAtlasMeta } from '@/shared/lib/api'
 import type { AtlasMeta } from './hooks/useAtlasLoader'
 import Panel from './Panel'
+import { getAnchorAnalysisDisplayPaths } from './anchorAnalysisPaths'
+import { AnchorAnalysisTray } from './components/AnchorAnalysisTray'
 import { HUD } from './components/HUD'
 import { HomeLogoLink } from '@/shared/components/HomeLogoLink'
 
@@ -24,6 +33,15 @@ type ProjectedImage = {
 type PointCloudUserData = {
   ids: number[]
   selectedAttribute: THREE.BufferAttribute
+}
+
+type CameraTransition = {
+  startedAt: number
+  duration: number
+  cameraFrom: THREE.Vector3
+  cameraTo: THREE.Vector3
+  targetFrom: THREE.Vector3
+  targetTo: THREE.Vector3
 }
 
 const vertexShader = `
@@ -103,24 +121,162 @@ const normalizePoints = (items: ProjectedImage[]) => {
   )
 }
 
+const clearObjectGroup = (group: THREE.Group) => {
+  const geometries = new Set<THREE.BufferGeometry>()
+  const materials = new Set<THREE.Material>()
+  group.traverse((object) => {
+    if (object instanceof THREE.Mesh || object instanceof THREE.Line) {
+      geometries.add(object.geometry)
+      const objectMaterials = Array.isArray(object.material)
+        ? object.material
+        : [object.material]
+      objectMaterials.forEach((material) => materials.add(material))
+    }
+  })
+  group.clear()
+  geometries.forEach((geometry) => geometry.dispose())
+  materials.forEach((material) => material.dispose())
+}
+
+const addPathSegment = (
+  group: THREE.Group,
+  start: THREE.Vector3,
+  end: THREE.Vector3,
+  color: number,
+  opacity: number,
+  width: number,
+  showDirection: boolean
+) => {
+  const direction = end.clone().sub(start)
+  const length = direction.length()
+  if (length < 1e-6) return
+  direction.normalize()
+
+  const geometry = new THREE.CylinderGeometry(width, width, length, 8, 1, true)
+  const material = new THREE.MeshBasicMaterial({
+    color,
+    transparent: true,
+    opacity,
+    depthWrite: false,
+  })
+  const segment = new THREE.Mesh(geometry, material)
+  segment.position.copy(start).add(end).multiplyScalar(0.5)
+  segment.quaternion.setFromUnitVectors(
+    new THREE.Vector3(0, 1, 0),
+    direction
+  )
+  segment.renderOrder = 4
+  group.add(segment)
+
+  if (!showDirection) return
+  const arrowGeometry = new THREE.ConeGeometry(width * 3.2, width * 7, 10)
+  const arrowMaterial = new THREE.MeshBasicMaterial({
+    color,
+    transparent: true,
+    opacity: Math.min(1, opacity + 0.1),
+    depthWrite: false,
+  })
+  const arrow = new THREE.Mesh(arrowGeometry, arrowMaterial)
+  arrow.position.copy(start).lerp(end, 0.72)
+  arrow.quaternion.setFromUnitVectors(
+    new THREE.Vector3(0, 1, 0),
+    direction
+  )
+  arrow.renderOrder = 5
+  group.add(arrow)
+}
+
+const addPathNode = (
+  group: THREE.Group,
+  point: THREE.Vector3,
+  color: number,
+  opacity: number,
+  radius: number
+) => {
+  const geometry = new THREE.SphereGeometry(radius, 12, 8)
+  const material = new THREE.MeshBasicMaterial({
+    color,
+    transparent: true,
+    opacity,
+    depthWrite: false,
+  })
+  const marker = new THREE.Mesh(geometry, material)
+  marker.position.copy(point)
+  marker.renderOrder = 6
+  group.add(marker)
+}
+
 export const Umap3DScene = () => {
   const containerRef = useRef<HTMLDivElement>(null)
   const resetCameraRef = useRef<() => void>(() => undefined)
+  const focusImageRef = useRef<(imageId: number) => void>(() => undefined)
   const pointCloudsRef = useRef<THREE.Points[]>([])
   const selectedIdsRef = useRef<string[]>([])
   const pointsByIdRef = useRef(new Map<number, THREE.Vector3>())
   const itemsByIdRef = useRef(new Map<number, ProjectedImage>())
+  const analysisGroupRef = useRef<THREE.Group | null>(null)
+  const [atlasMeta, setAtlasMeta] = useState<AtlasMeta>({})
   const selectedIds = useAtomValue(selectedEmbeddingIdsAtom)
   const datasetId = useAtomValue(activeDatasetIdAtom)
   const displaySettings = useAtomValue(displaySettingsAtom)
   const projection = useAtomValue(loadableProjectedEmbeddings3dAtom)
+  const analysisResult = useAtomValue(anchorAnalysisResultAtom)
+  const analysisTab = useAtomValue(anchorAnalysisTabAtom)
+  const graphMode = useAtomValue(anchorGraphModeAtom)
+  const comparePaths = useAtomValue(anchorAnalysisCompareAtom)
+  const trayOpen = useAtomValue(anchorAnalysisTrayOpenAtom)
+  const trayCollapsed = useAtomValue(anchorAnalysisTrayCollapsedAtom)
+  const trayHeight = useAtomValue(anchorAnalysisTrayHeightAtom)
   const setSelectedEmbedding = useSetAtom(selectedEmbeddingAtom)
   const setSelectedEmbeddingIds = useSetAtom(selectedEmbeddingIdsAtom)
+
+  const projectedItems = useMemo(
+    () =>
+      projection.state === 'hasData'
+        ? (projection.data as ProjectedImage[])
+        : [],
+    [projection]
+  )
+  const candidateIds = useMemo(
+    () => projectedItems.map((item) => Number(item.id)),
+    [projectedItems]
+  )
+  const trayEmbeddings = useMemo(
+    () =>
+      projectedItems.map((item) => ({
+        ...item,
+        type: 'image',
+      })),
+    [projectedItems]
+  )
+  const analysisPaths = useMemo(
+    () =>
+      getAnchorAnalysisDisplayPaths(
+        analysisResult,
+        analysisTab,
+        graphMode,
+        comparePaths
+      ),
+    [analysisResult, analysisTab, comparePaths, graphMode]
+  )
+  const trayOffset = trayOpen ? (trayCollapsed ? 52 : trayHeight) : 0
 
   const clearSelection = useCallback(() => {
     setSelectedEmbedding(null)
     setSelectedEmbeddingIds([])
   }, [setSelectedEmbedding, setSelectedEmbeddingIds])
+
+  const navigateToImage = useCallback(
+    (imageId: number, openOriginal: boolean) => {
+      const item = itemsByIdRef.current.get(imageId)
+      setSelectedEmbeddingIds([String(imageId)])
+      setSelectedEmbedding(
+        openOriginal ? { id: imageId, meta: item?.meta ?? {} } : null
+      )
+      focusImageRef.current(imageId)
+    },
+    [setSelectedEmbedding, setSelectedEmbeddingIds]
+  )
 
   selectedIdsRef.current = selectedIds
 
@@ -139,12 +295,16 @@ export const Umap3DScene = () => {
     const container = containerRef.current
     if (!container || !datasetId || projection.state !== 'hasData') return
 
-    const items = projection.data as ProjectedImage[]
+    const items = projectedItems
     let disposed = false
     let frame = 0
+    let cameraTransition: CameraTransition | null = null
     const scene = new THREE.Scene()
     scene.background = new THREE.Color(0x07090e)
     scene.fog = new THREE.FogExp2(0x07090e, 0.018)
+    const analysisGroup = new THREE.Group()
+    scene.add(analysisGroup)
+    analysisGroupRef.current = analysisGroup
 
     const renderer = new THREE.WebGLRenderer({ antialias: true })
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
@@ -183,6 +343,34 @@ export const Umap3DScene = () => {
     resetCameraRef.current = resetCamera
     resetCamera()
 
+    const focusImage = (imageId: number) => {
+      const point = normalizedPoints.get(imageId)
+      if (!point) return
+      const targetFrom = controls.target.clone()
+      const targetTo = point.clone()
+      const cameraFrom = camera.position.clone()
+      const cameraTo = cameraFrom.clone().add(targetTo).sub(targetFrom)
+      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        controls.target.copy(targetTo)
+        camera.position.copy(cameraTo)
+        controls.update()
+        return
+      }
+      cameraTransition = {
+        startedAt: performance.now(),
+        duration: 650,
+        cameraFrom,
+        cameraTo,
+        targetFrom,
+        targetTo,
+      }
+    }
+    focusImageRef.current = focusImage
+    const cancelCameraTransition = () => {
+      cameraTransition = null
+    }
+    controls.addEventListener('start', cancelCameraTransition)
+
     const textureLoader = new THREE.TextureLoader()
     const resources: Array<{ geometry: THREE.BufferGeometry; material: THREE.Material }> = []
     const textures: THREE.Texture[] = []
@@ -190,6 +378,7 @@ export const Umap3DScene = () => {
     const buildClouds = async () => {
       const atlasMeta = (await fetchAtlasMeta(datasetId)) as AtlasMeta
       if (disposed) return
+      setAtlasMeta(atlasMeta)
 
       const bySheet = new Map<number, ProjectedImage[]>()
       items.forEach((item) => {
@@ -327,17 +516,39 @@ export const Umap3DScene = () => {
     const resizeObserver = new ResizeObserver(handleResize)
     resizeObserver.observe(container)
 
-    const animate = () => {
+    const animate = (time: number) => {
+      if (cameraTransition) {
+        const progress = Math.min(
+          1,
+          (time - cameraTransition.startedAt) / cameraTransition.duration
+        )
+        const eased =
+          progress < 0.5
+            ? 4 * progress * progress * progress
+            : 1 - Math.pow(-2 * progress + 2, 3) / 2
+        camera.position.lerpVectors(
+          cameraTransition.cameraFrom,
+          cameraTransition.cameraTo,
+          eased
+        )
+        controls.target.lerpVectors(
+          cameraTransition.targetFrom,
+          cameraTransition.targetTo,
+          eased
+        )
+        if (progress >= 1) cameraTransition = null
+      }
       controls.update()
       renderer.render(scene, camera)
       frame = requestAnimationFrame(animate)
     }
-    animate()
+    frame = requestAnimationFrame(animate)
 
     return () => {
       disposed = true
       cancelAnimationFrame(frame)
       resizeObserver.disconnect()
+      controls.removeEventListener('start', cancelCameraTransition)
       controls.dispose()
       renderer.domElement.removeEventListener('pointerdown', handlePointerDown)
       renderer.domElement.removeEventListener('pointerup', handlePointerUp)
@@ -349,6 +560,13 @@ export const Umap3DScene = () => {
       pointCloudsRef.current = []
       pointsByIdRef.current.clear()
       itemsByIdRef.current.clear()
+      clearObjectGroup(analysisGroup)
+      if (analysisGroupRef.current === analysisGroup) {
+        analysisGroupRef.current = null
+      }
+      if (focusImageRef.current === focusImage) {
+        focusImageRef.current = () => undefined
+      }
       renderer.dispose()
       renderer.domElement.remove()
     }
@@ -356,22 +574,68 @@ export const Umap3DScene = () => {
     clearSelection,
     datasetId,
     displaySettings.scale,
-    projection,
+    projection.state,
+    projectedItems,
     setSelectedEmbedding,
     setSelectedEmbeddingIds,
   ])
+
+  useEffect(() => {
+    const group = analysisGroupRef.current
+    if (!group) return
+    clearObjectGroup(group)
+
+    analysisPaths.forEach((path) => {
+      const points = path.ids
+        .map((id) => pointsByIdRef.current.get(Number(id)))
+        .filter((point): point is THREE.Vector3 => !!point)
+      const opacity = comparePaths ? 0.5 : 0.88
+      const width = comparePaths ? 0.018 : 0.028
+      points.forEach((point, index) => {
+        addPathNode(
+          group,
+          point,
+          path.color,
+          opacity,
+          comparePaths ? 0.055 : 0.075
+        )
+        if (index === 0) return
+        addPathSegment(
+          group,
+          points[index - 1],
+          point,
+          path.color,
+          opacity,
+          width,
+          !comparePaths
+        )
+      })
+    })
+
+    return () => clearObjectGroup(group)
+  }, [analysisPaths, comparePaths, displaySettings.scale, projectedItems])
 
   const isLoading = projection.state === 'loading'
   const hasError = projection.state === 'hasError'
 
   return (
     <div className="fixed inset-0 overflow-hidden bg-[#07090e]">
-      <div ref={containerRef} className="absolute inset-0" />
+      <div
+        ref={containerRef}
+        className="absolute top-0 right-0 left-0"
+        style={{ bottom: trayOffset }}
+      />
       <HomeLogoLink />
-      <HUD />
+      <HUD
+        canFitProjection={projectedItems.length > 0}
+        onFitProjection={() => resetCameraRef.current()}
+        candidateIds={candidateIds}
+        bottomOffset={trayOffset}
+      />
       <Panel />
       <div
-        className="glass-panel absolute bottom-5 left-1/2 z-20 flex -translate-x-1/2 items-center gap-3 rounded-full px-4 py-2 text-xs text-white"
+        className="glass-panel absolute left-1/2 z-20 flex -translate-x-1/2 items-center gap-3 rounded-full px-4 py-2 text-xs text-white"
+        style={{ bottom: 20 + trayOffset }}
         data-canvas-ui="true"
       >
         <span>Drag: rotera · Högerdrag: panorera · Hjul: zooma</span>
@@ -393,6 +657,12 @@ export const Umap3DScene = () => {
           Kunde inte skapa 3D-projektionen.
         </div>
       )}
+      <AnchorAnalysisTray
+        candidateIds={candidateIds}
+        rawEmbeddings={trayEmbeddings}
+        atlasMeta={atlasMeta}
+        onNavigateImage={navigateToImage}
+      />
     </div>
   )
 }
