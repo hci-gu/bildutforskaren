@@ -11,7 +11,6 @@ import {
   anchorAnalysisTrayHeightAtom,
   anchorAnalysisTrayOpenAtom,
   anchorGraphModeAtom,
-  conceptExplanationComparisonIdAtom,
   displaySettingsAtom,
   loadableProjectedEmbeddings3dAtom,
   neighborFidelityResultAtom,
@@ -27,7 +26,6 @@ import { AnchorAnalysisTray } from './components/AnchorAnalysisTray'
 import { HUD } from './components/HUD'
 import { HomeLogoLink } from '@/shared/components/HomeLogoLink'
 import { useNeighborFidelity } from './hooks/useNeighborFidelity'
-import { useConceptExplanation } from './hooks/useConceptExplanation'
 
 type ProjectedImage = {
   id: number
@@ -216,9 +214,7 @@ const addFidelityConnection = (
   start: THREE.Vector3,
   end: THREE.Vector3,
   color: number,
-  dashed: boolean,
-  emphasized: boolean,
-  hasEmphasis: boolean
+  dashed: boolean
 ) => {
   const geometry = new THREE.BufferGeometry().setFromPoints([start, end])
   const material = dashed
@@ -226,16 +222,14 @@ const addFidelityConnection = (
         color,
         dashSize: 0.16,
         gapSize: 0.1,
-        linewidth: emphasized ? 3 : 1,
         transparent: true,
-        opacity: emphasized ? 1 : hasEmphasis ? 0.4 : 0.82,
+        opacity: 0.82,
         depthWrite: false,
       })
     : new THREE.LineBasicMaterial({
         color,
-        linewidth: emphasized ? 3 : 1,
         transparent: true,
-        opacity: emphasized ? 1 : hasEmphasis ? 0.36 : 0.78,
+        opacity: 0.78,
         depthWrite: false,
       })
   const line = new THREE.Line(geometry, material)
@@ -243,15 +237,11 @@ const addFidelityConnection = (
   line.renderOrder = 2
   group.add(line)
 
-  const markerGeometry = new THREE.SphereGeometry(
-    emphasized ? 0.1 : hasEmphasis ? 0.045 : 0.06,
-    10,
-    7
-  )
+  const markerGeometry = new THREE.SphereGeometry(0.06, 10, 7)
   const markerMaterial = new THREE.MeshBasicMaterial({
     color,
     transparent: true,
-    opacity: emphasized ? 1 : hasEmphasis ? 0.5 : 0.9,
+    opacity: 0.9,
     depthWrite: false,
   })
   const marker = new THREE.Mesh(markerGeometry, markerMaterial)
@@ -277,7 +267,6 @@ export const Umap3DScene = () => {
   const projection = useAtomValue(loadableProjectedEmbeddings3dAtom)
   const fidelitySettings = useAtomValue(neighborFidelitySettingsAtom)
   const fidelityResult = useAtomValue(neighborFidelityResultAtom)
-  const comparisonImageId = useAtomValue(conceptExplanationComparisonIdAtom)
   const analysisResult = useAtomValue(anchorAnalysisResultAtom)
   const analysisTab = useAtomValue(anchorAnalysisTabAtom)
   const graphMode = useAtomValue(anchorGraphModeAtom)
@@ -296,7 +285,6 @@ export const Umap3DScene = () => {
     [projection]
   )
   useNeighborFidelity(projectedItems, projection.state === 'hasData')
-  useConceptExplanation(projectedItems, projection.state === 'hasData')
   const candidateIds = useMemo(
     () => projectedItems.map((item) => Number(item.id)),
     [projectedItems]
@@ -660,17 +648,7 @@ export const Umap3DScene = () => {
     ) => {
       records.forEach((record) => {
         const end = pointsByIdRef.current.get(record.image_id)
-        if (end) {
-          addFidelityConnection(
-            group,
-            start,
-            end,
-            color,
-            dashed,
-            record.image_id === comparisonImageId,
-            comparisonImageId !== null
-          )
-        }
+        if (end) addFidelityConnection(group, start, end, color, dashed)
       })
     }
     addRecords(fidelityResult.neighbors.preserved, 0x22c55e, false)
@@ -678,12 +656,7 @@ export const Umap3DScene = () => {
     addRecords(fidelityResult.neighbors.clip_only, 0x38bdf8, true)
 
     return () => clearObjectGroup(group)
-  }, [
-    comparisonImageId,
-    fidelityResult,
-    fidelitySettings.enabled,
-    projectedItems,
-  ])
+  }, [fidelityResult, fidelitySettings.enabled, projectedItems])
 
   useEffect(() => {
     const group = analysisGroupRef.current

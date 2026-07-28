@@ -483,14 +483,6 @@ export const neighborFidelityStatusAtom = atom<
   'idle' | 'loading' | 'ready' | 'error'
 >('idle')
 export const neighborFidelityErrorAtom = atom<string | null>(null)
-export const conceptExplanationTabAtom = atom<'tagging' | 'explain'>('tagging')
-export const conceptExplanationComparisonIdAtom = atom<number | null>(null)
-export const conceptExplanationResultAtom =
-  atom<import('@/shared/lib/api').ConceptExplanationResponse | null>(null)
-export const conceptExplanationStatusAtom = atom<
-  'idle' | 'loading' | 'ready' | 'error'
->('idle')
-export const conceptExplanationErrorAtom = atom<string | null>(null)
 export const graphNetworksAtom = atom<
   Record<string, import('@/shared/lib/api').GraphNetworkResponse>
 >({})

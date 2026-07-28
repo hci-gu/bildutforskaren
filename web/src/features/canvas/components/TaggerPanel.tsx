@@ -1,10 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useAtom, useAtomValue, useSetAtom } from 'jotai'
+import { useAtomValue, useSetAtom } from 'jotai'
 import {
   activeDatasetIdAtom,
   applyTagMutationAtom,
-  conceptExplanationTabAtom,
-  projectionSettingsAtom,
   scheduleTaggedImagesRefreshAtom,
   selectedEmbeddingAtom,
   selectedEmbeddingIdsAtom,
@@ -32,7 +30,6 @@ import {
 } from '@/shared/ui/card'
 import { Input } from '@/shared/ui/input'
 import { Button } from '@/shared/ui/button'
-import { ConceptExplanationPanel } from './ConceptExplanationPanel'
 
 type ImageTag = {
   id: number
@@ -66,8 +63,6 @@ export const TaggerPanel = ({
   const datasetId = useAtomValue(activeDatasetIdAtom)
   const selectedEmbedding = useAtomValue<any>(selectedEmbeddingAtom)
   const selectedEmbeddingIds = useAtomValue(selectedEmbeddingIdsAtom)
-  const projectionSettings = useAtomValue(projectionSettingsAtom)
-  const [panelTab, setPanelTab] = useAtom(conceptExplanationTabAtom)
   const applyTagMutation = useSetAtom(applyTagMutationAtom)
   const scheduleTaggedRefresh = useSetAtom(scheduleTaggedImagesRefreshAtom)
   const bumpTagRefreshTrigger = useSetAtom(tagRefreshTriggerAtom)
@@ -96,12 +91,6 @@ export const TaggerPanel = ({
   const [averageSdxlStatus, setAverageSdxlStatus] = useState<any>(null)
   const [generating, setGenerating] = useState(false)
   const [generatedUrl, setGeneratedUrl] = useState<string | null>(null)
-
-  useEffect(() => {
-    if (projectionSettings.type !== 'umap' && panelTab === 'explain') {
-      setPanelTab('tagging')
-    }
-  }, [panelTab, projectionSettings.type, setPanelTab])
 
   const selectedImageIds = useMemo(
     () =>
@@ -491,8 +480,6 @@ export const TaggerPanel = ({
   const filteredSuggestions = suggestions.filter(
     (term) => !existingLabels.has(term.label.toLowerCase())
   )
-  const showExplanation =
-    panelTab === 'explain' && projectionSettings.type === 'umap'
 
   return (
     <Card
@@ -503,45 +490,13 @@ export const TaggerPanel = ({
       data-canvas-ui="true"
     >
       <CardHeader className="pb-2">
-        <CardTitle className="text-sm font-semibold">
-          {showExplanation ? 'Förklara bild' : 'Tagga bild'}
-        </CardTitle>
+        <CardTitle className="text-sm font-semibold">Tagga bild</CardTitle>
         <div className="text-xs text-white/70">Bild ID: {imageId}</div>
-        {projectionSettings.type === 'umap' && (
-          <div className="mt-2 grid grid-cols-2 rounded-md border border-white/15 p-0.5">
-            <button
-              type="button"
-              className={`rounded px-2 py-1 text-xs ${
-                panelTab === 'tagging'
-                  ? 'bg-white/15 text-white'
-                  : 'text-white/55 hover:text-white'
-              }`}
-              onClick={() => setPanelTab('tagging')}
-            >
-              Taggning
-            </button>
-            <button
-              type="button"
-              className={`rounded px-2 py-1 text-xs ${
-                panelTab === 'explain'
-                  ? 'bg-white/15 text-white'
-                  : 'text-white/55 hover:text-white'
-              }`}
-              onClick={() => setPanelTab('explain')}
-            >
-              Förklara
-            </button>
-          </div>
-        )}
       </CardHeader>
       <CardContent className="flex flex-1 min-h-0 flex-col gap-3 overflow-hidden">
-        {showExplanation ? (
-          <ConceptExplanationPanel selectedImageId={imageId} />
-        ) : (
-          <>
-            {error && <div className="text-xs text-red-300">{error}</div>}
+        {error && <div className="text-xs text-red-300">{error}</div>}
 
-            <GenerationPanel mode="single" />
+        <GenerationPanel mode="single" />
 
         <div className="flex flex-wrap gap-2">
           {tags.length === 0 && (
@@ -592,7 +547,7 @@ export const TaggerPanel = ({
           </div>
         </div>
 
-            <div className="flex flex-1 min-h-0 flex-col gap-2">
+        <div className="flex flex-1 min-h-0 flex-col gap-2">
           <Input
             type="text"
             value={query}
@@ -634,9 +589,7 @@ export const TaggerPanel = ({
               </div>
             ))}
           </div>
-            </div>
-          </>
-        )}
+        </div>
       </CardContent>
     </Card>
   )

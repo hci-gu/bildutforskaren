@@ -1,7 +1,6 @@
 import React, { useMemo } from 'react'
 import { useAtomValue } from 'jotai'
 import {
-  conceptExplanationComparisonIdAtom,
   neighborFidelityResultAtom,
   neighborFidelitySettingsAtom,
 } from '@/store'
@@ -32,7 +31,6 @@ export const NeighborFidelityOverlay: React.FC<Props> = ({
 }) => {
   const settings = useAtomValue(neighborFidelitySettingsAtom)
   const result = useAtomValue(neighborFidelityResultAtom)
-  const comparisonImageId = useAtomValue(conceptExplanationComparisonIdAtom)
   const pointsById = useMemo(
     () =>
       new Map(
@@ -64,29 +62,15 @@ export const NeighborFidelityOverlay: React.FC<Props> = ({
             records.forEach((record) => {
               const point = pointsById.get(record.image_id)
               if (!point) return
-              const emphasized = record.image_id === comparisonImageId
               const end = {
                 x: point[0] * CANVAS_WIDTH,
                 y: point[1] * CANVAS_HEIGHT,
               }
               graphics.moveTo(start.x, start.y)
               graphics.lineTo(end.x, end.y)
-              graphics.stroke({
-                color,
-                width: emphasized ? 5 : comparisonImageId === null ? 3 : 2,
-                alpha:
-                  emphasized ? 1 : comparisonImageId === null ? 0.78 : 0.38,
-              })
-              graphics.circle(
-                end.x,
-                end.y,
-                emphasized ? 9 : comparisonImageId === null ? 6 : 4
-              )
-              graphics.fill({
-                color,
-                alpha:
-                  emphasized ? 1 : comparisonImageId === null ? 0.9 : 0.55,
-              })
+              graphics.stroke({ color, width: 3, alpha: 0.78 })
+              graphics.circle(end.x, end.y, 6)
+              graphics.fill({ color, alpha: 0.9 })
             })
           }
 
@@ -94,7 +78,6 @@ export const NeighborFidelityOverlay: React.FC<Props> = ({
             records.forEach((record) => {
               const point = pointsById.get(record.image_id)
               if (!point) return
-              const emphasized = record.image_id === comparisonImageId
               const end = {
                 x: point[0] * CANVAS_WIDTH,
                 y: point[1] * CANVAS_HEIGHT,
@@ -111,20 +94,11 @@ export const NeighborFidelityOverlay: React.FC<Props> = ({
               }
               graphics.stroke({
                 color: COLORS.clipOnly,
-                width: emphasized ? 5 : comparisonImageId === null ? 3 : 2,
-                alpha:
-                  emphasized ? 1 : comparisonImageId === null ? 0.82 : 0.42,
+                width: 3,
+                alpha: 0.82,
               })
-              graphics.circle(
-                end.x,
-                end.y,
-                emphasized ? 9 : comparisonImageId === null ? 6 : 4
-              )
-              graphics.fill({
-                color: COLORS.clipOnly,
-                alpha:
-                  emphasized ? 1 : comparisonImageId === null ? 0.9 : 0.55,
-              })
+              graphics.circle(end.x, end.y, 6)
+              graphics.fill({ color: COLORS.clipOnly, alpha: 0.9 })
             })
           }
 

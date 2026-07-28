@@ -2,7 +2,6 @@ import { useEffect, useMemo } from 'react'
 import { useAtomValue, useSetAtom } from 'jotai'
 import {
   activeDatasetIdAtom,
-  conceptExplanationComparisonIdAtom,
   neighborFidelityErrorAtom,
   neighborFidelityResultAtom,
   neighborFidelitySettingsAtom,
@@ -25,9 +24,6 @@ export const useNeighborFidelity = (
   const selectedIds = useAtomValue(selectedEmbeddingIdsAtom)
   const settings = useAtomValue(neighborFidelitySettingsAtom)
   const setResult = useSetAtom(neighborFidelityResultAtom)
-  const setComparisonImageId = useSetAtom(
-    conceptExplanationComparisonIdAtom
-  )
   const setStatus = useSetAtom(neighborFidelityStatusAtom)
   const setError = useSetAtom(neighborFidelityErrorAtom)
 
@@ -63,7 +59,6 @@ export const useNeighborFidelity = (
   useEffect(() => {
     if (!datasetId || !payload) {
       setResult(null)
-      setComparisonImageId(null)
       setStatus('idle')
       setError(null)
       return
@@ -77,18 +72,11 @@ export const useNeighborFidelity = (
       .then((result) => {
         if (controller.signal.aborted) return
         setResult(result)
-        const defaultNeighbor =
-          result.neighbors.projection_only[0] ??
-          result.neighbors.clip_only[0] ??
-          result.neighbors.preserved[0] ??
-          null
-        setComparisonImageId(defaultNeighbor?.image_id ?? null)
         setStatus('ready')
       })
       .catch((error: unknown) => {
         if (controller.signal.aborted) return
         setResult(null)
-        setComparisonImageId(null)
         setStatus('error')
         setError(
           error instanceof Error
@@ -98,12 +86,5 @@ export const useNeighborFidelity = (
       })
 
     return () => controller.abort()
-  }, [
-    datasetId,
-    payload,
-    setComparisonImageId,
-    setError,
-    setResult,
-    setStatus,
-  ])
+  }, [datasetId, payload, setError, setResult, setStatus])
 }
