@@ -473,6 +473,16 @@ export const projectionSettingsAtom = atom({
 })
 
 export const projectionViewModeAtom = atom<'2d' | '3d'>('2d')
+export const neighborFidelitySettingsAtom = atom({
+  enabled: false,
+  k: 10,
+})
+export const neighborFidelityResultAtom =
+  atom<import('@/shared/lib/api').NeighborFidelityResponse | null>(null)
+export const neighborFidelityStatusAtom = atom<
+  'idle' | 'loading' | 'ready' | 'error'
+>('idle')
+export const neighborFidelityErrorAtom = atom<string | null>(null)
 export const graphNetworksAtom = atom<
   Record<string, import('@/shared/lib/api').GraphNetworkResponse>
 >({})
@@ -1162,6 +1172,24 @@ export const selectedEmbeddingAtom = atom(
     set(selectedEmbeddingValueAtom, value)
   }
 )
+
+export type ImageViewerRequest = {
+  imageId: number
+  requestId: number
+}
+
+export const imageViewerRequestAtom = atom<ImageViewerRequest | null>(null)
+export const openImageViewerAtom = atom(
+  null,
+  (get, set, imageId: number) => {
+    const previousRequest = get(imageViewerRequestAtom)
+    set(imageViewerRequestAtom, {
+      imageId,
+      requestId: (previousRequest?.requestId ?? 0) + 1,
+    })
+  }
+)
+
 export const selectedEmbeddingIdsAtom = atom<string[]>([])
 export const selectedTagsAtom = atom<string[]>([])
 export const steerSuggestionsAtom = atom(false)

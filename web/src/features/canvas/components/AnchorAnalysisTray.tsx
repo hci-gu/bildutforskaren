@@ -22,6 +22,7 @@ import {
   anchorAnalysisTrayOpenAtom,
   anchorGraphModeAtom,
   anchorGroupsAtom,
+  openImageViewerAtom,
   selectedEmbeddingAtom,
   selectedEmbeddingIdsAtom,
   type AnchorAnalysisTab,
@@ -437,6 +438,7 @@ export const AnchorAnalysisTray: React.FC<Props> = ({
   const selectedIds = useAtomValue(selectedEmbeddingIdsAtom)
   const setSelectedIds = useSetAtom(selectedEmbeddingIdsAtom)
   const setSelectedEmbedding = useSetAtom(selectedEmbeddingAtom)
+  const openImageViewer = useSetAtom(openImageViewerAtom)
   const analyze = useAnchorAnalysis(candidateIds)
   const [dragging, setDragging] = useState(false)
   const [displayPath, setDisplayPath] = useState(false)
@@ -468,12 +470,14 @@ export const AnchorAnalysisTray: React.FC<Props> = ({
 
   const selectImage = (imageId: number) => {
     if (onNavigateImage) {
-      onNavigateImage(imageId, true)
+      onNavigateImage(imageId, false)
+      openImageViewer(imageId)
       return
     }
     const item = pointByImage.get(imageId)
     setSelectedIds([String(imageId)])
     setSelectedEmbedding({ id: imageId, meta: item?.meta ?? {} })
+    openImageViewer(imageId)
     if (item?.point && state.viewport) {
       state.viewport.moveCenter({
         x: CANVAS_OFFSET_X + item.point[0] * CANVAS_WIDTH,
@@ -489,7 +493,7 @@ export const AnchorAnalysisTray: React.FC<Props> = ({
     }
     const item = pointByImage.get(imageId)
     setSelectedIds([String(imageId)])
-    setSelectedEmbedding(null)
+    setSelectedEmbedding({ id: imageId, meta: item?.meta ?? {} })
     if (!item?.point || !state.viewport) return
     const position = {
       x: CANVAS_OFFSET_X + item.point[0] * CANVAS_WIDTH,

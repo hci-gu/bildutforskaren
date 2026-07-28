@@ -21,6 +21,7 @@ from api import image_roundtrip
 from api import indexing
 from api.anchor_analysis import AnchorAnalysisParameters, analyze_anchor_paths
 from api.graph_network import GraphNetworkParameters, build_graph_network
+from api.neighbor_fidelity import analyze_neighbor_fidelity
 from api import context as context_builder
 from api import runtime
 from api.clustering import ClusteringConfig, fit_model
@@ -374,6 +375,93 @@ def create_graph_network(dataset_id: str):
         ctx.faiss_index,
         root_image_id,
         parameters,
+    )
+    return jsonify({"dataset_id": dataset_id, **result})
+
+
+@bp.route("/datasets/<dataset_id>/neighbor-fidelity", methods=["POST"])
+def create_neighbor_fidelity(dataset_id: str):
+    ctx = _get_context(dataset_id)
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify({"error": "Expected a JSON object"}), 400
+
+    image_ids = payload.get("image_ids")
+    if (
+        not isinstance(image_ids, list)
+        or len(image_ids) < 2
+        or any(
+            isinstance(image_id, bool) or not isinstance(image_id, int)
+            for image_id in image_ids
+        )
+    ):
+        return jsonify(
+            {"error": "'image_ids' must contain at least two integer image IDs"}
+        ), 400
+    if len(set(image_ids)) != len(image_ids):
+        return jsonify({"error": "'image_ids' must not contain duplicates"}), 400
+    if any(
+        image_id < 0 or image_id >= len(ctx.embeddings)
+        for image_id in image_ids
+    ):
+        return jsonify({"error": "One or more image IDs are out of range"}), 400
+
+    selected_image_id = payload.get("selected_image_id")
+    if isinstance(selected_image_id, bool) or not isinstance(selected_image_id, int):
+        return jsonify({"error": "'selected_image_id' must be an integer"}), 400
+    if selected_image_id not in set(image_ids):
+        return jsonify(
+            {"error": "'selected_image_id' must be included in 'image_ids'"}
+        ), 400
+
+    k = payload.get("k", 10)
+    if isinstance(k, bool) or not isinstance(k, int) or not 2 <= k <= 50:
+        return jsonify({"error": "'k' must be an integer between 2 and 50"}), 400
+
+    raw_projection_points = payload.get("projection_points")
+    if (
+        not isinstance(raw_projection_points, list)
+        or len(raw_projection_points) != len(image_ids)
+        or not raw_projection_points
+        or not all(isinstance(point, list) for point in raw_projection_points)
+    ):
+        return jsonify(
+            {
+                "error": (
+                    "'projection_points' must match 'image_ids' and contain "
+                    "consistent 2D or 3D points"
+                )
+            }
+        ), 400
+    dimension = len(raw_projection_points[0])
+    if dimension not in (2, 3) or any(
+        len(point) != dimension for point in raw_projection_points
+    ):
+        return jsonify(
+            {
+                "error": (
+                    "'projection_points' must match 'image_ids' and contain "
+                    "consistent 2D or 3D points"
+                )
+            }
+        ), 400
+    if any(
+        isinstance(coordinate, bool)
+        or not isinstance(coordinate, (int, float))
+        for point in raw_projection_points
+        for coordinate in point
+    ):
+        return jsonify({"error": "'projection_points' must be numeric"}), 400
+    projection_points = np.asarray(raw_projection_points, dtype=float)
+    if not np.isfinite(projection_points).all():
+        return jsonify({"error": "'projection_points' must be finite"}), 400
+
+    result = analyze_neighbor_fidelity(
+        ctx.embeddings.cpu().numpy().astype("float32"),
+        image_ids,
+        projection_points,
+        selected_image_id,
+        k,
     )
     return jsonify({"dataset_id": dataset_id, **result})
 

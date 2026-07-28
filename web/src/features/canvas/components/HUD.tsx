@@ -20,6 +20,12 @@ import {
   anchorGroupsAtom,
   graphLayoutAtom,
   graphNetworksAtom,
+  imageViewerRequestAtom,
+  neighborFidelityErrorAtom,
+  neighborFidelityResultAtom,
+  neighborFidelitySettingsAtom,
+  neighborFidelityStatusAtom,
+  openImageViewerAtom,
   projectionSettingsAtom,
   projectionViewModeAtom,
   projectionRevisionAtom,
@@ -44,35 +50,45 @@ import { useAnchorAnalysis } from '../hooks/useAnchorAnalysis'
 
 const ImageDisplayer = ({ bottomOffset = 0 }: { bottomOffset?: number }) => {
   const buttonRef = React.useRef<HTMLButtonElement>(null)
+  const [viewerRequest, setViewerRequest] = useAtom(imageViewerRequestAtom)
+  const [viewerImageId, setViewerImageId] = useState<number | null>(null)
   const selectedEmbedding = useAtomValue(selectedEmbeddingAtom)
   const datasetId = useAtomValue(activeDatasetIdAtom)
 
   useEffect(() => {
-    if (buttonRef.current && selectedEmbedding) {
-      setTimeout(() => buttonRef.current?.click(), 100)
-    }
-  }, [selectedEmbedding])
+    if (!viewerRequest) return
+    const requestId = viewerRequest.requestId
+    setViewerImageId(viewerRequest.imageId)
+    const timer = window.setTimeout(() => {
+      buttonRef.current?.click()
+      setViewerRequest((current) =>
+        current?.requestId === requestId ? null : current
+      )
+    }, 50)
+    return () => window.clearTimeout(timer)
+  }, [setViewerRequest, viewerRequest])
 
-  if (!selectedEmbedding || !datasetId) return null
+  if (!datasetId) return null
 
-  const meta = selectedEmbedding.meta || {}
-  Object.keys(meta).forEach((key) => {
-    if (meta[key] === null || meta[key] === undefined || meta[key] === '') {
-      delete meta[key]
-    }
-    if (typeof meta[key] === 'number') {
-      meta[key] = Math.round(meta[key] * 100) / 100
-    }
-  })
+  const meta = Object.fromEntries(
+    Object.entries(selectedEmbedding?.meta ?? {})
+      .filter(([, value]) => value !== null && value !== undefined && value !== '')
+      .map(([key, value]) => [
+        key,
+        typeof value === 'number' ? Math.round(value * 100) / 100 : value,
+      ])
+  )
 
   return (
     <>
-      <PhotoView
-        key="active-photo"
-        src={datasetApiUrl(datasetId, `/original/${selectedEmbedding.id}`)}
-      >
-        <button ref={buttonRef} />
-      </PhotoView>
+      {viewerImageId !== null && (
+        <PhotoView
+          key={`active-photo-${viewerImageId}`}
+          src={datasetApiUrl(datasetId, `/original/${viewerImageId}`)}
+        >
+          <button ref={buttonRef} />
+        </PhotoView>
+      )}
       <div className="metadata-panel-anchor" data-has-meta={Object.keys(meta).length > 0 ? '1' : '0'} />
       {Object.keys(meta).length > 0 && (
       <div
@@ -129,9 +145,14 @@ export const HUD = ({
 
   const setSelectedEmbedding = useSetAtom(selectedEmbeddingAtom)
   const setSelectedEmbeddingIds = useSetAtom(selectedEmbeddingIdsAtom)
+  const openImageViewer = useSetAtom(openImageViewerAtom)
   const selectedEmbeddingIds = useAtomValue(selectedEmbeddingIdsAtom)
   const selectedTags = useAtomValue(selectedTagsAtom)
   const selectedEmbedding = useAtomValue(selectedEmbeddingAtom)
+  const fidelitySettings = useAtomValue(neighborFidelitySettingsAtom)
+  const fidelityResult = useAtomValue(neighborFidelityResultAtom)
+  const fidelityStatus = useAtomValue(neighborFidelityStatusAtom)
+  const fidelityError = useAtomValue(neighborFidelityErrorAtom)
   const datasetId = useAtomValue(activeDatasetIdAtom)
   const [showGraphForm, setShowGraphForm] = useState(false)
   const [graphForm, setGraphForm] = useState({
@@ -493,6 +514,50 @@ export const HUD = ({
           {selectedEmbeddingIds.length > 0 && (
             <>
               <span>{selectedEmbeddingIds.length} images selected</span>
+              {validSelectedIds.length === 1 &&
+                selectedEmbeddingIds.length === 1 && (
+                  <>
+                    <button
+                      type="button"
+                      className="rounded-full border border-white/30 px-3 py-1 text-xs hover:bg-white/10"
+                      onClick={() =>
+                        openImageViewer(Number(validSelectedIds[0]))
+                      }
+                    >
+                      Open image
+                    </button>
+                    {fidelitySettings.enabled &&
+                      (fidelityStatus === 'loading' ? (
+                        <span className="text-[11px] text-white/60">
+                          Checking neighbor fidelity…
+                        </span>
+                      ) : fidelityStatus === 'error' ? (
+                        <span
+                          className="max-w-52 truncate text-[11px] text-red-300"
+                          title={fidelityError ?? undefined}
+                        >
+                          Neighbor fidelity unavailable
+                        </span>
+                      ) : fidelityResult ? (
+                        <span className="text-[11px] text-white/75">
+                          Retained{' '}
+                          <span className="text-green-300">
+                            {fidelityResult.neighbors.preserved.length}/
+                            {fidelityResult.effective_k}
+                          </span>{' '}
+                          ({Math.round(fidelityResult.retention * 100)}%) ·{' '}
+                          <span className="text-red-300">
+                            {fidelityResult.neighbors.projection_only.length}{' '}
+                            UMAP-only
+                          </span>{' '}
+                          ·{' '}
+                          <span className="text-sky-300">
+                            {fidelityResult.neighbors.clip_only.length} CLIP-only
+                          </span>
+                        </span>
+                      ) : null)}
+                  </>
+                )}
               <button
                 className="rounded-full border border-white/30 px-3 py-1 text-xs hover:bg-white/10"
                 onClick={() => {

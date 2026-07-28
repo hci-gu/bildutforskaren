@@ -35,7 +35,9 @@ import { HUD } from './components/HUD'
 import { GraphNetworkLayer } from './components/GraphNetworkLayer'
 import { AnchorAnalysisOverlay } from './components/AnchorAnalysisOverlay'
 import { AnchorAnalysisTray } from './components/AnchorAnalysisTray'
+import { NeighborFidelityOverlay } from './components/NeighborFidelityOverlay'
 import { HomeLogoLink } from '@/shared/components/HomeLogoLink'
+import { useNeighborFidelity } from './hooks/useNeighborFidelity'
 
 extend({
   Viewport,
@@ -108,6 +110,13 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
   const minimapEmbeddingsLoadable = useAtomValue(
     loadableProjectedEmbeddingsAtom('minimap')
   )
+  const fidelityEmbeddings = useMemo(
+    () =>
+      mainEmbeddingsLoadable.state === 'hasData'
+        ? (mainEmbeddingsLoadable.data as ProjectedEmbedding[])
+        : [],
+    [mainEmbeddingsLoadable]
+  )
 
   const [rawEmbeddings, setRawEmbeddings] = useState<ProjectedEmbedding[]>([])
   const [rawEmbeddingsViewType, setRawEmbeddingsViewType] = useState<
@@ -124,6 +133,11 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
         .map((item) => Number(item.id))
         .filter((id: number) => Number.isInteger(id)),
     [rawEmbeddings]
+  )
+  useNeighborFidelity(
+    fidelityEmbeddings,
+    projectionSettings.type === 'umap' &&
+      mainEmbeddingsLoadable.state === 'hasData'
   )
   const trayOffset = trayOpen ? (trayCollapsed ? 52 : trayHeight) : 0
   const canvasHeight = Math.max(240, windowSize.height - trayOffset)
@@ -563,6 +577,9 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
           {allLoaded && (
             <>
               {projectionSettings.type === 'graph' && <GraphNetworkLayer />}
+              {projectionSettings.type === 'umap' && (
+                <NeighborFidelityOverlay rawEmbeddings={rawEmbeddings} />
+              )}
               <EmbeddingsLayer
                 type="main"
                 masterAtlas={masterAtlas}

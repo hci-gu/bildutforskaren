@@ -732,3 +732,44 @@ export const updateMetadataSource = async (
     body: JSON.stringify({ source }),
   })
 }
+
+export type NeighborFidelityRecord = {
+  image_id: number
+  clip_rank: number | null
+  projection_rank: number | null
+  clip_similarity: number
+  projection_distance: number
+}
+
+export type NeighborFidelityResponse = {
+  dataset_id: string
+  selected_image_id: number
+  requested_k: number
+  effective_k: number
+  retention: number
+  neighbors: {
+    preserved: NeighborFidelityRecord[]
+    clip_only: NeighborFidelityRecord[]
+    projection_only: NeighborFidelityRecord[]
+  }
+}
+
+export const fetchNeighborFidelity = async (
+  datasetId: string,
+  payload: {
+    image_ids: number[]
+    projection_points: number[][]
+    selected_image_id: number
+    k: number
+  },
+  signal?: AbortSignal
+) =>
+  await fetchJson<NeighborFidelityResponse>(
+    datasetApiUrl(datasetId, '/neighbor-fidelity'),
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal,
+    }
+  )

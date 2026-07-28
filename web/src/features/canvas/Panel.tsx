@@ -7,6 +7,7 @@ import {
   graphLayoutAtom,
   graphNetworksAtom,
   hoveredTextAtom,
+  neighborFidelitySettingsAtom,
   projectionSettingsAtom,
   projectionViewModeAtom,
   searchQueryAtom,
@@ -89,6 +90,9 @@ const Search = () => {
 
 const ProjectionSettings = () => {
   const [settings, setSettings] = useAtom(projectionSettingsAtom)
+  const [fidelitySettings, setFidelitySettings] = useAtom(
+    neighborFidelitySettingsAtom
+  )
   const [viewMode, setViewMode] = useAtom(projectionViewModeAtom)
   const [graphLayout, setGraphLayout] = useAtom(graphLayoutAtom)
   const datasetId = useAtomValue(activeDatasetIdAtom)
@@ -146,6 +150,43 @@ const ProjectionSettings = () => {
             <div className="text-xs text-white/70">
               Vänsterklick + dra: rotera. Högerklick + dra: panorera. Hjul:
               zooma.
+            </div>
+          )}
+          <div className="flex items-center space-x-2">
+            <Checkbox
+              id="neighborFidelity"
+              checked={fidelitySettings.enabled}
+              onCheckedChange={(checked) =>
+                setFidelitySettings((previous) => ({
+                  ...previous,
+                  enabled: !!checked,
+                }))
+              }
+            />
+            <Label htmlFor="neighborFidelity">Neighbor fidelity</Label>
+          </div>
+          {fidelitySettings.enabled && (
+            <div className="flex items-center space-x-2">
+              <Label htmlFor="neighborFidelityK" className="w-24">
+                Neighbors
+              </Label>
+              <Input
+                id="neighborFidelityK"
+                type="number"
+                min={2}
+                max={50}
+                step={1}
+                value={fidelitySettings.k}
+                onChange={(event) => {
+                  const value = Number(event.target.value)
+                  if (!Number.isFinite(value)) return
+                  setFidelitySettings((previous) => ({
+                    ...previous,
+                    k: Math.max(2, Math.min(50, Math.round(value))),
+                  }))
+                }}
+                className="border border-white/20 bg-white/10 text-white shadow-sm focus-visible:ring-white/30"
+              />
             </div>
           )}
         </>

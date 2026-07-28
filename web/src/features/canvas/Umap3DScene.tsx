@@ -13,6 +13,8 @@ import {
   anchorGraphModeAtom,
   displaySettingsAtom,
   loadableProjectedEmbeddings3dAtom,
+  neighborFidelityResultAtom,
+  neighborFidelitySettingsAtom,
   selectedEmbeddingAtom,
   selectedEmbeddingIdsAtom,
 } from '@/store'
@@ -23,6 +25,7 @@ import { getAnchorAnalysisDisplayPaths } from './anchorAnalysisPaths'
 import { AnchorAnalysisTray } from './components/AnchorAnalysisTray'
 import { HUD } from './components/HUD'
 import { HomeLogoLink } from '@/shared/components/HomeLogoLink'
+import { useNeighborFidelity } from './hooks/useNeighborFidelity'
 
 type ProjectedImage = {
   id: number
@@ -206,6 +209,47 @@ const addPathNode = (
   group.add(marker)
 }
 
+const addFidelityConnection = (
+  group: THREE.Group,
+  start: THREE.Vector3,
+  end: THREE.Vector3,
+  color: number,
+  dashed: boolean
+) => {
+  const geometry = new THREE.BufferGeometry().setFromPoints([start, end])
+  const material = dashed
+    ? new THREE.LineDashedMaterial({
+        color,
+        dashSize: 0.16,
+        gapSize: 0.1,
+        transparent: true,
+        opacity: 0.82,
+        depthWrite: false,
+      })
+    : new THREE.LineBasicMaterial({
+        color,
+        transparent: true,
+        opacity: 0.78,
+        depthWrite: false,
+      })
+  const line = new THREE.Line(geometry, material)
+  if (dashed) line.computeLineDistances()
+  line.renderOrder = 2
+  group.add(line)
+
+  const markerGeometry = new THREE.SphereGeometry(0.06, 10, 7)
+  const markerMaterial = new THREE.MeshBasicMaterial({
+    color,
+    transparent: true,
+    opacity: 0.9,
+    depthWrite: false,
+  })
+  const marker = new THREE.Mesh(markerGeometry, markerMaterial)
+  marker.position.copy(end)
+  marker.renderOrder = 3
+  group.add(marker)
+}
+
 export const Umap3DScene = () => {
   const containerRef = useRef<HTMLDivElement>(null)
   const resetCameraRef = useRef<() => void>(() => undefined)
@@ -215,11 +259,14 @@ export const Umap3DScene = () => {
   const pointsByIdRef = useRef(new Map<number, THREE.Vector3>())
   const itemsByIdRef = useRef(new Map<number, ProjectedImage>())
   const analysisGroupRef = useRef<THREE.Group | null>(null)
+  const fidelityGroupRef = useRef<THREE.Group | null>(null)
   const [atlasMeta, setAtlasMeta] = useState<AtlasMeta>({})
   const selectedIds = useAtomValue(selectedEmbeddingIdsAtom)
   const datasetId = useAtomValue(activeDatasetIdAtom)
   const displaySettings = useAtomValue(displaySettingsAtom)
   const projection = useAtomValue(loadableProjectedEmbeddings3dAtom)
+  const fidelitySettings = useAtomValue(neighborFidelitySettingsAtom)
+  const fidelityResult = useAtomValue(neighborFidelityResultAtom)
   const analysisResult = useAtomValue(anchorAnalysisResultAtom)
   const analysisTab = useAtomValue(anchorAnalysisTabAtom)
   const graphMode = useAtomValue(anchorGraphModeAtom)
@@ -237,6 +284,7 @@ export const Umap3DScene = () => {
         : [],
     [projection]
   )
+  useNeighborFidelity(projectedItems, projection.state === 'hasData')
   const candidateIds = useMemo(
     () => projectedItems.map((item) => Number(item.id)),
     [projectedItems]
@@ -267,12 +315,10 @@ export const Umap3DScene = () => {
   }, [setSelectedEmbedding, setSelectedEmbeddingIds])
 
   const navigateToImage = useCallback(
-    (imageId: number, openOriginal: boolean) => {
+    (imageId: number) => {
       const item = itemsByIdRef.current.get(imageId)
       setSelectedEmbeddingIds([String(imageId)])
-      setSelectedEmbedding(
-        openOriginal ? { id: imageId, meta: item?.meta ?? {} } : null
-      )
+      setSelectedEmbedding({ id: imageId, meta: item?.meta ?? {} })
       focusImageRef.current(imageId)
     },
     [setSelectedEmbedding, setSelectedEmbeddingIds]
@@ -303,7 +349,10 @@ export const Umap3DScene = () => {
     scene.background = new THREE.Color(0x07090e)
     scene.fog = new THREE.FogExp2(0x07090e, 0.018)
     const analysisGroup = new THREE.Group()
+    const fidelityGroup = new THREE.Group()
+    scene.add(fidelityGroup)
     scene.add(analysisGroup)
+    fidelityGroupRef.current = fidelityGroup
     analysisGroupRef.current = analysisGroup
 
     const renderer = new THREE.WebGLRenderer({ antialias: true })
@@ -561,8 +610,12 @@ export const Umap3DScene = () => {
       pointsByIdRef.current.clear()
       itemsByIdRef.current.clear()
       clearObjectGroup(analysisGroup)
+      clearObjectGroup(fidelityGroup)
       if (analysisGroupRef.current === analysisGroup) {
         analysisGroupRef.current = null
+      }
+      if (fidelityGroupRef.current === fidelityGroup) {
+        fidelityGroupRef.current = null
       }
       if (focusImageRef.current === focusImage) {
         focusImageRef.current = () => undefined
@@ -579,6 +632,31 @@ export const Umap3DScene = () => {
     setSelectedEmbedding,
     setSelectedEmbeddingIds,
   ])
+
+  useEffect(() => {
+    const group = fidelityGroupRef.current
+    if (!group) return
+    clearObjectGroup(group)
+    if (!fidelitySettings.enabled || !fidelityResult) return
+
+    const start = pointsByIdRef.current.get(fidelityResult.selected_image_id)
+    if (!start) return
+    const addRecords = (
+      records: typeof fidelityResult.neighbors.preserved,
+      color: number,
+      dashed: boolean
+    ) => {
+      records.forEach((record) => {
+        const end = pointsByIdRef.current.get(record.image_id)
+        if (end) addFidelityConnection(group, start, end, color, dashed)
+      })
+    }
+    addRecords(fidelityResult.neighbors.preserved, 0x22c55e, false)
+    addRecords(fidelityResult.neighbors.projection_only, 0xef4444, false)
+    addRecords(fidelityResult.neighbors.clip_only, 0x38bdf8, true)
+
+    return () => clearObjectGroup(group)
+  }, [fidelityResult, fidelitySettings.enabled, projectedItems])
 
   useEffect(() => {
     const group = analysisGroupRef.current
