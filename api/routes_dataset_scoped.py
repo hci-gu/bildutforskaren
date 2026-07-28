@@ -20,6 +20,7 @@ from api import datasets
 from api import image_roundtrip
 from api import indexing
 from api.anchor_analysis import AnchorAnalysisParameters, analyze_anchor_paths
+from api.concept_explanations import analyze_concept_explanations
 from api.graph_network import GraphNetworkParameters, build_graph_network
 from api.neighbor_fidelity import analyze_neighbor_fidelity
 from api import context as context_builder
@@ -462,6 +463,81 @@ def create_neighbor_fidelity(dataset_id: str):
         projection_points,
         selected_image_id,
         k,
+    )
+    return jsonify({"dataset_id": dataset_id, **result})
+
+
+@bp.route("/datasets/<dataset_id>/concept-explanations", methods=["POST"])
+def create_concept_explanations(dataset_id: str):
+    ctx = _get_context(dataset_id)
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify({"error": "Expected a JSON object"}), 400
+
+    image_ids = payload.get("image_ids")
+    if (
+        not isinstance(image_ids, list)
+        or not image_ids
+        or any(
+            isinstance(image_id, bool) or not isinstance(image_id, int)
+            for image_id in image_ids
+        )
+    ):
+        return jsonify(
+            {"error": "'image_ids' must contain at least one integer image ID"}
+        ), 400
+    if len(set(image_ids)) != len(image_ids):
+        return jsonify({"error": "'image_ids' must not contain duplicates"}), 400
+    if any(
+        image_id < 0 or image_id >= len(ctx.embeddings)
+        for image_id in image_ids
+    ):
+        return jsonify({"error": "One or more image IDs are out of range"}), 400
+
+    selected_image_id = payload.get("selected_image_id")
+    if (
+        isinstance(selected_image_id, bool)
+        or not isinstance(selected_image_id, int)
+    ):
+        return jsonify({"error": "'selected_image_id' must be an integer"}), 400
+    if selected_image_id not in image_ids:
+        return jsonify(
+            {"error": "'selected_image_id' must be included in 'image_ids'"}
+        ), 400
+
+    comparison_image_id = payload.get("comparison_image_id")
+    if comparison_image_id is not None:
+        if (
+            isinstance(comparison_image_id, bool)
+            or not isinstance(comparison_image_id, int)
+        ):
+            return jsonify(
+                {"error": "'comparison_image_id' must be an integer or null"}
+            ), 400
+        if comparison_image_id not in image_ids:
+            return jsonify(
+                {"error": "'comparison_image_id' must be included in 'image_ids'"}
+            ), 400
+        if comparison_image_id == selected_image_id:
+            return jsonify(
+                {
+                    "error": (
+                        "'comparison_image_id' must differ from "
+                        "'selected_image_id'"
+                    )
+                }
+            ), 400
+
+    from api import sao_terms
+
+    concept_embeddings, concepts = sao_terms.get_embeddings()
+    result = analyze_concept_explanations(
+        ctx.embeddings.cpu().numpy().astype("float32"),
+        image_ids,
+        selected_image_id,
+        concept_embeddings,
+        concepts,
+        comparison_image_id,
     )
     return jsonify({"dataset_id": dataset_id, **result})
 

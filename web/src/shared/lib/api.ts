@@ -773,3 +773,47 @@ export const fetchNeighborFidelity = async (
       signal,
     }
   )
+
+export type ConceptExplanationRecord = {
+  concept_id: string
+  label: string
+  scope_note: string
+  selected_similarity: number
+  selected_percentile: number
+  comparison_similarity: number | null
+  comparison_percentile: number | null
+  percentile_difference: number | null
+}
+
+export type ConceptExplanationResponse = {
+  dataset_id: string
+  selected_image_id: number
+  comparison_image_id: number | null
+  baseline_image_count: number
+  candidate_pool_size: number
+  selected_concepts: ConceptExplanationRecord[]
+  comparison: {
+    shared: ConceptExplanationRecord[]
+    selected_distinctive: ConceptExplanationRecord[]
+    comparison_distinctive: ConceptExplanationRecord[]
+  } | null
+}
+
+export const fetchConceptExplanation = async (
+  datasetId: string,
+  payload: {
+    image_ids: number[]
+    selected_image_id: number
+    comparison_image_id?: number
+  },
+  signal?: AbortSignal
+) =>
+  await fetchJson<ConceptExplanationResponse>(
+    datasetApiUrl(datasetId, '/concept-explanations'),
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal,
+    }
+  )

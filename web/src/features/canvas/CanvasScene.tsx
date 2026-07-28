@@ -38,6 +38,7 @@ import { AnchorAnalysisTray } from './components/AnchorAnalysisTray'
 import { NeighborFidelityOverlay } from './components/NeighborFidelityOverlay'
 import { HomeLogoLink } from '@/shared/components/HomeLogoLink'
 import { useNeighborFidelity } from './hooks/useNeighborFidelity'
+import { useConceptExplanation } from './hooks/useConceptExplanation'
 
 extend({
   Viewport,
@@ -135,6 +136,11 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
     [rawEmbeddings]
   )
   useNeighborFidelity(
+    fidelityEmbeddings,
+    projectionSettings.type === 'umap' &&
+      mainEmbeddingsLoadable.state === 'hasData'
+  )
+  useConceptExplanation(
     fidelityEmbeddings,
     projectionSettings.type === 'umap' &&
       mainEmbeddingsLoadable.state === 'hasData'
