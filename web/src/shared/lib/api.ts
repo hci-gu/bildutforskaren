@@ -130,6 +130,55 @@ export type AnchorAnalysisPath = {
   maximum_jump: number | null
 }
 
+export type AnchorSemanticConcept = {
+  concept_id: string
+  label: string
+  scope_note: string
+  score_a: number
+  score_b: number
+  delta: number
+  endpoint_a_rank: number | null
+  endpoint_b_rank: number | null
+  delta_direction: 'increasing' | 'decreasing' | null
+  delta_rank: number | null
+  in_endpoint_a: boolean
+  in_endpoint_b: boolean
+  in_trajectory: boolean
+}
+
+export type AnchorSemanticIdealPoint = {
+  progress: number
+  score: number
+}
+
+export type AnchorSemanticObservedPoint = {
+  progress: number
+  image_id: number | null
+  score: number | null
+  ideal_score: number
+  gap: number | null
+}
+
+export type AnchorSemanticTrajectory = {
+  concept_id: string
+  ideal: AnchorSemanticIdealPoint[]
+  interpolation: AnchorSemanticObservedPoint[]
+  axis: AnchorSemanticObservedPoint[]
+  graph_shortest: AnchorSemanticObservedPoint[]
+  graph_supported: AnchorSemanticObservedPoint[]
+}
+
+export type AnchorSemantics = {
+  available: boolean
+  error: string | null
+  relevance_threshold: number | null
+  endpoint_a: AnchorSemanticConcept[]
+  endpoint_b: AnchorSemanticConcept[]
+  increasing: AnchorSemanticConcept[]
+  decreasing: AnchorSemanticConcept[]
+  trajectories: AnchorSemanticTrajectory[]
+}
+
 export type AnchorAnalysisResponse = {
   dataset_id: string
   anchors: {
@@ -176,6 +225,7 @@ export type AnchorAnalysisResponse = {
     shortest: AnchorAnalysisPath
     supported: AnchorAnalysisPath
   }
+  semantics: AnchorSemantics
   parameters: AnchorAnalysisParameters
 }
 

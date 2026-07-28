@@ -490,7 +490,12 @@ export const graphLayoutAtom = atom<import('@/shared/lib/api').GraphLayout>(
   'concentric'
 )
 
-export type AnchorAnalysisTab = 'axis' | 'affinity' | 'interpolation' | 'graph'
+export type AnchorAnalysisTab =
+  | 'axis'
+  | 'affinity'
+  | 'interpolation'
+  | 'graph'
+  | 'semantic'
 export type AnchorGraphMode = 'shortest' | 'supported'
 
 export const anchorGroupsAtom = atom<{

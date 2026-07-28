@@ -20,6 +20,7 @@ from api import datasets
 from api import image_roundtrip
 from api import indexing
 from api.anchor_analysis import AnchorAnalysisParameters, analyze_anchor_paths
+from api.anchor_semantics import analyze_anchor_semantics
 from api.graph_network import GraphNetworkParameters, build_graph_network
 from api.neighbor_fidelity import analyze_neighbor_fidelity
 from api import context as context_builder
@@ -322,6 +323,50 @@ def create_anchor_analysis(dataset_id: str):
         )
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
+
+    try:
+        from api import sao_terms
+
+        concept_embeddings, concepts = sao_terms.get_embeddings()
+        result["semantics"] = analyze_anchor_semantics(
+            ctx.embeddings.cpu().numpy().astype("float32"),
+            anchor_a_ids,
+            anchor_b_ids,
+            result,
+            concept_embeddings,
+            concepts,
+        )
+    except (FileNotFoundError, OSError) as exc:
+        logging.warning(
+            "SAO concepts are unavailable for dataset %s: %s",
+            dataset_id,
+            exc,
+        )
+        result["semantics"] = {
+            "available": False,
+            "error": "SAO concepts are unavailable",
+            "relevance_threshold": None,
+            "endpoint_a": [],
+            "endpoint_b": [],
+            "increasing": [],
+            "decreasing": [],
+            "trajectories": [],
+        }
+    except Exception:
+        logging.exception(
+            "Failed to compute anchor semantics for dataset %s",
+            dataset_id,
+        )
+        result["semantics"] = {
+            "available": False,
+            "error": "SAO concepts are unavailable",
+            "relevance_threshold": None,
+            "endpoint_a": [],
+            "endpoint_b": [],
+            "increasing": [],
+            "decreasing": [],
+            "trajectories": [],
+        }
 
     return jsonify({"dataset_id": dataset_id, **result})
 
