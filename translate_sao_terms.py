@@ -276,6 +276,9 @@ def translate_batch(
         generated = model.generate(
             **inputs,
             do_sample=False,
+            top_k=None,
+            top_p=None,
+            temperature=None,
             max_new_tokens=max_new_tokens,
             pad_token_id=tokenizer.pad_token_id,
             eos_token_id=tokenizer.eos_token_id,
