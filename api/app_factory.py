@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 
 from flask import Flask
 from flask_cors import CORS
@@ -24,10 +25,11 @@ def create_app() -> Flask:
     config.ensure_runtime_dirs()
     init_runtime()
     jobs.resume_pending_jobs()
-    try:
-        sao_terms.ensure_embeddings()
-    except Exception as exc:
-        logging.warning("Failed to warm SAO term embeddings: %s", exc)
+    if os.environ.get("BILDUTFORSKAREN_SKIP_SAO_WARMUP") != "1":
+        try:
+            sao_terms.ensure_embeddings()
+        except Exception as exc:
+            logging.warning("Failed to warm SAO term embeddings: %s", exc)
 
     app = Flask(__name__)
     CORS(app)

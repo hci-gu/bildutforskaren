@@ -24,7 +24,7 @@ def sao_terms_search():
     try:
         results = sao_terms.search_terms(query, limit=limit, include_scope=include_scope)
     except FileNotFoundError:
-        return jsonify({"error": "sao_terms.csv not found"}), 404
+        return jsonify({"error": "SAO terms file not found"}), 404
 
     return jsonify(results)
 

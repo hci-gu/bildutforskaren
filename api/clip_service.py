@@ -10,13 +10,16 @@ import torch
 from PIL import Image
 from transformers import CLIPProcessor, CLIPModel
 
+CLIP_MODEL_ID = "openai/clip-vit-large-patch14"
+
+
 @lru_cache(maxsize=1)
 def _load_clip():
     device = "cuda" if torch.cuda.is_available() else "cpu"
     logging.info(f"Loading CLIP model on device: {device}")
-    model = CLIPModel.from_pretrained("openai/clip-vit-large-patch14").to(device)
+    model = CLIPModel.from_pretrained(CLIP_MODEL_ID).to(device)
     processor = CLIPProcessor.from_pretrained(
-        "openai/clip-vit-large-patch14",
+        CLIP_MODEL_ID,
         from_tf=True,
         use_fast=False,
     )
@@ -51,7 +54,13 @@ def embed_text(prompts: list[str]) -> np.ndarray:
     model, processor, device = _load_clip()
 
     with torch.no_grad():
-        inputs = processor(text=prompts, return_tensors="pt", padding=True).to(device)
+        inputs = processor(
+            text=prompts,
+            return_tensors="pt",
+            padding=True,
+            truncation=True,
+            max_length=model.config.text_config.max_position_embeddings,
+        ).to(device)
         txt = model.get_text_features(**inputs)
         txt = txt / txt.norm(dim=-1, keepdim=True)
 
