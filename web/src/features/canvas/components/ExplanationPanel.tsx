@@ -7,6 +7,7 @@ import {
   clusterProfilesErrorAtom,
   clusterProfilesResultAtom,
   clusterProfilesStatusAtom,
+  conceptAxisEnabledAtom,
   conceptLensErrorAtom,
   conceptLensResultAtom,
   conceptLensSelectionAtom,
@@ -298,6 +299,7 @@ export const ExplanationPanel = () => {
   const [tab, setTab] = useAtom(explanationTabAtom)
   const [selection, setSelection] = useAtom(conceptLensSelectionAtom)
   const [threshold, setThreshold] = useAtom(conceptLensThresholdAtom)
+  const [axisEnabled, setAxisEnabled] = useAtom(conceptAxisEnabledAtom)
   const lensResult = useAtomValue(conceptLensResultAtom)
   const lensStatus = useAtomValue(conceptLensStatusAtom)
   const lensError = useAtomValue(conceptLensErrorAtom)
@@ -508,6 +510,43 @@ export const ExplanationPanel = () => {
                   {selection.b
                     ? `${selection.b.label} ← liknande → ${selection.a.label}`
                     : 'Låg semantisk likhet ← → hög semantisk likhet'}
+                </div>
+                <div className="border-t border-white/10 pt-2">
+                  <button
+                    type="button"
+                    className={`flex w-full items-center justify-between rounded border px-2 py-1.5 text-xs transition ${
+                      axisEnabled
+                        ? 'border-cyan-300/60 bg-cyan-300/15 text-cyan-100'
+                        : 'border-white/15 bg-black/20 text-white/70 hover:bg-white/10'
+                    }`}
+                    aria-pressed={axisEnabled}
+                    title="En linjär riktning anpassad i den aktuella UMAP-projektionen, inte en huvudkomponent i CLIP-rummet."
+                    onClick={() => setAxisEnabled((enabled) => !enabled)}
+                  >
+                    <span>Visa konceptaxel</span>
+                    <span>{axisEnabled ? 'På' : 'Av'}</span>
+                  </button>
+                  {lensResult?.axis.available && (
+                    <div className="mt-1.5 flex gap-3 text-[10px] text-white/55">
+                      <span>R² {lensResult.axis.r_squared.toFixed(2)}</span>
+                      <span>
+                        Stabilitet{' '}
+                        {Math.round(lensResult.axis.stability * 100)} %
+                      </span>
+                    </div>
+                  )}
+                  {lensResult && !lensResult.axis.available && (
+                    <div className="mt-1.5 text-[10px] text-white/45">
+                      Ingen stabil rak axel kunde anpassas till bildmolnet.
+                    </div>
+                  )}
+                  {lensResult?.axis.available && (
+                    <div className="mt-1 text-[10px] text-white/45">
+                      {selection.b
+                        ? `${selection.b.label} → ${selection.a.label}`
+                        : `Lägre → högre ${selection.a.label}`}
+                    </div>
+                  )}
                 </div>
               </div>
             )}

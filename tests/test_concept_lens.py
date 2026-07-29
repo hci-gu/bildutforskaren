@@ -76,6 +76,83 @@ class ConceptLensTests(unittest.TestCase):
                 ["a"],
             )
 
+    def test_fits_single_concept_axis_inside_2d_image_cloud(self):
+        points = np.asarray(
+            [
+                [0.0, 0.0],
+                [0.0, 1.0],
+                [1.0, 0.0],
+                [1.0, 1.0],
+                [0.5, 0.5],
+            ],
+            dtype=np.float64,
+        )
+        images = np.column_stack(
+            [points[:, 0] + 1.0, np.ones(len(points))]
+        ).astype(np.float32)
+        result = analyze_concept_lens(
+            images,
+            list(range(len(points))),
+            np.asarray([[1.0, 0.0]], dtype=np.float32),
+            [{"id": "a", "label": "ett", "scope_note": ""}],
+            ["a"],
+            points,
+        )
+
+        axis = result["axis"]
+        self.assertTrue(axis["available"])
+        self.assertEqual(axis["mode"], "single")
+        self.assertEqual(axis["dimension"], 2)
+        self.assertGreater(axis["end"][0], axis["start"][0])
+        self.assertGreaterEqual(min(axis["start"]), 0.0)
+        self.assertLessEqual(max(axis["end"]), 1.0)
+        self.assertGreater(axis["r_squared"], 0.8)
+        self.assertGreater(axis["stability"], 0.8)
+
+    def test_two_concepts_fit_contrast_axis_in_3d(self):
+        points = np.asarray(
+            [
+                [-1.0, -1.0, -1.0],
+                [-1.0, 1.0, 1.0],
+                [1.0, -1.0, 1.0],
+                [1.0, 1.0, -1.0],
+                [0.0, 0.0, 0.0],
+                [0.5, -0.5, 0.5],
+            ],
+            dtype=np.float64,
+        )
+        images = np.column_stack(
+            [points[:, 2] + 2.0, 2.0 - points[:, 2]]
+        ).astype(np.float32)
+        result = analyze_concept_lens(
+            images,
+            list(range(len(points))),
+            np.eye(2, dtype=np.float32),
+            [
+                {"id": "a", "label": "ett", "scope_note": ""},
+                {"id": "b", "label": "två", "scope_note": ""},
+            ],
+            ["a", "b"],
+            points,
+        )
+
+        axis = result["axis"]
+        self.assertTrue(axis["available"])
+        self.assertEqual(axis["mode"], "contrast")
+        self.assertEqual(axis["dimension"], 3)
+        self.assertGreater(axis["end"][2], axis["start"][2])
+
+    def test_axis_is_unavailable_for_degenerate_cloud(self):
+        result = analyze_concept_lens(
+            np.asarray([[1.0, 0.0], [0.8, 0.2], [0.6, 0.4]], dtype=np.float32),
+            [0, 1, 2],
+            np.asarray([[1.0, 0.0]], dtype=np.float32),
+            [{"id": "a", "label": "ett", "scope_note": ""}],
+            ["a"],
+            np.asarray([[0.0, 0.0], [0.5, 0.0], [1.0, 0.0]]),
+        )
+        self.assertFalse(result["axis"]["available"])
+
 
 if __name__ == "__main__":
     unittest.main()

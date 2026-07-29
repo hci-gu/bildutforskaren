@@ -556,6 +556,46 @@ def create_concept_lens(dataset_id: str):
     if len(set(concept_ids)) != len(concept_ids):
         return jsonify({"error": "'concept_ids' must not contain duplicates"}), 400
 
+    raw_projection_points = payload.get("projection_points")
+    projection_points = None
+    if raw_projection_points is not None:
+        if (
+            not isinstance(raw_projection_points, list)
+            or len(raw_projection_points) != len(image_ids)
+            or not raw_projection_points
+            or not all(isinstance(point, list) for point in raw_projection_points)
+        ):
+            return jsonify(
+                {
+                    "error": (
+                        "'projection_points' must match 'image_ids' and contain "
+                        "consistent 2D or 3D points"
+                    )
+                }
+            ), 400
+        dimension = len(raw_projection_points[0])
+        if dimension not in (2, 3) or any(
+            len(point) != dimension for point in raw_projection_points
+        ):
+            return jsonify(
+                {
+                    "error": (
+                        "'projection_points' must match 'image_ids' and contain "
+                        "consistent 2D or 3D points"
+                    )
+                }
+            ), 400
+        if any(
+            isinstance(coordinate, bool)
+            or not isinstance(coordinate, (int, float))
+            for point in raw_projection_points
+            for coordinate in point
+        ):
+            return jsonify({"error": "'projection_points' must be numeric"}), 400
+        projection_points = np.asarray(raw_projection_points, dtype=float)
+        if not np.isfinite(projection_points).all():
+            return jsonify({"error": "'projection_points' must be finite"}), 400
+
     try:
         from api import sao_terms
 
@@ -566,6 +606,7 @@ def create_concept_lens(dataset_id: str):
             concept_embeddings,
             concepts,
             concept_ids,
+            projection_points,
         )
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400

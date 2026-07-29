@@ -11,6 +11,7 @@ import {
   anchorAnalysisTrayHeightAtom,
   anchorAnalysisTrayOpenAtom,
   anchorGraphModeAtom,
+  conceptAxisEnabledAtom,
   conceptLensResultAtom,
   conceptLensThresholdAtom,
   displaySettingsAtom,
@@ -151,6 +152,28 @@ const normalizePoints = (items: ProjectedImage[]) => {
   )
 }
 
+const normalizeProjectionPoint = (
+  items: ProjectedImage[],
+  coordinates: number[]
+) => {
+  const min = new THREE.Vector3(Infinity, Infinity, Infinity)
+  const max = new THREE.Vector3(-Infinity, -Infinity, -Infinity)
+  items.forEach((item) => {
+    min.min(new THREE.Vector3(...item.point))
+    max.max(new THREE.Vector3(...item.point))
+  })
+  const center = min.clone().add(max).multiplyScalar(0.5)
+  const span = max.clone().sub(min)
+  const scale = 14 / Math.max(1e-6, span.x, span.y, span.z)
+  return new THREE.Vector3(
+    coordinates[0] ?? 0,
+    coordinates[1] ?? 0,
+    coordinates[2] ?? 0
+  )
+    .sub(center)
+    .multiplyScalar(scale)
+}
+
 const clearObjectGroup = (group: THREE.Group) => {
   const geometries = new Set<THREE.BufferGeometry>()
   const materials = new Set<THREE.Material>()
@@ -166,6 +189,71 @@ const clearObjectGroup = (group: THREE.Group) => {
   group.clear()
   geometries.forEach((geometry) => geometry.dispose())
   materials.forEach((material) => material.dispose())
+}
+
+const addConceptAxis = (
+  group: THREE.Group,
+  start: THREE.Vector3,
+  end: THREE.Vector3,
+  contrast: boolean
+) => {
+  const startColor = new THREE.Color(contrast ? 0xfb923c : 0x440154)
+  const endColor = new THREE.Color(contrast ? 0x38bdf8 : 0xfde725)
+  const geometry = new THREE.BufferGeometry().setFromPoints([start, end])
+  geometry.setAttribute(
+    'color',
+    new THREE.Float32BufferAttribute(
+      [
+        startColor.r,
+        startColor.g,
+        startColor.b,
+        endColor.r,
+        endColor.g,
+        endColor.b,
+      ],
+      3
+    )
+  )
+  const material = new THREE.LineBasicMaterial({
+    vertexColors: true,
+    transparent: true,
+    opacity: 0.9,
+    depthWrite: false,
+  })
+  const line = new THREE.Line(geometry, material)
+  line.renderOrder = 1
+  group.add(line)
+
+  const direction = end.clone().sub(start).normalize()
+  const length = start.distanceTo(end)
+  const arrowHeight = Math.min(0.42, Math.max(0.18, length * 0.07))
+  const arrowGeometry = new THREE.ConeGeometry(arrowHeight * 0.42, arrowHeight, 16)
+  const arrowMaterial = new THREE.MeshBasicMaterial({
+    color: endColor,
+    transparent: true,
+    opacity: 0.95,
+    depthWrite: false,
+  })
+  const arrow = new THREE.Mesh(arrowGeometry, arrowMaterial)
+  arrow.position.copy(end).addScaledVector(direction, -arrowHeight / 2)
+  arrow.quaternion.setFromUnitVectors(
+    new THREE.Vector3(0, 1, 0),
+    direction
+  )
+  arrow.renderOrder = 1
+  group.add(arrow)
+
+  const startGeometry = new THREE.SphereGeometry(arrowHeight * 0.24, 12, 8)
+  const startMaterial = new THREE.MeshBasicMaterial({
+    color: startColor,
+    transparent: true,
+    opacity: 0.95,
+    depthWrite: false,
+  })
+  const startMarker = new THREE.Mesh(startGeometry, startMaterial)
+  startMarker.position.copy(start)
+  startMarker.renderOrder = 1
+  group.add(startMarker)
 }
 
 const addPathSegment = (
@@ -285,6 +373,7 @@ export const Umap3DScene = () => {
   const selectedIdsRef = useRef<string[]>([])
   const pointsByIdRef = useRef(new Map<number, THREE.Vector3>())
   const itemsByIdRef = useRef(new Map<number, ProjectedImage>())
+  const conceptAxisGroupRef = useRef<THREE.Group | null>(null)
   const analysisGroupRef = useRef<THREE.Group | null>(null)
   const fidelityGroupRef = useRef<THREE.Group | null>(null)
   const [atlasMeta, setAtlasMeta] = useState<AtlasMeta>({})
@@ -294,6 +383,7 @@ export const Umap3DScene = () => {
   const projection = useAtomValue(loadableProjectedEmbeddings3dAtom)
   const fidelitySettings = useAtomValue(neighborFidelitySettingsAtom)
   const fidelityResult = useAtomValue(neighborFidelityResultAtom)
+  const conceptAxisEnabled = useAtomValue(conceptAxisEnabledAtom)
   const conceptLensResult = useAtomValue(conceptLensResultAtom)
   const conceptLensThreshold = useAtomValue(conceptLensThresholdAtom)
   const xaiImageFocusRequest = useAtomValue(xaiImageFocusRequestAtom)
@@ -445,10 +535,13 @@ export const Umap3DScene = () => {
     const scene = new THREE.Scene()
     scene.background = new THREE.Color(0x07090e)
     scene.fog = new THREE.FogExp2(0x07090e, 0.018)
+    const conceptAxisGroup = new THREE.Group()
     const analysisGroup = new THREE.Group()
     const fidelityGroup = new THREE.Group()
+    scene.add(conceptAxisGroup)
     scene.add(fidelityGroup)
     scene.add(analysisGroup)
+    conceptAxisGroupRef.current = conceptAxisGroup
     fidelityGroupRef.current = fidelityGroup
     analysisGroupRef.current = analysisGroup
 
@@ -721,8 +814,12 @@ export const Umap3DScene = () => {
       pointCloudsRef.current = []
       pointsByIdRef.current.clear()
       itemsByIdRef.current.clear()
+      clearObjectGroup(conceptAxisGroup)
       clearObjectGroup(analysisGroup)
       clearObjectGroup(fidelityGroup)
+      if (conceptAxisGroupRef.current === conceptAxisGroup) {
+        conceptAxisGroupRef.current = null
+      }
       if (analysisGroupRef.current === analysisGroup) {
         analysisGroupRef.current = null
       }
@@ -745,6 +842,30 @@ export const Umap3DScene = () => {
     setSelectedEmbedding,
     setSelectedEmbeddingIds,
   ])
+
+  useEffect(() => {
+    const group = conceptAxisGroupRef.current
+    if (!group) return
+    clearObjectGroup(group)
+    const axis = conceptLensResult?.axis
+    if (
+      !conceptAxisEnabled ||
+      !axis?.available ||
+      axis.dimension !== 3 ||
+      axis.start.length !== 3 ||
+      axis.end.length !== 3
+    ) {
+      return
+    }
+
+    addConceptAxis(
+      group,
+      normalizeProjectionPoint(projectedItems, axis.start),
+      normalizeProjectionPoint(projectedItems, axis.end),
+      axis.mode === 'contrast'
+    )
+    return () => clearObjectGroup(group)
+  }, [conceptAxisEnabled, conceptLensResult, projectedItems])
 
   useEffect(() => {
     const group = fidelityGroupRef.current

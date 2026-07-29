@@ -42,6 +42,7 @@ export const useConceptLens = (
     return {
       image_ids: images.map((item) => Number(item.id)),
       concept_ids: conceptIds,
+      projection_points: images.map((item) => [...(item.point ?? [])]),
     }
   }, [active, items, selection.a, selection.b])
 

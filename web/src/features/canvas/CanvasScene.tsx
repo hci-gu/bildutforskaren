@@ -50,6 +50,7 @@ import { HomeLogoLink } from '@/shared/components/HomeLogoLink'
 import { useNeighborFidelity } from './hooks/useNeighborFidelity'
 import { useConceptLens } from './hooks/useConceptLens'
 import { ClusterProfileOverlay } from './components/ClusterProfileOverlay'
+import { ConceptAxisOverlay } from './components/ConceptAxisOverlay'
 import {
   buildClusterRegions,
   clusterAtWorldPoint,
@@ -651,6 +652,7 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
               {projectionSettings.type === 'umap' && (
                 <ClusterProfileOverlay rawEmbeddings={rawEmbeddings} />
               )}
+              {projectionSettings.type === 'umap' && <ConceptAxisOverlay />}
               {projectionSettings.type === 'umap' && (
                 <NeighborFidelityOverlay rawEmbeddings={rawEmbeddings} />
               )}

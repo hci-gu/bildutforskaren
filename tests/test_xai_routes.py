@@ -52,13 +52,23 @@ class XaiRouteTests(unittest.TestCase):
     def test_concept_lens_serializes_swedish_metadata_and_scores(self):
         response = self.post(
             "/datasets/test/concept-lens",
-            {"image_ids": [0, 1, 2], "concept_ids": ["a", "b"]},
+            {
+                "image_ids": [0, 1, 2, 3],
+                "concept_ids": ["a", "b"],
+                "projection_points": [
+                    [0.0, 0.0],
+                    [1.0, 0.0],
+                    [0.0, 1.0],
+                    [1.0, 1.0],
+                ],
+            },
         )
         self.assertEqual(response.status_code, 200)
         data = response.get_json()
         self.assertEqual(data["dataset_id"], "test")
         self.assertEqual(data["concepts"][0]["label"], "hästar")
         self.assertIn("comparison_delta", data["images"][0])
+        self.assertIn("axis", data)
 
     def test_concept_lens_rejects_invalid_ids_and_concepts(self):
         invalid_payloads = [
@@ -70,6 +80,21 @@ class XaiRouteTests(unittest.TestCase):
             {"image_ids": [0], "concept_ids": ["a", "a"]},
             {"image_ids": [0], "concept_ids": ["a", "b", "c"]},
             {"image_ids": [0], "concept_ids": ["missing"]},
+            {
+                "image_ids": [0, 1],
+                "concept_ids": ["a"],
+                "projection_points": [[0, 0]],
+            },
+            {
+                "image_ids": [0, 1],
+                "concept_ids": ["a"],
+                "projection_points": [[0, 0], [1, 1, 1, 1]],
+            },
+            {
+                "image_ids": [0, 1],
+                "concept_ids": ["a"],
+                "projection_points": [[0, 0], [1, float("inf")]],
+            },
         ]
         for payload in invalid_payloads:
             with self.subTest(payload=payload):

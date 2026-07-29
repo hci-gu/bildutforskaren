@@ -495,6 +495,7 @@ export const conceptLensSelectionAtom = atom<{
   b: SelectedSaoConcept | null
 }>({ a: null, b: null })
 export const conceptLensThresholdAtom = atom(75)
+export const conceptAxisEnabledAtom = atom(false)
 export const conceptLensResultAtom =
   atom<import('@/shared/lib/api').ConceptLensResponse | null>(null)
 export const conceptLensStatusAtom = atom<

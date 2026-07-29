@@ -46,10 +46,31 @@ export type ConceptLensImage = {
   comparison_delta?: number
 }
 
+export type ConceptLensAxis =
+  | {
+      available: true
+      mode: 'single' | 'contrast'
+      dimension: 2 | 3
+      start: number[]
+      end: number[]
+      direction: number[]
+      r_squared: number
+      stability: number
+      bootstrap_samples: number
+      boundary: 'convex_hull_inset'
+    }
+  | {
+      available: false
+      mode: 'single' | 'contrast'
+      dimension?: 2 | 3
+      reason: string
+    }
+
 export type ConceptLensResponse = {
   dataset_id: string
   concepts: SaoConceptMetadata[]
   images: ConceptLensImage[]
+  axis: ConceptLensAxis
 }
 
 export type ClusterProfileConcept = SaoConceptMetadata & {
@@ -595,6 +616,7 @@ export const fetchConceptLens = async (
   payload: {
     image_ids: number[]
     concept_ids: string[]
+    projection_points: number[][]
   },
   signal?: AbortSignal
 ) => {
