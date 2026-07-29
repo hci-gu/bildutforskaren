@@ -483,6 +483,41 @@ export const neighborFidelityStatusAtom = atom<
   'idle' | 'loading' | 'ready' | 'error'
 >('idle')
 export const neighborFidelityErrorAtom = atom<string | null>(null)
+export type SelectedSaoConcept = {
+  concept_id: string
+  label: string
+  scope_note: string
+}
+export const explanationPanelOpenAtom = atom(false)
+export const explanationTabAtom = atom<'concept' | 'cluster'>('concept')
+export const conceptLensSelectionAtom = atom<{
+  a: SelectedSaoConcept | null
+  b: SelectedSaoConcept | null
+}>({ a: null, b: null })
+export const conceptLensThresholdAtom = atom(75)
+export const conceptLensResultAtom =
+  atom<import('@/shared/lib/api').ConceptLensResponse | null>(null)
+export const conceptLensStatusAtom = atom<
+  'idle' | 'loading' | 'ready' | 'error'
+>('idle')
+export const conceptLensErrorAtom = atom<string | null>(null)
+export const clusterProfilesAlgorithmAtom =
+  atom<import('@/shared/lib/api').ClusteringAlgorithm>('hdbscan')
+export const clusterProfilesResultAtom =
+  atom<import('@/shared/lib/api').ClusterProfilesResponse | null>(null)
+export const clusterProfilesStatusAtom = atom<
+  'idle' | 'loading' | 'ready' | 'error'
+>('idle')
+export const clusterProfilesErrorAtom = atom<string | null>(null)
+export const selectedExplainedClusterAtom = atom<number | null>(null)
+export const clusterFocusRequestAtom = atom<{
+  clusterId: number
+  requestId: number
+} | null>(null)
+export const xaiImageFocusRequestAtom = atom<{
+  imageId: number
+  requestId: number
+} | null>(null)
 export const graphNetworksAtom = atom<
   Record<string, import('@/shared/lib/api').GraphNetworkResponse>
 >({})

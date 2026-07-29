@@ -11,12 +11,15 @@ import {
   anchorAnalysisTrayHeightAtom,
   anchorAnalysisTrayOpenAtom,
   anchorGraphModeAtom,
+  conceptLensResultAtom,
+  conceptLensThresholdAtom,
   displaySettingsAtom,
   loadableProjectedEmbeddings3dAtom,
   neighborFidelityResultAtom,
   neighborFidelitySettingsAtom,
   selectedEmbeddingAtom,
   selectedEmbeddingIdsAtom,
+  xaiImageFocusRequestAtom,
 } from '@/store'
 import { datasetApiUrl, fetchAtlasMeta } from '@/shared/lib/api'
 import type { AtlasMeta } from './hooks/useAtlasLoader'
@@ -26,6 +29,9 @@ import { AnchorAnalysisTray } from './components/AnchorAnalysisTray'
 import { HUD } from './components/HUD'
 import { HomeLogoLink } from '@/shared/components/HomeLogoLink'
 import { useNeighborFidelity } from './hooks/useNeighborFidelity'
+import { useConceptLens } from './hooks/useConceptLens'
+import { conceptLensVisual } from './xaiVisuals'
+import type { ConceptLensResponse } from '@/shared/lib/api'
 
 type ProjectedImage = {
   id: number
@@ -36,6 +42,9 @@ type ProjectedImage = {
 type PointCloudUserData = {
   ids: number[]
   selectedAttribute: THREE.BufferAttribute
+  lensColorAttribute: THREE.BufferAttribute
+  lensAlphaAttribute: THREE.BufferAttribute
+  lensActiveAttribute: THREE.BufferAttribute
 }
 
 type CameraTransition = {
@@ -52,10 +61,16 @@ const vertexShader = `
   attribute float imageAspect;
   attribute float selected;
   attribute float matched;
+  attribute vec3 lensColor;
+  attribute float lensAlpha;
+  attribute float lensActive;
   varying vec4 vAtlasRect;
   varying float vImageAspect;
   varying float vSelected;
   varying float vMatched;
+  varying vec3 vLensColor;
+  varying float vLensAlpha;
+  varying float vLensActive;
   uniform float pointSize;
 
   void main() {
@@ -63,6 +78,9 @@ const vertexShader = `
     vImageAspect = imageAspect;
     vSelected = selected;
     vMatched = matched;
+    vLensColor = lensColor;
+    vLensAlpha = lensAlpha;
+    vLensActive = lensActive;
     vec4 viewPosition = modelViewMatrix * vec4(position, 1.0);
     gl_Position = projectionMatrix * viewPosition;
     gl_PointSize = clamp(pointSize * (10.0 / max(1.0, -viewPosition.z)), 5.0, 96.0);
@@ -75,6 +93,9 @@ const fragmentShader = `
   varying float vImageAspect;
   varying float vSelected;
   varying float vMatched;
+  varying vec3 vLensColor;
+  varying float vLensAlpha;
+  varying float vLensActive;
 
   void main() {
     vec2 local = gl_PointCoord;
@@ -95,8 +116,14 @@ const fragmentShader = `
     if (color.a < 0.05) discard;
 
     float edge = min(min(local.x, 1.0 - local.x), min(local.y, 1.0 - local.y));
-    if (vSelected > 0.5 && edge < 0.07) {
-      color = mix(color, vec4(0.20, 1.0, 0.52, 1.0), 0.9);
+    if (vSelected > 0.5) {
+      color.a = 1.0;
+      if (edge < 0.07) {
+        color = mix(color, vec4(0.20, 1.0, 0.52, 1.0), 0.9);
+      }
+    } else if (vLensActive > 0.5) {
+      color.rgb = mix(color.rgb, vLensColor, 0.5);
+      color.rgb *= mix(0.35, 1.0, vLensAlpha);
     } else if (vMatched > 0.5 && edge < 0.055) {
       color = mix(color, vec4(1.0, 0.78, 0.18, 1.0), 0.85);
     } else if (vMatched < 0.5) {
@@ -267,6 +294,9 @@ export const Umap3DScene = () => {
   const projection = useAtomValue(loadableProjectedEmbeddings3dAtom)
   const fidelitySettings = useAtomValue(neighborFidelitySettingsAtom)
   const fidelityResult = useAtomValue(neighborFidelityResultAtom)
+  const conceptLensResult = useAtomValue(conceptLensResultAtom)
+  const conceptLensThreshold = useAtomValue(conceptLensThresholdAtom)
+  const xaiImageFocusRequest = useAtomValue(xaiImageFocusRequestAtom)
   const analysisResult = useAtomValue(anchorAnalysisResultAtom)
   const analysisTab = useAtomValue(anchorAnalysisTabAtom)
   const graphMode = useAtomValue(anchorGraphModeAtom)
@@ -276,6 +306,14 @@ export const Umap3DScene = () => {
   const trayHeight = useAtomValue(anchorAnalysisTrayHeightAtom)
   const setSelectedEmbedding = useSetAtom(selectedEmbeddingAtom)
   const setSelectedEmbeddingIds = useSetAtom(selectedEmbeddingIdsAtom)
+  const lensStateRef = useRef<{
+    result: ConceptLensResponse | null
+    threshold: number
+  }>({ result: null, threshold: 75 })
+  lensStateRef.current = {
+    result: conceptLensResult,
+    threshold: conceptLensThreshold,
+  }
 
   const projectedItems = useMemo(
     () =>
@@ -285,6 +323,12 @@ export const Umap3DScene = () => {
     [projection]
   )
   useNeighborFidelity(projectedItems, projection.state === 'hasData')
+  useConceptLens(projectedItems, projection.state === 'hasData')
+  useEffect(() => {
+    if (xaiImageFocusRequest) {
+      focusImageRef.current(xaiImageFocusRequest.imageId)
+    }
+  }, [xaiImageFocusRequest])
   const candidateIds = useMemo(
     () => projectedItems.map((item) => Number(item.id)),
     [projectedItems]
@@ -326,6 +370,50 @@ export const Umap3DScene = () => {
 
   selectedIdsRef.current = selectedIds
 
+  const applyConceptLensToClouds = useCallback(
+    (clouds: THREE.Points[] = pointCloudsRef.current) => {
+      const { result, threshold } = lensStateRef.current
+      const conceptIds =
+        result?.concepts.map((concept) => concept.concept_id) ?? []
+      const records = new Map(
+        (result?.images ?? []).map((image) => [image.image_id, image])
+      )
+      const maximumAbsoluteDelta = Math.max(
+        0,
+        ...(result?.images.map((image) =>
+          Math.abs(image.comparison_delta ?? 0)
+        ) ?? [])
+      )
+
+      clouds.forEach((cloud) => {
+        const userData = cloud.userData as PointCloudUserData
+        userData.ids.forEach((id, index) => {
+          const record = records.get(id)
+          if (!record || conceptIds.length === 0) {
+            userData.lensColorAttribute.setXYZ(index, 1, 1, 1)
+            userData.lensAlphaAttribute.setX(index, 1)
+            userData.lensActiveAttribute.setX(index, 0)
+            return
+          }
+          const visual = conceptLensVisual(
+            record,
+            conceptIds,
+            threshold,
+            maximumAbsoluteDelta
+          )
+          const color = new THREE.Color(visual.tint)
+          userData.lensColorAttribute.setXYZ(index, color.r, color.g, color.b)
+          userData.lensAlphaAttribute.setX(index, visual.alpha)
+          userData.lensActiveAttribute.setX(index, 1)
+        })
+        userData.lensColorAttribute.needsUpdate = true
+        userData.lensAlphaAttribute.needsUpdate = true
+        userData.lensActiveAttribute.needsUpdate = true
+      })
+    },
+    []
+  )
+
   useEffect(() => {
     const selected = new Set(selectedIds.map(Number))
     pointCloudsRef.current.forEach((cloud) => {
@@ -336,6 +424,15 @@ export const Umap3DScene = () => {
       userData.selectedAttribute.needsUpdate = true
     })
   }, [selectedIds])
+
+  useEffect(() => {
+    applyConceptLensToClouds()
+  }, [
+    applyConceptLensToClouds,
+    conceptLensResult,
+    conceptLensThreshold,
+    projectedItems,
+  ])
 
   useEffect(() => {
     const container = containerRef.current
@@ -456,6 +553,11 @@ export const Umap3DScene = () => {
         const aspects = new Float32Array(sheetItems.length)
         const selected = new Float32Array(sheetItems.length)
         const matched = new Float32Array(sheetItems.length)
+        const lensColors = new Float32Array(sheetItems.length * 3)
+        lensColors.fill(1)
+        const lensAlphas = new Float32Array(sheetItems.length)
+        lensAlphas.fill(1)
+        const lensActive = new Float32Array(sheetItems.length)
 
         sheetItems.forEach((item, index) => {
           const point = normalizedPoints.get(item.id)!
@@ -482,8 +584,14 @@ export const Umap3DScene = () => {
         geometry.setAttribute('atlasRect', new THREE.BufferAttribute(rects, 4))
         geometry.setAttribute('imageAspect', new THREE.BufferAttribute(aspects, 1))
         const selectedAttribute = new THREE.BufferAttribute(selected, 1)
+        const lensColorAttribute = new THREE.BufferAttribute(lensColors, 3)
+        const lensAlphaAttribute = new THREE.BufferAttribute(lensAlphas, 1)
+        const lensActiveAttribute = new THREE.BufferAttribute(lensActive, 1)
         geometry.setAttribute('selected', selectedAttribute)
         geometry.setAttribute('matched', new THREE.BufferAttribute(matched, 1))
+        geometry.setAttribute('lensColor', lensColorAttribute)
+        geometry.setAttribute('lensAlpha', lensAlphaAttribute)
+        geometry.setAttribute('lensActive', lensActiveAttribute)
 
         const material = new THREE.ShaderMaterial({
           uniforms: {
@@ -501,8 +609,12 @@ export const Umap3DScene = () => {
         cloud.userData = {
           ids: sheetItems.map((item) => item.id),
           selectedAttribute,
+          lensColorAttribute,
+          lensAlphaAttribute,
+          lensActiveAttribute,
         } satisfies PointCloudUserData
         pointCloudsRef.current.push(cloud)
+        applyConceptLensToClouds([cloud])
         resources.push({ geometry, material })
         scene.add(cloud)
       }
@@ -625,6 +737,7 @@ export const Umap3DScene = () => {
     }
   }, [
     clearSelection,
+    applyConceptLensToClouds,
     datasetId,
     displaySettings.scale,
     projection.state,

@@ -35,6 +35,7 @@ import {
 } from '@/shared/ui/select'
 import { Checkbox } from '@/shared/ui/checkbox'
 import { Label } from '@/shared/ui/label'
+import { ExplanationPanel } from './components/ExplanationPanel'
 
 const Search = () => {
   const [settings, setSettings] = useAtom(searchSettingsAtom)
@@ -619,6 +620,7 @@ export default function Panel() {
           <FilterSettings />
         </CardContent>
       </Card>
+      <ExplanationPanel />
     </>
   )
 }

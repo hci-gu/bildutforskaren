@@ -5,6 +5,7 @@ out/*
 .agents
 .venv
 .micromamba/
+.uv-cache
 
 web/.htpasswd
 datasets/*

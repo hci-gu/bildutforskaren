@@ -29,6 +29,58 @@ export type ClusteringResult = {
   ignored_noise_point_indices: number[]
 }
 
+export type SaoConceptMetadata = {
+  concept_id: string
+  label: string
+  scope_note: string
+}
+
+export type ConceptLensImageScore = {
+  similarity: number
+  percentile: number
+}
+
+export type ConceptLensImage = {
+  image_id: number
+  scores: Record<string, ConceptLensImageScore>
+  comparison_delta?: number
+}
+
+export type ConceptLensResponse = {
+  dataset_id: string
+  concepts: SaoConceptMetadata[]
+  images: ConceptLensImage[]
+}
+
+export type ClusterProfileConcept = SaoConceptMetadata & {
+  cluster_score: number
+  baseline_score: number
+  delta: number
+  strongest_rank: number | null
+  delta_direction: 'more' | 'less' | null
+  delta_rank: number | null
+}
+
+export type ExplainedCluster = {
+  cluster_id: number
+  centroid_position: [number, number]
+  image_ids: number[]
+  image_count: number
+  relevance_threshold: number
+  profile: {
+    strongest: ClusterProfileConcept[]
+    more_prominent: ClusterProfileConcept[]
+    less_prominent: ClusterProfileConcept[]
+  }
+}
+
+export type ClusterProfilesResponse = {
+  dataset_id: string
+  clustering: ClusteringMetadata
+  clusters: ExplainedCluster[]
+  noise_image_ids: number[]
+}
+
 export type ClusterPreview = {
   id: string
   parent_id: string | null
@@ -536,6 +588,45 @@ export const fetchClusters = async (
   )
   console.log('Got clusters:', response)
   return response
+}
+
+export const fetchConceptLens = async (
+  datasetId: string,
+  payload: {
+    image_ids: number[]
+    concept_ids: string[]
+  },
+  signal?: AbortSignal
+) => {
+  return await fetchJson<ConceptLensResponse>(
+    datasetApiUrl(datasetId, '/concept-lens'),
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal,
+    }
+  )
+}
+
+export const fetchClusterProfiles = async (
+  datasetId: string,
+  payload: {
+    image_ids: number[]
+    projection_points: [number, number][]
+    clustering: ClusteringConfig
+  },
+  signal?: AbortSignal
+) => {
+  return await fetchJson<ClusterProfilesResponse>(
+    datasetApiUrl(datasetId, '/cluster-profiles'),
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal,
+    }
+  )
 }
 
 export const fetchEmbeddingById = async (datasetId: string, id: string) => {
