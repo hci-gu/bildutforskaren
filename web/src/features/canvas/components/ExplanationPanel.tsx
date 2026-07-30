@@ -17,10 +17,16 @@ import {
   explanationTabAtom,
   loadableProjectedEmbeddingsAtom,
   projectionSettingsAtom,
+  projectionStabilityErrorAtom,
+  projectionStabilityOverlayEnabledAtom,
+  projectionStabilityResultAtom,
+  projectionStabilityStatusAtom,
   projectionViewModeAtom,
   selectedEmbeddingAtom,
   selectedEmbeddingIdsAtom,
   selectedExplainedClusterAtom,
+  selectedStabilityClusterAtom,
+  stabilityClusterFocusRequestAtom,
   xaiImageFocusRequestAtom,
 } from '@/store'
 import {
@@ -183,6 +189,9 @@ const ConceptPicker = ({
 const scoreText = (value: number) =>
   `${value >= 0 ? '+' : ''}${value.toFixed(3)}`
 
+const stabilityColor = (stability: number) =>
+  stability >= 0.8 ? '#22c55e' : stability >= 0.6 ? '#f59e0b' : '#ef4444'
+
 const ConceptRankings = ({
   concept,
 }: {
@@ -303,6 +312,19 @@ export const ExplanationPanel = () => {
   const lensResult = useAtomValue(conceptLensResultAtom)
   const lensStatus = useAtomValue(conceptLensStatusAtom)
   const lensError = useAtomValue(conceptLensErrorAtom)
+  const stabilityResult = useAtomValue(projectionStabilityResultAtom)
+  const stabilityStatus = useAtomValue(projectionStabilityStatusAtom)
+  const stabilityError = useAtomValue(projectionStabilityErrorAtom)
+  const [stabilityOverlay, setStabilityOverlay] = useAtom(
+    projectionStabilityOverlayEnabledAtom
+  )
+  const [selectedStabilityCluster, setSelectedStabilityCluster] = useAtom(
+    selectedStabilityClusterAtom
+  )
+  const setStabilityFocus = useSetAtom(stabilityClusterFocusRequestAtom)
+  const setSelectedEmbedding = useSetAtom(selectedEmbeddingAtom)
+  const setSelectedIds = useSetAtom(selectedEmbeddingIdsAtom)
+  const setFocusRequest = useSetAtom(xaiImageFocusRequestAtom)
   const [algorithm, setAlgorithm] = useAtom(clusterProfilesAlgorithmAtom)
   const [clusterResult, setClusterResult] = useAtom(clusterProfilesResultAtom)
   const [clusterStatus, setClusterStatus] = useAtom(clusterProfilesStatusAtom)
@@ -454,11 +476,14 @@ export const ExplanationPanel = () => {
       <CardContent className="overflow-y-auto px-4 pb-4">
         <Tabs
           value={tab}
-          onValueChange={(value) => setTab(value as 'concept' | 'cluster')}
+          onValueChange={(value) =>
+            setTab(value as 'concept' | 'cluster' | 'stability')
+          }
         >
-          <TabsList className="grid w-full grid-cols-2 bg-black/25">
+          <TabsList className="grid w-full grid-cols-3 bg-black/25">
             <TabsTrigger value="concept">Begrepp</TabsTrigger>
             <TabsTrigger value="cluster">Kluster</TabsTrigger>
+            <TabsTrigger value="stability">Stabilitet</TabsTrigger>
           </TabsList>
 
           <TabsContent value="concept" className="space-y-3">
@@ -685,6 +710,163 @@ export const ExplanationPanel = () => {
                       title="Mindre framträdande än urvalet"
                       concepts={selectedCluster.profile.less_prominent}
                     />
+                  </div>
+                )}
+              </>
+            )}
+          </TabsContent>
+
+          <TabsContent value="stability" className="space-y-3">
+            {viewMode === '3d' ? (
+              <div className="rounded-md border border-white/10 bg-black/20 p-3 text-xs text-white/60">
+                Klusterstabilitet visas för 2D-UMAP. Återgå till 2D för att se
+                det sparade resultatet.
+              </div>
+            ) : stabilityStatus === 'error' ? (
+              <div className="text-xs text-red-300">
+                {stabilityError ?? 'Kunde inte analysera klusterstabiliteten.'}
+              </div>
+            ) : !stabilityResult ? (
+              <div className="rounded-md border border-white/10 bg-black/20 p-3 text-xs text-white/55">
+                Starta analysen med knappen Cluster stability analysis i
+                projektionsinställningarna.
+              </div>
+            ) : (
+              <>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="rounded-md border border-white/10 bg-black/20 p-3">
+                    <div className="text-[10px] uppercase tracking-wide text-white/45">
+                      Övergripande stabilitet
+                    </div>
+                    <div className="mt-1 text-xl font-semibold">
+                      {Math.round(stabilityResult.overall_stability * 100)} %
+                    </div>
+                  </div>
+                  <div className="rounded-md border border-white/10 bg-black/20 p-3">
+                    <div className="text-[10px] uppercase tracking-wide text-white/45">
+                      Osäkra bilder
+                    </div>
+                    <div className="mt-1 text-xl font-semibold">
+                      {stabilityResult.ambiguous_images.length}
+                    </div>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  className={`flex w-full items-center justify-between rounded border px-2 py-2 text-xs ${
+                    stabilityOverlay
+                      ? 'border-cyan-300/60 bg-cyan-300/15 text-cyan-100'
+                      : 'border-white/15 bg-black/20 text-white/70 hover:bg-white/10'
+                  }`}
+                  aria-pressed={stabilityOverlay}
+                  onClick={() => setStabilityOverlay((enabled) => !enabled)}
+                >
+                  <span>Visa stabilitet på kartan</span>
+                  <span>{stabilityOverlay ? 'På' : 'Av'}</span>
+                </button>
+
+                {stabilityResult.clusters.length === 0 ? (
+                  <div className="text-xs text-white/55">
+                    Referensprojektionen innehöll bara brus och inga stabila
+                    regioner kunde visas.
+                  </div>
+                ) : (
+                  <div className="space-y-1">
+                    <div className="text-xs font-semibold">Regioner</div>
+                    <div className="max-h-52 space-y-1 overflow-y-auto">
+                      {stabilityResult.clusters.map((cluster) => {
+                        const selected =
+                          cluster.cluster_id === selectedStabilityCluster
+                        return (
+                          <button
+                            key={cluster.cluster_id}
+                            type="button"
+                            className={`w-full rounded border p-2 text-left ${
+                              selected
+                                ? 'border-white/60 bg-white/15'
+                                : 'border-white/10 bg-black/20 hover:bg-white/10'
+                            }`}
+                            onClick={() => {
+                              setSelectedStabilityCluster(cluster.cluster_id)
+                              setStabilityFocus({
+                                clusterId: cluster.cluster_id,
+                                requestId: Date.now(),
+                              })
+                            }}
+                          >
+                            <div className="flex items-center gap-2 text-xs">
+                              <span
+                                className="h-3 w-3 rounded-full"
+                                style={{
+                                  backgroundColor: stabilityColor(
+                                    cluster.stability
+                                  ),
+                                }}
+                              />
+                              <span className="font-medium">
+                                Region {cluster.cluster_id + 1}
+                              </span>
+                              <span className="ml-auto text-white/55">
+                                {Math.round(cluster.stability * 100)} % ·{' '}
+                                {cluster.image_count} bilder
+                              </span>
+                            </div>
+                            <div className="mt-1 truncate text-[10px] text-white/50">
+                              {cluster.concepts
+                                .map((concept) => concept.label)
+                                .join(' · ')}
+                            </div>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {stabilityResult.ambiguous_images.length > 0 && datasetId && (
+                  <div className="space-y-1">
+                    <div className="text-xs font-semibold">
+                      Minst stabila bilder
+                    </div>
+                    <div className="max-h-52 space-y-1 overflow-y-auto">
+                      {stabilityResult.ambiguous_images
+                        .slice(0, 10)
+                        .map((image) => (
+                          <button
+                            key={image.image_id}
+                            type="button"
+                            className="flex w-full items-center gap-2 rounded border border-white/10 bg-black/20 p-1 text-left hover:bg-white/10"
+                            onClick={() => {
+                              setSelectedIds([String(image.image_id)])
+                              setSelectedEmbedding({
+                                id: image.image_id,
+                                meta: {},
+                              })
+                              setFocusRequest({
+                                imageId: image.image_id,
+                                requestId: Date.now(),
+                              })
+                            }}
+                          >
+                            <img
+                              src={datasetApiUrl(
+                                datasetId,
+                                `/image/${image.image_id}`
+                              )}
+                              className="h-9 w-9 rounded object-cover"
+                              alt=""
+                            />
+                            <div className="min-w-0 flex-1 text-[11px]">
+                              <div>Bild {image.image_id}</div>
+                              <div className="text-[10px] text-white/50">
+                                Stabilitet{' '}
+                                {Math.round(image.stability * 100)} %
+                              </div>
+                            </div>
+                          </button>
+                        ))}
+                    </div>
                   </div>
                 )}
               </>

@@ -2,6 +2,8 @@ import { useMemo } from 'react'
 import { useAtomValue } from 'jotai'
 import {
   clusterProfilesResultAtom,
+  projectionStabilityOverlayEnabledAtom,
+  projectionStabilityResultAtom,
   selectedExplainedClusterAtom,
 } from '@/store'
 import { buildClusterRegions } from '../clusterGeometry'
@@ -17,13 +19,22 @@ export const ClusterProfileOverlay = ({
   }>
 }) => {
   const result = useAtomValue(clusterProfilesResultAtom)
+  const stabilityResult = useAtomValue(projectionStabilityResultAtom)
+  const stabilityOverlayEnabled = useAtomValue(
+    projectionStabilityOverlayEnabledAtom
+  )
   const selectedClusterId = useAtomValue(selectedExplainedClusterAtom)
   const regions = useMemo(
     () => buildClusterRegions(result, rawEmbeddings),
     [rawEmbeddings, result]
   )
 
-  if (!result) return null
+  if (
+    !result ||
+    (stabilityResult !== null && stabilityOverlayEnabled)
+  ) {
+    return null
+  }
   return (
     <pixiContainer eventMode="none">
       {regions.map((region) => {

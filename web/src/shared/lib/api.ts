@@ -102,6 +102,63 @@ export type ClusterProfilesResponse = {
   noise_image_ids: number[]
 }
 
+export type ProjectionStabilityConcept = SaoConceptMetadata & {
+  similarity: number
+}
+
+export type ProjectionStabilityCluster = {
+  cluster_id: number
+  image_ids: number[]
+  image_count: number
+  centroid_position: [number, number]
+  stability: number
+  concepts: ProjectionStabilityConcept[]
+}
+
+export type ProjectionStabilityImage = {
+  image_id: number
+  reference_cluster_id: number | null
+  stability: number
+}
+
+export type ProjectionStabilityResult = {
+  dataset_id: string
+  runs: number
+  ambiguity_threshold: number
+  overall_stability: number
+  clusters: ProjectionStabilityCluster[]
+  images: ProjectionStabilityImage[]
+  ambiguous_images: ProjectionStabilityImage[]
+  noise_image_ids: number[]
+  clustering: {
+    algorithm: 'hdbscan'
+    feature_space: 'umap_2d'
+  }
+  params: {
+    n_neighbors: number
+    min_dist: number
+    spread: number
+    seed: number
+  }
+}
+
+export type ProjectionStabilityJob = {
+  job_id: string
+  dataset_id: string
+  status:
+    | 'queued'
+    | 'running'
+    | 'complete'
+    | 'error'
+    | 'cancelled'
+    | 'cancelling'
+  progress: number
+  completed_runs?: number
+  total_runs?: number
+  result?: ProjectionStabilityResult | null
+  error?: string | null
+}
+
 export type ClusterPreview = {
   id: string
   parent_id: string | null
@@ -650,6 +707,49 @@ export const fetchClusterProfiles = async (
     }
   )
 }
+
+export const startProjectionStabilityJob = async (
+  datasetId: string,
+  payload: {
+    image_ids: number[]
+    projection_points: [number, number][]
+    params: {
+      n_neighbors: number
+      min_dist: number
+      spread: number
+      seed: number
+    }
+  },
+  signal?: AbortSignal
+) =>
+  await fetchJson<ProjectionStabilityJob>(
+    datasetApiUrl(datasetId, '/projection-stability/jobs'),
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal,
+    }
+  )
+
+export const fetchProjectionStabilityJob = async (
+  datasetId: string,
+  jobId: string,
+  signal?: AbortSignal
+) =>
+  await fetchJson<ProjectionStabilityJob>(
+    datasetApiUrl(datasetId, `/projection-stability/jobs/${jobId}`),
+    { signal }
+  )
+
+export const cancelProjectionStabilityJob = async (
+  datasetId: string,
+  jobId: string
+) =>
+  await fetchJson<ProjectionStabilityJob>(
+    datasetApiUrl(datasetId, `/projection-stability/jobs/${jobId}`),
+    { method: 'DELETE' }
+  )
 
 export const fetchEmbeddingById = async (datasetId: string, id: string) => {
   return await fetchJson<number[]>(datasetApiUrl(datasetId, `/embedding/${id}`))

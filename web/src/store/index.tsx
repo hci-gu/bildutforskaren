@@ -489,7 +489,9 @@ export type SelectedSaoConcept = {
   scope_note: string
 }
 export const explanationPanelOpenAtom = atom(false)
-export const explanationTabAtom = atom<'concept' | 'cluster'>('concept')
+export const explanationTabAtom = atom<'concept' | 'cluster' | 'stability'>(
+  'concept'
+)
 export const conceptLensSelectionAtom = atom<{
   a: SelectedSaoConcept | null
   b: SelectedSaoConcept | null
@@ -512,6 +514,19 @@ export const clusterProfilesStatusAtom = atom<
 export const clusterProfilesErrorAtom = atom<string | null>(null)
 export const selectedExplainedClusterAtom = atom<number | null>(null)
 export const clusterFocusRequestAtom = atom<{
+  clusterId: number
+  requestId: number
+} | null>(null)
+export const projectionStabilityResultAtom =
+  atom<import('@/shared/lib/api').ProjectionStabilityResult | null>(null)
+export const projectionStabilityStatusAtom = atom<
+  'idle' | 'starting' | 'running' | 'ready' | 'error'
+>('idle')
+export const projectionStabilityProgressAtom = atom(0)
+export const projectionStabilityErrorAtom = atom<string | null>(null)
+export const projectionStabilityOverlayEnabledAtom = atom(false)
+export const selectedStabilityClusterAtom = atom<number | null>(null)
+export const stabilityClusterFocusRequestAtom = atom<{
   clusterId: number
   requestId: number
 } | null>(null)

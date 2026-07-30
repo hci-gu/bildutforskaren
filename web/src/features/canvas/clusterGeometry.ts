@@ -1,4 +1,3 @@
-import type { ClusterProfilesResponse } from '@/shared/lib/api'
 import { CANVAS_HEIGHT, CANVAS_WIDTH } from './constants'
 
 export type WorldPoint = { x: number; y: number }
@@ -56,7 +55,12 @@ const polygonArea = (points: WorldPoint[]) => {
 }
 
 export const buildClusterRegions = (
-  result: ClusterProfilesResponse | null,
+  result: {
+    clusters: Array<{
+      cluster_id: number
+      image_ids: number[]
+    }>
+  } | null,
   embeddings: Array<{
     id: string | number
     point?: readonly number[]

@@ -16,9 +16,13 @@ import {
   graphNetworksAtom,
   loadableProjectedEmbeddingsAtom,
   projectionSettingsAtom,
+  projectionStabilityOverlayEnabledAtom,
+  projectionStabilityResultAtom,
   selectedEmbeddingAtom,
   selectedEmbeddingIdsAtom,
   selectedExplainedClusterAtom,
+  selectedStabilityClusterAtom,
+  stabilityClusterFocusRequestAtom,
   tagRefreshTriggerAtom,
   viewportFitScaleAtom,
   viewportScaleAtom,
@@ -51,6 +55,7 @@ import { useNeighborFidelity } from './hooks/useNeighborFidelity'
 import { useConceptLens } from './hooks/useConceptLens'
 import { ClusterProfileOverlay } from './components/ClusterProfileOverlay'
 import { ConceptAxisOverlay } from './components/ConceptAxisOverlay'
+import { ProjectionStabilityOverlay } from './components/ProjectionStabilityOverlay'
 import {
   buildClusterRegions,
   clusterAtWorldPoint,
@@ -95,6 +100,9 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
   const setViewportFitScale = useSetAtom(viewportFitScaleAtom)
   const setProjectionSettings = useSetAtom(projectionSettingsAtom)
   const setSelectedClusterId = useSetAtom(selectedExplainedClusterAtom)
+  const setSelectedStabilityClusterId = useSetAtom(
+    selectedStabilityClusterAtom
+  )
 
   const datasetId = useAtomValue(activeDatasetIdAtom)
   const projectionSettings = useAtomValue(projectionSettingsAtom)
@@ -109,6 +117,13 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
   const setAnchorAnalysisStale = useSetAtom(anchorAnalysisStaleAtom)
   const clusterProfilesResult = useAtomValue(clusterProfilesResultAtom)
   const clusterFocusRequest = useAtomValue(clusterFocusRequestAtom)
+  const stabilityResult = useAtomValue(projectionStabilityResultAtom)
+  const stabilityOverlayEnabled = useAtomValue(
+    projectionStabilityOverlayEnabledAtom
+  )
+  const stabilityFocusRequest = useAtomValue(
+    stabilityClusterFocusRequestAtom
+  )
   const xaiImageFocusRequest = useAtomValue(xaiImageFocusRequestAtom)
 
   const [showTagRefresh, setShowTagRefresh] = useState(false)
@@ -157,6 +172,10 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
   const clusterRegions = useMemo(
     () => buildClusterRegions(clusterProfilesResult, rawEmbeddings),
     [clusterProfilesResult, rawEmbeddings]
+  )
+  const stabilityRegions = useMemo(
+    () => buildClusterRegions(stabilityResult, rawEmbeddings),
+    [rawEmbeddings, stabilityResult]
   )
   useNeighborFidelity(
     fidelityEmbeddings,
@@ -415,6 +434,21 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
   }, [clusterFocusRequest, clusterRegions, viewportReady])
 
   useEffect(() => {
+    if (!stabilityFocusRequest || !viewportReady || !state.viewport) return
+    const region = stabilityRegions.find(
+      (candidate) =>
+        candidate.clusterId === stabilityFocusRequest.clusterId
+    )
+    if (!region) return
+    const xs = region.points.map((point) => point.x)
+    const ys = region.points.map((point) => point.y)
+    const width = Math.max(120, Math.max(...xs) - Math.min(...xs))
+    const height = Math.max(120, Math.max(...ys) - Math.min(...ys))
+    state.viewport.fit(false, width * 1.3, height * 1.3)
+    state.viewport.moveCenter(region.centroid)
+  }, [stabilityFocusRequest, stabilityRegions, viewportReady])
+
+  useEffect(() => {
     if (projectionSettings.type !== 'sao') return
     const viewport = viewportRef.current
     if (!viewport) return
@@ -636,9 +670,18 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
               setSelectedEmbedding(hit.data.embedding)
               setSelectedEmbeddingIds([String(hit.data.embedding.id)])
             } else {
-              const cluster = clusterAtWorldPoint(clusterRegions, world)
+              const useStabilityRegions =
+                stabilityOverlayEnabled && stabilityResult !== null
+              const cluster = clusterAtWorldPoint(
+                useStabilityRegions ? stabilityRegions : clusterRegions,
+                world
+              )
               if (cluster) {
-                setSelectedClusterId(cluster.clusterId)
+                if (useStabilityRegions) {
+                  setSelectedStabilityClusterId(cluster.clusterId)
+                } else {
+                  setSelectedClusterId(cluster.clusterId)
+                }
               } else {
                 setSelectedEmbedding(null)
                 setSelectedEmbeddingIds([])
@@ -651,6 +694,11 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
               {projectionSettings.type === 'graph' && <GraphNetworkLayer />}
               {projectionSettings.type === 'umap' && (
                 <ClusterProfileOverlay rawEmbeddings={rawEmbeddings} />
+              )}
+              {projectionSettings.type === 'umap' && (
+                <ProjectionStabilityOverlay
+                  rawEmbeddings={rawEmbeddings}
+                />
               )}
               {projectionSettings.type === 'umap' && <ConceptAxisOverlay />}
               {projectionSettings.type === 'umap' && (

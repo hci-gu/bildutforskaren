@@ -9,6 +9,9 @@ import {
   hoveredTextAtom,
   neighborFidelitySettingsAtom,
   projectionSettingsAtom,
+  projectionStabilityErrorAtom,
+  projectionStabilityProgressAtom,
+  projectionStabilityStatusAtom,
   projectionViewModeAtom,
   searchQueryAtom,
   searchSettingsAtom,
@@ -36,6 +39,7 @@ import {
 import { Checkbox } from '@/shared/ui/checkbox'
 import { Label } from '@/shared/ui/label'
 import { ExplanationPanel } from './components/ExplanationPanel'
+import { useProjectionStability } from './hooks/useProjectionStability'
 
 const Search = () => {
   const [settings, setSettings] = useAtom(searchSettingsAtom)
@@ -98,6 +102,9 @@ const ProjectionSettings = () => {
   const [graphLayout, setGraphLayout] = useAtom(graphLayoutAtom)
   const datasetId = useAtomValue(activeDatasetIdAtom)
   const graphNetworks = useAtomValue(graphNetworksAtom)
+  const stabilityStatus = useAtomValue(projectionStabilityStatusAtom)
+  const stabilityError = useAtomValue(projectionStabilityErrorAtom)
+  const stability = useProjectionStability()
   const hasGraph = !!datasetId && !!graphNetworks[datasetId]
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -152,6 +159,32 @@ const ProjectionSettings = () => {
               Vänsterklick + dra: rotera. Högerklick + dra: panorera. Hjul:
               zooma.
             </div>
+          )}
+          {viewMode === '2d' && (
+            <>
+              <Button
+                type="button"
+                variant="outline"
+                className="h-auto w-full px-3 py-2 text-xs"
+                onClick={stability.start}
+                disabled={!stability.canStart}
+                title={
+                  stability.imageCount < 10
+                    ? 'Minst tio bilder krävs'
+                    : 'Analysera hur stabila klustren är mellan upprepade UMAP-projektioner'
+                }
+              >
+                {stabilityStatus === 'starting' ||
+                stabilityStatus === 'running'
+                  ? 'Analysis running…'
+                  : 'Cluster stability analysis'}
+              </Button>
+              {stabilityError && (
+                <div className="text-[11px] text-red-300">
+                  {stabilityError}
+                </div>
+              )}
+            </>
           )}
           <div className="flex items-center space-x-2">
             <Checkbox
@@ -598,6 +631,36 @@ const TaggedInfoPanel = () => {
   )
 }
 
+const ProjectionStabilityProgressOverlay = () => {
+  const status = useAtomValue(projectionStabilityStatusAtom)
+  const progress = useAtomValue(projectionStabilityProgressAtom)
+  if (status !== 'starting' && status !== 'running') return null
+  const percent = Math.round(Math.max(0, Math.min(1, progress)) * 100)
+  return (
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/30 backdrop-blur-[2px]">
+      <div
+        className="glass-panel-strong w-80 rounded-xl px-5 py-4 text-white shadow-2xl"
+        role="status"
+        aria-live="polite"
+      >
+        <div className="flex items-center gap-2 text-sm font-medium">
+          <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white/35 border-t-white" />
+          <span>Analyserar klusterstabilitet</span>
+        </div>
+        <div className="mt-3 h-2 overflow-hidden rounded-full bg-white/15">
+          <div
+            className="h-full rounded-full bg-cyan-300 transition-[width] duration-500"
+            style={{ width: `${percent}%` }}
+          />
+        </div>
+        <div className="mt-1.5 text-right text-xs text-white/60">
+          {percent} %
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function Panel() {
   const settings = useAtomValue(projectionSettingsAtom)
   const viewMode = useAtomValue(projectionViewModeAtom)
@@ -621,6 +684,7 @@ export default function Panel() {
         </CardContent>
       </Card>
       <ExplanationPanel />
+      <ProjectionStabilityProgressOverlay />
     </>
   )
 }
