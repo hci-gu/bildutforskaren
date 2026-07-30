@@ -14,11 +14,11 @@ import {
   conceptLensStatusAtom,
   conceptLensThresholdAtom,
   explanationPanelOpenAtom,
+  explanationRegionRevealRequestAtom,
   explanationTabAtom,
   loadableProjectedEmbeddingsAtom,
   projectionSettingsAtom,
   projectionStabilityErrorAtom,
-  projectionStabilityOverlayEnabledAtom,
   projectionStabilityResultAtom,
   projectionStabilityStatusAtom,
   projectionViewModeAtom,
@@ -319,6 +319,9 @@ export const ExplanationPanel = () => {
   const viewMode = useAtomValue(projectionViewModeAtom)
   const projection = useAtomValue(loadableProjectedEmbeddingsAtom('main'))
   const [open, setOpen] = useAtom(explanationPanelOpenAtom)
+  const regionRevealRequest = useAtomValue(
+    explanationRegionRevealRequestAtom
+  )
   const [tab, setTab] = useAtom(explanationTabAtom)
   const [selection, setSelection] = useAtom(conceptLensSelectionAtom)
   const [threshold, setThreshold] = useAtom(conceptLensThresholdAtom)
@@ -329,9 +332,6 @@ export const ExplanationPanel = () => {
   const stabilityResult = useAtomValue(projectionStabilityResultAtom)
   const stabilityStatus = useAtomValue(projectionStabilityStatusAtom)
   const stabilityError = useAtomValue(projectionStabilityErrorAtom)
-  const [stabilityOverlay, setStabilityOverlay] = useAtom(
-    projectionStabilityOverlayEnabledAtom
-  )
   const [selectedStabilityCluster, setSelectedStabilityCluster] = useAtom(
     selectedStabilityClusterAtom
   )
@@ -359,6 +359,8 @@ export const ExplanationPanel = () => {
   )
   const setClusterFocus = useSetAtom(clusterFocusRequestAtom)
   const controllerRef = useRef<AbortController | null>(null)
+  const clusterItemRefs = useRef(new Map<number, HTMLButtonElement>())
+  const stabilityItemRefs = useRef(new Map<number, HTMLButtonElement>())
   const previousUniverseKey = useRef<string | null>(null)
 
   const projectedItems = useMemo(
@@ -494,6 +496,45 @@ export const ExplanationPanel = () => {
     clusterResult?.clusters.find(
       (cluster) => cluster.cluster_id === selectedClusterId
     ) ?? null
+  const sortedStabilityClusters = useMemo(
+    () =>
+      [...(stabilityResult?.clusters ?? [])].sort(
+        (a, b) => b.stability - a.stability || a.cluster_id - b.cluster_id
+      ),
+    [stabilityResult]
+  )
+
+  useEffect(() => {
+    if (!open || tab !== 'cluster' || selectedClusterId === null) return
+    const frame = requestAnimationFrame(() => {
+      clusterItemRefs.current
+        .get(selectedClusterId)
+        ?.scrollIntoView({ block: 'nearest' })
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [open, selectedClusterId, tab])
+
+  useEffect(() => {
+    if (!open || tab !== 'stability' || selectedStabilityCluster === null) return
+    const frame = requestAnimationFrame(() => {
+      stabilityItemRefs.current
+        .get(selectedStabilityCluster)
+        ?.scrollIntoView({ block: 'nearest' })
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [open, selectedStabilityCluster, tab])
+
+  useEffect(() => {
+    if (!open || !regionRevealRequest || regionRevealRequest.tab !== tab) return
+    const refs =
+      tab === 'cluster' ? clusterItemRefs.current : stabilityItemRefs.current
+    const frame = requestAnimationFrame(() => {
+      refs
+        .get(regionRevealRequest.clusterId)
+        ?.scrollIntoView({ block: 'nearest' })
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [open, regionRevealRequest, tab])
 
   if (projectionSettings.type !== 'umap') return null
 
@@ -884,6 +925,18 @@ export const ExplanationPanel = () => {
                         return (
                           <button
                             key={cluster.cluster_id}
+                            ref={(node) => {
+                              if (node) {
+                                clusterItemRefs.current.set(
+                                  cluster.cluster_id,
+                                  node
+                                )
+                              } else {
+                                clusterItemRefs.current.delete(
+                                  cluster.cluster_id
+                                )
+                              }
+                            }}
                             type="button"
                             className={`w-full rounded border p-2 text-left ${
                               selected
@@ -891,11 +944,14 @@ export const ExplanationPanel = () => {
                                 : 'border-white/10 bg-black/20 hover:bg-white/10'
                             }`}
                             onClick={() => {
-                              setSelectedClusterId(cluster.cluster_id)
-                              setClusterFocus({
-                                clusterId: cluster.cluster_id,
-                                requestId: Date.now(),
-                              })
+                              if (selected) {
+                                setClusterFocus({
+                                  clusterId: cluster.cluster_id,
+                                  requestId: Date.now(),
+                                })
+                              } else {
+                                setSelectedClusterId(cluster.cluster_id)
+                              }
                             }}
                           >
                             <div className="flex items-center gap-2 text-xs">
@@ -985,20 +1041,6 @@ export const ExplanationPanel = () => {
                   </div>
                 </div>
 
-                <button
-                  type="button"
-                  className={`flex w-full items-center justify-between rounded border px-2 py-2 text-xs ${
-                    stabilityOverlay
-                      ? 'border-cyan-300/60 bg-cyan-300/15 text-cyan-100'
-                      : 'border-white/15 bg-black/20 text-white/70 hover:bg-white/10'
-                  }`}
-                  aria-pressed={stabilityOverlay}
-                  onClick={() => setStabilityOverlay((enabled) => !enabled)}
-                >
-                  <span>Visa stabilitet på kartan</span>
-                  <span>{stabilityOverlay ? 'På' : 'Av'}</span>
-                </button>
-
                 {stabilityResult.clusters.length === 0 ? (
                   <div className="text-xs text-white/55">
                     Referensprojektionen innehöll bara brus och inga stabila
@@ -1008,12 +1050,24 @@ export const ExplanationPanel = () => {
                   <div className="space-y-1">
                     <div className="text-xs font-semibold">Regioner</div>
                     <div className="max-h-52 space-y-1 overflow-y-auto">
-                      {stabilityResult.clusters.map((cluster) => {
+                      {sortedStabilityClusters.map((cluster) => {
                         const selected =
                           cluster.cluster_id === selectedStabilityCluster
                         return (
                           <button
                             key={cluster.cluster_id}
+                            ref={(node) => {
+                              if (node) {
+                                stabilityItemRefs.current.set(
+                                  cluster.cluster_id,
+                                  node
+                                )
+                              } else {
+                                stabilityItemRefs.current.delete(
+                                  cluster.cluster_id
+                                )
+                              }
+                            }}
                             type="button"
                             className={`w-full rounded border p-2 text-left ${
                               selected
@@ -1021,11 +1075,14 @@ export const ExplanationPanel = () => {
                                 : 'border-white/10 bg-black/20 hover:bg-white/10'
                             }`}
                             onClick={() => {
-                              setSelectedStabilityCluster(cluster.cluster_id)
-                              setStabilityFocus({
-                                clusterId: cluster.cluster_id,
-                                requestId: Date.now(),
-                              })
+                              if (selected) {
+                                setStabilityFocus({
+                                  clusterId: cluster.cluster_id,
+                                  requestId: Date.now(),
+                                })
+                              } else {
+                                setSelectedStabilityCluster(cluster.cluster_id)
+                              }
                             }}
                           >
                             <div className="flex items-center gap-2 text-xs">

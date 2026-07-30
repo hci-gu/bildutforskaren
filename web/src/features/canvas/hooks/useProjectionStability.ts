@@ -8,7 +8,6 @@ import {
   projectionRevisionAtom,
   projectionSettingsAtom,
   projectionStabilityErrorAtom,
-  projectionStabilityOverlayEnabledAtom,
   projectionStabilityProgressAtom,
   projectionStabilityResultAtom,
   projectionStabilityStatusAtom,
@@ -40,7 +39,6 @@ export const useProjectionStability = () => {
   const setProgress = useSetAtom(projectionStabilityProgressAtom)
   const setError = useSetAtom(projectionStabilityErrorAtom)
   const setResult = useSetAtom(projectionStabilityResultAtom)
-  const setOverlayEnabled = useSetAtom(projectionStabilityOverlayEnabledAtom)
   const setSelectedCluster = useSetAtom(selectedStabilityClusterAtom)
   const setExplanationOpen = useSetAtom(explanationPanelOpenAtom)
   const setExplanationTab = useSetAtom(explanationTabAtom)
@@ -107,11 +105,9 @@ export const useProjectionStability = () => {
     setStatus('idle')
     setProgress(0)
     setError(null)
-    setOverlayEnabled(false)
     setSelectedCluster(null)
   }, [
     setError,
-    setOverlayEnabled,
     setProgress,
     setResult,
     setSelectedCluster,
@@ -183,12 +179,11 @@ export const useProjectionStability = () => {
           setStatus('ready')
           setProgress(1)
           setError(null)
-          setOverlayEnabled(true)
-          const largest = [...job.result.clusters].sort(
+          const mostStable = [...job.result.clusters].sort(
             (a, b) =>
-              b.image_count - a.image_count || a.cluster_id - b.cluster_id
+              b.stability - a.stability || a.cluster_id - b.cluster_id
           )[0]
-          setSelectedCluster(largest?.cluster_id ?? null)
+          setSelectedCluster(mostStable?.cluster_id ?? null)
           setExplanationOpen(true)
           setExplanationTab('stability')
           return
@@ -226,7 +221,6 @@ export const useProjectionStability = () => {
       setError,
       setExplanationOpen,
       setExplanationTab,
-      setOverlayEnabled,
       setProgress,
       setResult,
       setSelectedCluster,
@@ -248,7 +242,6 @@ export const useProjectionStability = () => {
     cancelActiveJob()
     const generation = generationRef.current
     setResult(null)
-    setOverlayEnabled(false)
     setSelectedCluster(null)
     setStatus('starting')
     setProgress(0)
@@ -293,7 +286,6 @@ export const useProjectionStability = () => {
     pollJob,
     projectedImages,
     setError,
-    setOverlayEnabled,
     setProgress,
     setResult,
     setSelectedCluster,

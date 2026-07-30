@@ -12,11 +12,13 @@ import {
   anchorAnalysisTrayOpenAtom,
   clusterFocusRequestAtom,
   clusterProfilesResultAtom,
+  explanationPanelOpenAtom,
+  explanationRegionRevealRequestAtom,
+  explanationTabAtom,
   graphLayoutAtom,
   graphNetworksAtom,
   loadableProjectedEmbeddingsAtom,
   projectionSettingsAtom,
-  projectionStabilityOverlayEnabledAtom,
   projectionStabilityResultAtom,
   selectedEmbeddingAtom,
   selectedEmbeddingIdsAtom,
@@ -100,6 +102,9 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
   const setViewportScale = useSetAtom(viewportScaleAtom)
   const setViewportFitScale = useSetAtom(viewportFitScaleAtom)
   const setProjectionSettings = useSetAtom(projectionSettingsAtom)
+  const setRegionRevealRequest = useSetAtom(
+    explanationRegionRevealRequestAtom
+  )
   const setSelectedClusterId = useSetAtom(selectedExplainedClusterAtom)
   const setSelectedStabilityClusterId = useSetAtom(
     selectedStabilityClusterAtom
@@ -117,11 +122,10 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
   const analyzedCandidateIds = useAtomValue(anchorAnalysisCandidateIdsAtom)
   const setAnchorAnalysisStale = useSetAtom(anchorAnalysisStaleAtom)
   const clusterProfilesResult = useAtomValue(clusterProfilesResultAtom)
+  const explanationOpen = useAtomValue(explanationPanelOpenAtom)
+  const explanationTab = useAtomValue(explanationTabAtom)
   const clusterFocusRequest = useAtomValue(clusterFocusRequestAtom)
   const stabilityResult = useAtomValue(projectionStabilityResultAtom)
-  const stabilityOverlayEnabled = useAtomValue(
-    projectionStabilityOverlayEnabledAtom
-  )
   const stabilityFocusRequest = useAtomValue(
     stabilityClusterFocusRequestAtom
   )
@@ -425,7 +429,8 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
   }, [rawEmbeddings, viewportReady, xaiImageFocusRequest])
 
   useEffect(() => {
-    if (!clusterFocusRequest || !viewportReady || !state.viewport) return
+    const viewport = viewportRef.current
+    if (!clusterFocusRequest || !viewportReady || !viewport) return
     const region = clusterRegions.find(
       (candidate) => candidate.clusterId === clusterFocusRequest.clusterId
     )
@@ -434,12 +439,13 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
     const ys = region.points.map((point) => point.y)
     const width = Math.max(120, Math.max(...xs) - Math.min(...xs))
     const height = Math.max(120, Math.max(...ys) - Math.min(...ys))
-    state.viewport.fit(false, width * 1.3, height * 1.3)
-    state.viewport.moveCenter(region.centroid)
+    viewport.fit(false, width * 1.3, height * 1.3)
+    viewport.moveCenter(region.centroid)
   }, [clusterFocusRequest, clusterRegions, viewportReady])
 
   useEffect(() => {
-    if (!stabilityFocusRequest || !viewportReady || !state.viewport) return
+    const viewport = viewportRef.current
+    if (!stabilityFocusRequest || !viewportReady || !viewport) return
     const region = stabilityRegions.find(
       (candidate) =>
         candidate.clusterId === stabilityFocusRequest.clusterId
@@ -449,8 +455,8 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
     const ys = region.points.map((point) => point.y)
     const width = Math.max(120, Math.max(...xs) - Math.min(...xs))
     const height = Math.max(120, Math.max(...ys) - Math.min(...ys))
-    state.viewport.fit(false, width * 1.3, height * 1.3)
-    state.viewport.moveCenter(region.centroid)
+    viewport.fit(false, width * 1.3, height * 1.3)
+    viewport.moveCenter(region.centroid)
   }, [stabilityFocusRequest, stabilityRegions, viewportReady])
 
   useEffect(() => {
@@ -640,27 +646,41 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
               return
             }
 
-            const hit = pointIntersectsParticle(
-              world.x,
-              world.y,
-              particleContainerRefs
-            )
-            if (hit) {
-              setSelectedEmbedding(hit.data.embedding)
-              setSelectedEmbeddingIds([String(hit.data.embedding.id)])
+            const activeRegions =
+              explanationOpen &&
+              explanationTab === 'stability' &&
+              stabilityResult
+                ? stabilityRegions
+                : explanationOpen &&
+                    explanationTab === 'cluster' &&
+                    clusterProfilesResult
+                  ? clusterRegions
+                  : null
+            const activeCluster = activeRegions
+              ? clusterAtWorldPoint(activeRegions, world)
+              : null
+
+            if (activeCluster) {
+              if (explanationTab === 'stability') {
+                setSelectedStabilityClusterId(activeCluster.clusterId)
+              } else {
+                setSelectedClusterId(activeCluster.clusterId)
+              }
+              setRegionRevealRequest({
+                tab:
+                  explanationTab === 'stability' ? 'stability' : 'cluster',
+                clusterId: activeCluster.clusterId,
+                requestId: Date.now(),
+              })
             } else {
-              const useStabilityRegions =
-                stabilityOverlayEnabled && stabilityResult !== null
-              const cluster = clusterAtWorldPoint(
-                useStabilityRegions ? stabilityRegions : clusterRegions,
-                world
+              const hit = pointIntersectsParticle(
+                world.x,
+                world.y,
+                particleContainerRefs
               )
-              if (cluster) {
-                if (useStabilityRegions) {
-                  setSelectedStabilityClusterId(cluster.clusterId)
-                } else {
-                  setSelectedClusterId(cluster.clusterId)
-                }
+              if (hit) {
+                setSelectedEmbedding(hit.data.embedding)
+                setSelectedEmbeddingIds([String(hit.data.embedding.id)])
               } else {
                 setSelectedEmbedding(null)
                 setSelectedEmbeddingIds([])
@@ -671,15 +691,17 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
           {allLoaded && (
             <>
               {projectionSettings.type === 'graph' && <GraphNetworkLayer />}
-              {projectionSettings.type === 'umap' && (
+              {projectionSettings.type === 'umap' && explanationOpen && (
                 <ClusterProfileOverlay rawEmbeddings={rawEmbeddings} />
               )}
-              {projectionSettings.type === 'umap' && (
+              {projectionSettings.type === 'umap' && explanationOpen && (
                 <ProjectionStabilityOverlay
                   rawEmbeddings={rawEmbeddings}
                 />
               )}
-              {projectionSettings.type === 'umap' && <ConceptAxisOverlay />}
+              {projectionSettings.type === 'umap' && explanationOpen && (
+                <ConceptAxisOverlay />
+              )}
               {projectionSettings.type === 'umap' && (
                 <NeighborFidelityOverlay rawEmbeddings={rawEmbeddings} />
               )}

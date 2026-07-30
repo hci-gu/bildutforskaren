@@ -429,6 +429,11 @@ export const explanationPanelOpenAtom = atom(false)
 export const explanationTabAtom = atom<'concept' | 'cluster' | 'stability'>(
   'concept'
 )
+export const explanationRegionRevealRequestAtom = atom<{
+  tab: 'cluster' | 'stability'
+  clusterId: number
+  requestId: number
+} | null>(null)
 export const conceptLensSelectionAtom = atom<{
   a: SelectedSaoConcept | null
   b: SelectedSaoConcept | null
@@ -461,7 +466,6 @@ export const projectionStabilityStatusAtom = atom<
 >('idle')
 export const projectionStabilityProgressAtom = atom(0)
 export const projectionStabilityErrorAtom = atom<string | null>(null)
-export const projectionStabilityOverlayEnabledAtom = atom(false)
 export const selectedStabilityClusterAtom = atom<number | null>(null)
 export const stabilityClusterFocusRequestAtom = atom<{
   clusterId: number

@@ -7,6 +7,8 @@ import {
   conceptLensResultAtom,
   conceptLensThresholdAtom,
   displaySettingsAtom,
+  explanationPanelOpenAtom,
+  explanationTabAtom,
   filterSettingsAtom,
   graphNetworksAtom,
   hoveredTextAtom,
@@ -121,6 +123,8 @@ export const EmbeddingsLayer: React.FC<{
   const setDisplaySettings = useSetAtom(displaySettingsAtom)
   const conceptLensResult = useAtomValue(conceptLensResultAtom)
   const conceptLensThreshold = useAtomValue(conceptLensThresholdAtom)
+  const explanationOpen = useAtomValue(explanationPanelOpenAtom)
+  const explanationTab = useAtomValue(explanationTabAtom)
   const filterSettings = useAtomValue(filterSettingsAtom)
   const projectionSettings = useAtomValue(projectionSettingsAtom)
   const graphNetworks = useAtomValue(graphNetworksAtom)
@@ -416,7 +420,10 @@ export const EmbeddingsLayer: React.FC<{
       : 0xffffff
     let alpha = 1
     const lensRecord =
-      type === 'main' && projectionSettings.type === 'umap'
+      explanationOpen &&
+      explanationTab === 'concept' &&
+      type === 'main' &&
+      projectionSettings.type === 'umap'
         ? lensImagesById.get(Number(embed.id))
         : undefined
     if (lensRecord && lensConceptIds.length > 0) {
@@ -473,6 +480,8 @@ export const EmbeddingsLayer: React.FC<{
   }, [
     conceptLensThreshold,
     displaySettings,
+    explanationOpen,
+    explanationTab,
     graphRootId,
     lensConceptIds,
     lensImagesById,

@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import { useAtomValue } from 'jotai'
 import {
-  projectionStabilityOverlayEnabledAtom,
+  explanationTabAtom,
   projectionStabilityResultAtom,
   selectedStabilityClusterAtom,
 } from '@/store'
@@ -20,7 +20,7 @@ export const ProjectionStabilityOverlay = ({
     type?: string
   }>
 }) => {
-  const enabled = useAtomValue(projectionStabilityOverlayEnabledAtom)
+  const tab = useAtomValue(explanationTabAtom)
   const result = useAtomValue(projectionStabilityResultAtom)
   const selectedClusterId = useAtomValue(selectedStabilityClusterAtom)
   const regions = useMemo(
@@ -48,7 +48,7 @@ export const ProjectionStabilityOverlay = ({
     [rawEmbeddings]
   )
 
-  if (!enabled || !result) return null
+  if (tab !== 'stability' || !result) return null
   const clusterById = new Map(
     result.clusters.map((cluster) => [cluster.cluster_id, cluster])
   )
