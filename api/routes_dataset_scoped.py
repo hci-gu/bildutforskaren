@@ -679,6 +679,13 @@ def create_cluster_profiles(dataset_id: str):
 
     try:
         clustering_config = ClusteringConfig.from_dict(payload.get("clustering"))
+        levels = payload.get("levels", 1)
+        if (
+            isinstance(levels, bool)
+            or not isinstance(levels, int)
+            or not 1 <= levels <= 6
+        ):
+            raise ValueError("'levels' must be an integer between 1 and 6")
         from api import sao_terms
 
         concept_embeddings, concepts = sao_terms.get_embeddings()
@@ -689,6 +696,7 @@ def create_cluster_profiles(dataset_id: str):
             clustering_config,
             concept_embeddings,
             concepts,
+            max_levels=levels,
         )
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
