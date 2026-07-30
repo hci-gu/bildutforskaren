@@ -1,2 +1,16 @@
 - right the frontend page in the dataset selection menu does not update after processing is completed. It would be good to have a way to send a refresh signal or update the status on the uploaded dataset
 - The status menu is also not technically correct
+- prevent klustering before CLIP is done, grey out in menu. Hovering should prompt user to genreate image meta data first.
+- reproject with selection, accurate behaviour? Right now it only filters out
+- ändra ord i rummet till taggar i rummet. 
+- ta bort menun "SAO-termer" otroligt lagging och hjälper inte
+
+- XAI
+    - Förklaringsmenu behöver sticka ut bättre, känns osynlig just nu
+    - Förklaring -> Kluster: vill kunna ha en "X" knapp som tar på selection
+    - Vill faktiskt ha kontroll på kluster parametrarna 
+    - För K-mean välj istället att redovisa sub-cluster i lägsta nivån och inte den övergripande.
+    - percentil-slidern funkar inte i 2D men fungerar i 3D view
+    - kanske annan färgskala för slidern? Grå-skala opacitet för endast 1 begrepp och kanske symmetrisk colormap när 2 begrepp
+    - när man klickar in ett område på clustering så ska den hoppa till där det klustret befinner sig i listan.
+    - begränsa till 4 förslag för de tre olika SAO kategorierna i Förklaring -> begrepp

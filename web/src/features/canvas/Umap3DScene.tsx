@@ -11,10 +11,16 @@ import {
   anchorAnalysisTrayHeightAtom,
   anchorAnalysisTrayOpenAtom,
   anchorGraphModeAtom,
+  conceptAxisEnabledAtom,
+  conceptLensResultAtom,
+  conceptLensThresholdAtom,
   displaySettingsAtom,
   loadableProjectedEmbeddings3dAtom,
+  neighborFidelityResultAtom,
+  neighborFidelitySettingsAtom,
   selectedEmbeddingAtom,
   selectedEmbeddingIdsAtom,
+  xaiImageFocusRequestAtom,
 } from '@/store'
 import { datasetApiUrl, fetchAtlasMeta } from '@/shared/lib/api'
 import type { AtlasMeta } from './hooks/useAtlasLoader'
@@ -23,6 +29,10 @@ import { getAnchorAnalysisDisplayPaths } from './anchorAnalysisPaths'
 import { AnchorAnalysisTray } from './components/AnchorAnalysisTray'
 import { HUD } from './components/HUD'
 import { HomeLogoLink } from '@/shared/components/HomeLogoLink'
+import { useNeighborFidelity } from './hooks/useNeighborFidelity'
+import { useConceptLens } from './hooks/useConceptLens'
+import { conceptLensVisual } from './xaiVisuals'
+import type { ConceptLensResponse } from '@/shared/lib/api'
 
 type ProjectedImage = {
   id: number
@@ -33,6 +43,9 @@ type ProjectedImage = {
 type PointCloudUserData = {
   ids: number[]
   selectedAttribute: THREE.BufferAttribute
+  lensColorAttribute: THREE.BufferAttribute
+  lensAlphaAttribute: THREE.BufferAttribute
+  lensActiveAttribute: THREE.BufferAttribute
 }
 
 type CameraTransition = {
@@ -49,10 +62,16 @@ const vertexShader = `
   attribute float imageAspect;
   attribute float selected;
   attribute float matched;
+  attribute vec3 lensColor;
+  attribute float lensAlpha;
+  attribute float lensActive;
   varying vec4 vAtlasRect;
   varying float vImageAspect;
   varying float vSelected;
   varying float vMatched;
+  varying vec3 vLensColor;
+  varying float vLensAlpha;
+  varying float vLensActive;
   uniform float pointSize;
 
   void main() {
@@ -60,6 +79,9 @@ const vertexShader = `
     vImageAspect = imageAspect;
     vSelected = selected;
     vMatched = matched;
+    vLensColor = lensColor;
+    vLensAlpha = lensAlpha;
+    vLensActive = lensActive;
     vec4 viewPosition = modelViewMatrix * vec4(position, 1.0);
     gl_Position = projectionMatrix * viewPosition;
     gl_PointSize = clamp(pointSize * (10.0 / max(1.0, -viewPosition.z)), 5.0, 96.0);
@@ -72,6 +94,9 @@ const fragmentShader = `
   varying float vImageAspect;
   varying float vSelected;
   varying float vMatched;
+  varying vec3 vLensColor;
+  varying float vLensAlpha;
+  varying float vLensActive;
 
   void main() {
     vec2 local = gl_PointCoord;
@@ -92,8 +117,14 @@ const fragmentShader = `
     if (color.a < 0.05) discard;
 
     float edge = min(min(local.x, 1.0 - local.x), min(local.y, 1.0 - local.y));
-    if (vSelected > 0.5 && edge < 0.07) {
-      color = mix(color, vec4(0.20, 1.0, 0.52, 1.0), 0.9);
+    if (vSelected > 0.5) {
+      color.a = 1.0;
+      if (edge < 0.07) {
+        color = mix(color, vec4(0.20, 1.0, 0.52, 1.0), 0.9);
+      }
+    } else if (vLensActive > 0.5) {
+      color.rgb = mix(color.rgb, vLensColor, 0.5);
+      color.rgb *= mix(0.35, 1.0, vLensAlpha);
     } else if (vMatched > 0.5 && edge < 0.055) {
       color = mix(color, vec4(1.0, 0.78, 0.18, 1.0), 0.85);
     } else if (vMatched < 0.5) {
@@ -121,6 +152,28 @@ const normalizePoints = (items: ProjectedImage[]) => {
   )
 }
 
+const normalizeProjectionPoint = (
+  items: ProjectedImage[],
+  coordinates: number[]
+) => {
+  const min = new THREE.Vector3(Infinity, Infinity, Infinity)
+  const max = new THREE.Vector3(-Infinity, -Infinity, -Infinity)
+  items.forEach((item) => {
+    min.min(new THREE.Vector3(...item.point))
+    max.max(new THREE.Vector3(...item.point))
+  })
+  const center = min.clone().add(max).multiplyScalar(0.5)
+  const span = max.clone().sub(min)
+  const scale = 14 / Math.max(1e-6, span.x, span.y, span.z)
+  return new THREE.Vector3(
+    coordinates[0] ?? 0,
+    coordinates[1] ?? 0,
+    coordinates[2] ?? 0
+  )
+    .sub(center)
+    .multiplyScalar(scale)
+}
+
 const clearObjectGroup = (group: THREE.Group) => {
   const geometries = new Set<THREE.BufferGeometry>()
   const materials = new Set<THREE.Material>()
@@ -136,6 +189,71 @@ const clearObjectGroup = (group: THREE.Group) => {
   group.clear()
   geometries.forEach((geometry) => geometry.dispose())
   materials.forEach((material) => material.dispose())
+}
+
+const addConceptAxis = (
+  group: THREE.Group,
+  start: THREE.Vector3,
+  end: THREE.Vector3,
+  contrast: boolean
+) => {
+  const startColor = new THREE.Color(contrast ? 0xfb923c : 0x440154)
+  const endColor = new THREE.Color(contrast ? 0x38bdf8 : 0xfde725)
+  const geometry = new THREE.BufferGeometry().setFromPoints([start, end])
+  geometry.setAttribute(
+    'color',
+    new THREE.Float32BufferAttribute(
+      [
+        startColor.r,
+        startColor.g,
+        startColor.b,
+        endColor.r,
+        endColor.g,
+        endColor.b,
+      ],
+      3
+    )
+  )
+  const material = new THREE.LineBasicMaterial({
+    vertexColors: true,
+    transparent: true,
+    opacity: 0.9,
+    depthWrite: false,
+  })
+  const line = new THREE.Line(geometry, material)
+  line.renderOrder = 1
+  group.add(line)
+
+  const direction = end.clone().sub(start).normalize()
+  const length = start.distanceTo(end)
+  const arrowHeight = Math.min(0.42, Math.max(0.18, length * 0.07))
+  const arrowGeometry = new THREE.ConeGeometry(arrowHeight * 0.42, arrowHeight, 16)
+  const arrowMaterial = new THREE.MeshBasicMaterial({
+    color: endColor,
+    transparent: true,
+    opacity: 0.95,
+    depthWrite: false,
+  })
+  const arrow = new THREE.Mesh(arrowGeometry, arrowMaterial)
+  arrow.position.copy(end).addScaledVector(direction, -arrowHeight / 2)
+  arrow.quaternion.setFromUnitVectors(
+    new THREE.Vector3(0, 1, 0),
+    direction
+  )
+  arrow.renderOrder = 1
+  group.add(arrow)
+
+  const startGeometry = new THREE.SphereGeometry(arrowHeight * 0.24, 12, 8)
+  const startMaterial = new THREE.MeshBasicMaterial({
+    color: startColor,
+    transparent: true,
+    opacity: 0.95,
+    depthWrite: false,
+  })
+  const startMarker = new THREE.Mesh(startGeometry, startMaterial)
+  startMarker.position.copy(start)
+  startMarker.renderOrder = 1
+  group.add(startMarker)
 }
 
 const addPathSegment = (
@@ -206,6 +324,47 @@ const addPathNode = (
   group.add(marker)
 }
 
+const addFidelityConnection = (
+  group: THREE.Group,
+  start: THREE.Vector3,
+  end: THREE.Vector3,
+  color: number,
+  dashed: boolean
+) => {
+  const geometry = new THREE.BufferGeometry().setFromPoints([start, end])
+  const material = dashed
+    ? new THREE.LineDashedMaterial({
+        color,
+        dashSize: 0.16,
+        gapSize: 0.1,
+        transparent: true,
+        opacity: 0.82,
+        depthWrite: false,
+      })
+    : new THREE.LineBasicMaterial({
+        color,
+        transparent: true,
+        opacity: 0.78,
+        depthWrite: false,
+      })
+  const line = new THREE.Line(geometry, material)
+  if (dashed) line.computeLineDistances()
+  line.renderOrder = 2
+  group.add(line)
+
+  const markerGeometry = new THREE.SphereGeometry(0.06, 10, 7)
+  const markerMaterial = new THREE.MeshBasicMaterial({
+    color,
+    transparent: true,
+    opacity: 0.9,
+    depthWrite: false,
+  })
+  const marker = new THREE.Mesh(markerGeometry, markerMaterial)
+  marker.position.copy(end)
+  marker.renderOrder = 3
+  group.add(marker)
+}
+
 export const Umap3DScene = () => {
   const containerRef = useRef<HTMLDivElement>(null)
   const resetCameraRef = useRef<() => void>(() => undefined)
@@ -214,12 +373,20 @@ export const Umap3DScene = () => {
   const selectedIdsRef = useRef<string[]>([])
   const pointsByIdRef = useRef(new Map<number, THREE.Vector3>())
   const itemsByIdRef = useRef(new Map<number, ProjectedImage>())
+  const conceptAxisGroupRef = useRef<THREE.Group | null>(null)
   const analysisGroupRef = useRef<THREE.Group | null>(null)
+  const fidelityGroupRef = useRef<THREE.Group | null>(null)
   const [atlasMeta, setAtlasMeta] = useState<AtlasMeta>({})
   const selectedIds = useAtomValue(selectedEmbeddingIdsAtom)
   const datasetId = useAtomValue(activeDatasetIdAtom)
   const displaySettings = useAtomValue(displaySettingsAtom)
   const projection = useAtomValue(loadableProjectedEmbeddings3dAtom)
+  const fidelitySettings = useAtomValue(neighborFidelitySettingsAtom)
+  const fidelityResult = useAtomValue(neighborFidelityResultAtom)
+  const conceptAxisEnabled = useAtomValue(conceptAxisEnabledAtom)
+  const conceptLensResult = useAtomValue(conceptLensResultAtom)
+  const conceptLensThreshold = useAtomValue(conceptLensThresholdAtom)
+  const xaiImageFocusRequest = useAtomValue(xaiImageFocusRequestAtom)
   const analysisResult = useAtomValue(anchorAnalysisResultAtom)
   const analysisTab = useAtomValue(anchorAnalysisTabAtom)
   const graphMode = useAtomValue(anchorGraphModeAtom)
@@ -229,6 +396,14 @@ export const Umap3DScene = () => {
   const trayHeight = useAtomValue(anchorAnalysisTrayHeightAtom)
   const setSelectedEmbedding = useSetAtom(selectedEmbeddingAtom)
   const setSelectedEmbeddingIds = useSetAtom(selectedEmbeddingIdsAtom)
+  const lensStateRef = useRef<{
+    result: ConceptLensResponse | null
+    threshold: number
+  }>({ result: null, threshold: 75 })
+  lensStateRef.current = {
+    result: conceptLensResult,
+    threshold: conceptLensThreshold,
+  }
 
   const projectedItems = useMemo(
     () =>
@@ -237,6 +412,13 @@ export const Umap3DScene = () => {
         : [],
     [projection]
   )
+  useNeighborFidelity(projectedItems, projection.state === 'hasData')
+  useConceptLens(projectedItems, projection.state === 'hasData')
+  useEffect(() => {
+    if (xaiImageFocusRequest) {
+      focusImageRef.current(xaiImageFocusRequest.imageId)
+    }
+  }, [xaiImageFocusRequest])
   const candidateIds = useMemo(
     () => projectedItems.map((item) => Number(item.id)),
     [projectedItems]
@@ -267,18 +449,60 @@ export const Umap3DScene = () => {
   }, [setSelectedEmbedding, setSelectedEmbeddingIds])
 
   const navigateToImage = useCallback(
-    (imageId: number, openOriginal: boolean) => {
+    (imageId: number) => {
       const item = itemsByIdRef.current.get(imageId)
       setSelectedEmbeddingIds([String(imageId)])
-      setSelectedEmbedding(
-        openOriginal ? { id: imageId, meta: item?.meta ?? {} } : null
-      )
+      setSelectedEmbedding({ id: imageId, meta: item?.meta ?? {} })
       focusImageRef.current(imageId)
     },
     [setSelectedEmbedding, setSelectedEmbeddingIds]
   )
 
   selectedIdsRef.current = selectedIds
+
+  const applyConceptLensToClouds = useCallback(
+    (clouds: THREE.Points[] = pointCloudsRef.current) => {
+      const { result, threshold } = lensStateRef.current
+      const conceptIds =
+        result?.concepts.map((concept) => concept.concept_id) ?? []
+      const records = new Map(
+        (result?.images ?? []).map((image) => [image.image_id, image])
+      )
+      const maximumAbsoluteDelta = Math.max(
+        0,
+        ...(result?.images.map((image) =>
+          Math.abs(image.comparison_delta ?? 0)
+        ) ?? [])
+      )
+
+      clouds.forEach((cloud) => {
+        const userData = cloud.userData as PointCloudUserData
+        userData.ids.forEach((id, index) => {
+          const record = records.get(id)
+          if (!record || conceptIds.length === 0) {
+            userData.lensColorAttribute.setXYZ(index, 1, 1, 1)
+            userData.lensAlphaAttribute.setX(index, 1)
+            userData.lensActiveAttribute.setX(index, 0)
+            return
+          }
+          const visual = conceptLensVisual(
+            record,
+            conceptIds,
+            threshold,
+            maximumAbsoluteDelta
+          )
+          const color = new THREE.Color(visual.tint)
+          userData.lensColorAttribute.setXYZ(index, color.r, color.g, color.b)
+          userData.lensAlphaAttribute.setX(index, visual.alpha)
+          userData.lensActiveAttribute.setX(index, 1)
+        })
+        userData.lensColorAttribute.needsUpdate = true
+        userData.lensAlphaAttribute.needsUpdate = true
+        userData.lensActiveAttribute.needsUpdate = true
+      })
+    },
+    []
+  )
 
   useEffect(() => {
     const selected = new Set(selectedIds.map(Number))
@@ -292,6 +516,15 @@ export const Umap3DScene = () => {
   }, [selectedIds])
 
   useEffect(() => {
+    applyConceptLensToClouds()
+  }, [
+    applyConceptLensToClouds,
+    conceptLensResult,
+    conceptLensThreshold,
+    projectedItems,
+  ])
+
+  useEffect(() => {
     const container = containerRef.current
     if (!container || !datasetId || projection.state !== 'hasData') return
 
@@ -302,8 +535,14 @@ export const Umap3DScene = () => {
     const scene = new THREE.Scene()
     scene.background = new THREE.Color(0x07090e)
     scene.fog = new THREE.FogExp2(0x07090e, 0.018)
+    const conceptAxisGroup = new THREE.Group()
     const analysisGroup = new THREE.Group()
+    const fidelityGroup = new THREE.Group()
+    scene.add(conceptAxisGroup)
+    scene.add(fidelityGroup)
     scene.add(analysisGroup)
+    conceptAxisGroupRef.current = conceptAxisGroup
+    fidelityGroupRef.current = fidelityGroup
     analysisGroupRef.current = analysisGroup
 
     const renderer = new THREE.WebGLRenderer({ antialias: true })
@@ -407,6 +646,11 @@ export const Umap3DScene = () => {
         const aspects = new Float32Array(sheetItems.length)
         const selected = new Float32Array(sheetItems.length)
         const matched = new Float32Array(sheetItems.length)
+        const lensColors = new Float32Array(sheetItems.length * 3)
+        lensColors.fill(1)
+        const lensAlphas = new Float32Array(sheetItems.length)
+        lensAlphas.fill(1)
+        const lensActive = new Float32Array(sheetItems.length)
 
         sheetItems.forEach((item, index) => {
           const point = normalizedPoints.get(item.id)!
@@ -433,8 +677,14 @@ export const Umap3DScene = () => {
         geometry.setAttribute('atlasRect', new THREE.BufferAttribute(rects, 4))
         geometry.setAttribute('imageAspect', new THREE.BufferAttribute(aspects, 1))
         const selectedAttribute = new THREE.BufferAttribute(selected, 1)
+        const lensColorAttribute = new THREE.BufferAttribute(lensColors, 3)
+        const lensAlphaAttribute = new THREE.BufferAttribute(lensAlphas, 1)
+        const lensActiveAttribute = new THREE.BufferAttribute(lensActive, 1)
         geometry.setAttribute('selected', selectedAttribute)
         geometry.setAttribute('matched', new THREE.BufferAttribute(matched, 1))
+        geometry.setAttribute('lensColor', lensColorAttribute)
+        geometry.setAttribute('lensAlpha', lensAlphaAttribute)
+        geometry.setAttribute('lensActive', lensActiveAttribute)
 
         const material = new THREE.ShaderMaterial({
           uniforms: {
@@ -452,8 +702,12 @@ export const Umap3DScene = () => {
         cloud.userData = {
           ids: sheetItems.map((item) => item.id),
           selectedAttribute,
+          lensColorAttribute,
+          lensAlphaAttribute,
+          lensActiveAttribute,
         } satisfies PointCloudUserData
         pointCloudsRef.current.push(cloud)
+        applyConceptLensToClouds([cloud])
         resources.push({ geometry, material })
         scene.add(cloud)
       }
@@ -560,9 +814,17 @@ export const Umap3DScene = () => {
       pointCloudsRef.current = []
       pointsByIdRef.current.clear()
       itemsByIdRef.current.clear()
+      clearObjectGroup(conceptAxisGroup)
       clearObjectGroup(analysisGroup)
+      clearObjectGroup(fidelityGroup)
+      if (conceptAxisGroupRef.current === conceptAxisGroup) {
+        conceptAxisGroupRef.current = null
+      }
       if (analysisGroupRef.current === analysisGroup) {
         analysisGroupRef.current = null
+      }
+      if (fidelityGroupRef.current === fidelityGroup) {
+        fidelityGroupRef.current = null
       }
       if (focusImageRef.current === focusImage) {
         focusImageRef.current = () => undefined
@@ -572,6 +834,7 @@ export const Umap3DScene = () => {
     }
   }, [
     clearSelection,
+    applyConceptLensToClouds,
     datasetId,
     displaySettings.scale,
     projection.state,
@@ -579,6 +842,55 @@ export const Umap3DScene = () => {
     setSelectedEmbedding,
     setSelectedEmbeddingIds,
   ])
+
+  useEffect(() => {
+    const group = conceptAxisGroupRef.current
+    if (!group) return
+    clearObjectGroup(group)
+    const axis = conceptLensResult?.axis
+    if (
+      !conceptAxisEnabled ||
+      !axis?.available ||
+      axis.dimension !== 3 ||
+      axis.start.length !== 3 ||
+      axis.end.length !== 3
+    ) {
+      return
+    }
+
+    addConceptAxis(
+      group,
+      normalizeProjectionPoint(projectedItems, axis.start),
+      normalizeProjectionPoint(projectedItems, axis.end),
+      axis.mode === 'contrast'
+    )
+    return () => clearObjectGroup(group)
+  }, [conceptAxisEnabled, conceptLensResult, projectedItems])
+
+  useEffect(() => {
+    const group = fidelityGroupRef.current
+    if (!group) return
+    clearObjectGroup(group)
+    if (!fidelitySettings.enabled || !fidelityResult) return
+
+    const start = pointsByIdRef.current.get(fidelityResult.selected_image_id)
+    if (!start) return
+    const addRecords = (
+      records: typeof fidelityResult.neighbors.preserved,
+      color: number,
+      dashed: boolean
+    ) => {
+      records.forEach((record) => {
+        const end = pointsByIdRef.current.get(record.image_id)
+        if (end) addFidelityConnection(group, start, end, color, dashed)
+      })
+    }
+    addRecords(fidelityResult.neighbors.preserved, 0x22c55e, false)
+    addRecords(fidelityResult.neighbors.projection_only, 0xef4444, false)
+    addRecords(fidelityResult.neighbors.clip_only, 0x38bdf8, true)
+
+    return () => clearObjectGroup(group)
+  }, [fidelityResult, fidelitySettings.enabled, projectedItems])
 
   useEffect(() => {
     const group = analysisGroupRef.current

@@ -473,6 +473,67 @@ export const projectionSettingsAtom = atom({
 })
 
 export const projectionViewModeAtom = atom<'2d' | '3d'>('2d')
+export const neighborFidelitySettingsAtom = atom({
+  enabled: false,
+  k: 10,
+})
+export const neighborFidelityResultAtom =
+  atom<import('@/shared/lib/api').NeighborFidelityResponse | null>(null)
+export const neighborFidelityStatusAtom = atom<
+  'idle' | 'loading' | 'ready' | 'error'
+>('idle')
+export const neighborFidelityErrorAtom = atom<string | null>(null)
+export type SelectedSaoConcept = {
+  concept_id: string
+  label: string
+  scope_note: string
+}
+export const explanationPanelOpenAtom = atom(false)
+export const explanationTabAtom = atom<'concept' | 'cluster' | 'stability'>(
+  'concept'
+)
+export const conceptLensSelectionAtom = atom<{
+  a: SelectedSaoConcept | null
+  b: SelectedSaoConcept | null
+}>({ a: null, b: null })
+export const conceptLensThresholdAtom = atom(75)
+export const conceptAxisEnabledAtom = atom(false)
+export const conceptLensResultAtom =
+  atom<import('@/shared/lib/api').ConceptLensResponse | null>(null)
+export const conceptLensStatusAtom = atom<
+  'idle' | 'loading' | 'ready' | 'error'
+>('idle')
+export const conceptLensErrorAtom = atom<string | null>(null)
+export const clusterProfilesAlgorithmAtom =
+  atom<import('@/shared/lib/api').ClusteringAlgorithm>('hdbscan')
+export const clusterProfilesResultAtom =
+  atom<import('@/shared/lib/api').ClusterProfilesResponse | null>(null)
+export const clusterProfilesStatusAtom = atom<
+  'idle' | 'loading' | 'ready' | 'error'
+>('idle')
+export const clusterProfilesErrorAtom = atom<string | null>(null)
+export const selectedExplainedClusterAtom = atom<number | null>(null)
+export const clusterFocusRequestAtom = atom<{
+  clusterId: number
+  requestId: number
+} | null>(null)
+export const projectionStabilityResultAtom =
+  atom<import('@/shared/lib/api').ProjectionStabilityResult | null>(null)
+export const projectionStabilityStatusAtom = atom<
+  'idle' | 'starting' | 'running' | 'ready' | 'error'
+>('idle')
+export const projectionStabilityProgressAtom = atom(0)
+export const projectionStabilityErrorAtom = atom<string | null>(null)
+export const projectionStabilityOverlayEnabledAtom = atom(false)
+export const selectedStabilityClusterAtom = atom<number | null>(null)
+export const stabilityClusterFocusRequestAtom = atom<{
+  clusterId: number
+  requestId: number
+} | null>(null)
+export const xaiImageFocusRequestAtom = atom<{
+  imageId: number
+  requestId: number
+} | null>(null)
 export const graphNetworksAtom = atom<
   Record<string, import('@/shared/lib/api').GraphNetworkResponse>
 >({})
@@ -480,7 +541,12 @@ export const graphLayoutAtom = atom<import('@/shared/lib/api').GraphLayout>(
   'concentric'
 )
 
-export type AnchorAnalysisTab = 'axis' | 'affinity' | 'interpolation' | 'graph'
+export type AnchorAnalysisTab =
+  | 'axis'
+  | 'affinity'
+  | 'interpolation'
+  | 'graph'
+  | 'semantic'
 export type AnchorGraphMode = 'shortest' | 'supported'
 
 export const anchorGroupsAtom = atom<{
@@ -518,7 +584,10 @@ export const displaySettingsAtom = atom({
   scale: 1,
 })
 
-export const filterSettingsAtom = atom({
+export const filterSettingsAtom = atom<{
+  year: string | null
+  photographer: string | null
+}>({
   year: null,
   photographer: null,
 })
@@ -1162,6 +1231,24 @@ export const selectedEmbeddingAtom = atom(
     set(selectedEmbeddingValueAtom, value)
   }
 )
+
+export type ImageViewerRequest = {
+  imageId: number
+  requestId: number
+}
+
+export const imageViewerRequestAtom = atom<ImageViewerRequest | null>(null)
+export const openImageViewerAtom = atom(
+  null,
+  (get, set, imageId: number) => {
+    const previousRequest = get(imageViewerRequestAtom)
+    set(imageViewerRequestAtom, {
+      imageId,
+      requestId: (previousRequest?.requestId ?? 0) + 1,
+    })
+  }
+)
+
 export const selectedEmbeddingIdsAtom = atom<string[]>([])
 export const selectedTagsAtom = atom<string[]>([])
 export const steerSuggestionsAtom = atom(false)

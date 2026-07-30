@@ -22,6 +22,7 @@ import {
   anchorAnalysisTrayOpenAtom,
   anchorGraphModeAtom,
   anchorGroupsAtom,
+  openImageViewerAtom,
   selectedEmbeddingAtom,
   selectedEmbeddingIdsAtom,
   type AnchorAnalysisTab,
@@ -32,6 +33,7 @@ import {
 } from '@/shared/lib/api'
 import type { AtlasMeta, AtlasMetaEntry } from '../hooks/useAtlasLoader'
 import { useAnchorAnalysis } from '../hooks/useAnchorAnalysis'
+import { AnchorSemanticAnalysis } from './AnchorSemanticAnalysis'
 import { state } from '../canvasState'
 import {
   CANVAS_HEIGHT,
@@ -61,6 +63,7 @@ const tabs: Array<[AnchorAnalysisTab, string]> = [
   ['affinity', 'Affinity'],
   ['interpolation', 'Interpolation'],
   ['graph', 'Graph'],
+  ['semantic', 'Semantik'],
 ]
 
 const AtlasThumbnail = ({
@@ -437,9 +440,11 @@ export const AnchorAnalysisTray: React.FC<Props> = ({
   const selectedIds = useAtomValue(selectedEmbeddingIdsAtom)
   const setSelectedIds = useSetAtom(selectedEmbeddingIdsAtom)
   const setSelectedEmbedding = useSetAtom(selectedEmbeddingAtom)
+  const openImageViewer = useSetAtom(openImageViewerAtom)
   const analyze = useAnchorAnalysis(candidateIds)
   const [dragging, setDragging] = useState(false)
   const [displayPath, setDisplayPath] = useState(false)
+  const displayPathBeforeSemantic = React.useRef(false)
 
   useEffect(() => {
     if (!dragging) return
@@ -468,12 +473,14 @@ export const AnchorAnalysisTray: React.FC<Props> = ({
 
   const selectImage = (imageId: number) => {
     if (onNavigateImage) {
-      onNavigateImage(imageId, true)
+      onNavigateImage(imageId, false)
+      openImageViewer(imageId)
       return
     }
     const item = pointByImage.get(imageId)
     setSelectedIds([String(imageId)])
     setSelectedEmbedding({ id: imageId, meta: item?.meta ?? {} })
+    openImageViewer(imageId)
     if (item?.point && state.viewport) {
       state.viewport.moveCenter({
         x: CANVAS_OFFSET_X + item.point[0] * CANVAS_WIDTH,
@@ -489,7 +496,7 @@ export const AnchorAnalysisTray: React.FC<Props> = ({
     }
     const item = pointByImage.get(imageId)
     setSelectedIds([String(imageId)])
-    setSelectedEmbedding(null)
+    setSelectedEmbedding({ id: imageId, meta: item?.meta ?? {} })
     if (!item?.point || !state.viewport) return
     const position = {
       x: CANVAS_OFFSET_X + item.point[0] * CANVAS_WIDTH,
@@ -509,7 +516,9 @@ export const AnchorAnalysisTray: React.FC<Props> = ({
 
   const graphPath = result?.graph[graphMode]
   const pathIds =
-    tab === 'interpolation'
+    tab === 'semantic'
+      ? []
+      : tab === 'interpolation'
       ? result?.interpolation.path_ids ?? []
       : tab === 'graph'
         ? graphPath?.path_ids ?? []
@@ -518,6 +527,17 @@ export const AnchorAnalysisTray: React.FC<Props> = ({
   useEffect(() => {
     if (!pathIds.length) setDisplayPath(false)
   }, [pathIds.length])
+
+  const changeTab = (nextTab: AnchorAnalysisTab) => {
+    if (nextTab === 'semantic' && tab !== 'semantic') {
+      displayPathBeforeSemantic.current = displayPath
+      setDisplayPath(false)
+    } else if (tab === 'semantic' && nextTab !== 'semantic') {
+      setDisplayPath(displayPathBeforeSemantic.current)
+    }
+    setTab(nextTab)
+    setCollapsed(false)
+  }
 
   const updateParameter = (
     key: keyof typeof parameters,
@@ -594,23 +614,22 @@ export const AnchorAnalysisTray: React.FC<Props> = ({
                 tab === value ? 'bg-white text-black' : 'hover:bg-white/10'
               }`}
               aria-pressed={tab === value}
-              onClick={() => {
-                setTab(value)
-                setCollapsed(false)
-              }}
+              onClick={() => changeTab(value)}
             >
               {label}
             </button>
           ))}
         </nav>
-        <label className="hidden items-center gap-2 text-xs md:flex">
-          <input
-            type="checkbox"
-            checked={compare}
-            onChange={(event) => setCompare(event.target.checked)}
-          />
-          Compare paths
-        </label>
+        {tab !== 'semantic' && (
+          <label className="hidden items-center gap-2 text-xs md:flex">
+            <input
+              type="checkbox"
+              checked={compare}
+              onChange={(event) => setCompare(event.target.checked)}
+            />
+            Compare paths
+          </label>
+        )}
         <button
           type="button"
           className="rounded-full p-1.5 hover:bg-white/10"
@@ -652,7 +671,9 @@ export const AnchorAnalysisTray: React.FC<Props> = ({
                     : 'border border-white/20 hover:bg-white/10'
                 } disabled:cursor-not-allowed disabled:opacity-40`}
                 onClick={() => setDisplayPath((value) => !value)}
-                disabled={!result || pathIds.length === 0}
+                disabled={
+                  tab === 'semantic' || !result || pathIds.length === 0
+                }
                 aria-pressed={displayPath}
               >
                 <Route size={14} /> Display path
@@ -737,6 +758,13 @@ export const AnchorAnalysisTray: React.FC<Props> = ({
                     selectedIds.length === 1 ? Number(selectedIds[0]) : null
                   }
                   onFocus={focusPathImage}
+                />
+              )}
+              {!displayPath && tab === 'semantic' && (
+                <AnchorSemanticAnalysis
+                  datasetId={datasetId}
+                  semantics={result.semantics}
+                  onSelectImage={selectImage}
                 />
               )}
               {!displayPath && tab === 'axis' && (

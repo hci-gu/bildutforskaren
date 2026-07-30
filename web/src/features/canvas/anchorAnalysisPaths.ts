@@ -20,6 +20,7 @@ export const getAnchorAnalysisDisplayPaths = (
   compare: boolean
 ): AnchorAnalysisDisplayPath[] => {
   if (!result) return []
+  if (tab === 'semantic') return []
 
   const graphPath = result.graph[graphMode].path_ids
   if (compare) {

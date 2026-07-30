@@ -20,7 +20,16 @@ from api import datasets
 from api import image_roundtrip
 from api import indexing
 from api.anchor_analysis import AnchorAnalysisParameters, analyze_anchor_paths
+from api.anchor_semantics import analyze_anchor_semantics
+from api.cluster_profiles import analyze_cluster_profiles
+from api.concept_lens import analyze_concept_lens
 from api.graph_network import GraphNetworkParameters, build_graph_network
+from api.neighbor_fidelity import analyze_neighbor_fidelity
+from api.projection_stability import analyze_projection_stability
+from api.projection_stability_jobs import (
+    ActiveStabilityJobError,
+    get_projection_stability_job_manager,
+)
 from api import context as context_builder
 from api import runtime
 from api.clustering import ClusteringConfig, fit_model
@@ -322,6 +331,50 @@ def create_anchor_analysis(dataset_id: str):
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
 
+    try:
+        from api import sao_terms
+
+        concept_embeddings, concepts = sao_terms.get_embeddings()
+        result["semantics"] = analyze_anchor_semantics(
+            ctx.embeddings.cpu().numpy().astype("float32"),
+            anchor_a_ids,
+            anchor_b_ids,
+            result,
+            concept_embeddings,
+            concepts,
+        )
+    except (FileNotFoundError, OSError) as exc:
+        logging.warning(
+            "SAO concepts are unavailable for dataset %s: %s",
+            dataset_id,
+            exc,
+        )
+        result["semantics"] = {
+            "available": False,
+            "error": "SAO concepts are unavailable",
+            "relevance_threshold": None,
+            "endpoint_a": [],
+            "endpoint_b": [],
+            "increasing": [],
+            "decreasing": [],
+            "trajectories": [],
+        }
+    except Exception:
+        logging.exception(
+            "Failed to compute anchor semantics for dataset %s",
+            dataset_id,
+        )
+        result["semantics"] = {
+            "available": False,
+            "error": "SAO concepts are unavailable",
+            "relevance_threshold": None,
+            "endpoint_a": [],
+            "endpoint_b": [],
+            "increasing": [],
+            "decreasing": [],
+            "trajectories": [],
+        }
+
     return jsonify({"dataset_id": dataset_id, **result})
 
 
@@ -376,6 +429,480 @@ def create_graph_network(dataset_id: str):
         parameters,
     )
     return jsonify({"dataset_id": dataset_id, **result})
+
+
+@bp.route("/datasets/<dataset_id>/neighbor-fidelity", methods=["POST"])
+def create_neighbor_fidelity(dataset_id: str):
+    ctx = _get_context(dataset_id)
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify({"error": "Expected a JSON object"}), 400
+
+    image_ids = payload.get("image_ids")
+    if (
+        not isinstance(image_ids, list)
+        or len(image_ids) < 2
+        or any(
+            isinstance(image_id, bool) or not isinstance(image_id, int)
+            for image_id in image_ids
+        )
+    ):
+        return jsonify(
+            {"error": "'image_ids' must contain at least two integer image IDs"}
+        ), 400
+    if len(set(image_ids)) != len(image_ids):
+        return jsonify({"error": "'image_ids' must not contain duplicates"}), 400
+    if any(
+        image_id < 0 or image_id >= len(ctx.embeddings)
+        for image_id in image_ids
+    ):
+        return jsonify({"error": "One or more image IDs are out of range"}), 400
+
+    selected_image_id = payload.get("selected_image_id")
+    if isinstance(selected_image_id, bool) or not isinstance(selected_image_id, int):
+        return jsonify({"error": "'selected_image_id' must be an integer"}), 400
+    if selected_image_id not in set(image_ids):
+        return jsonify(
+            {"error": "'selected_image_id' must be included in 'image_ids'"}
+        ), 400
+
+    k = payload.get("k", 10)
+    if isinstance(k, bool) or not isinstance(k, int) or not 2 <= k <= 50:
+        return jsonify({"error": "'k' must be an integer between 2 and 50"}), 400
+
+    raw_projection_points = payload.get("projection_points")
+    if (
+        not isinstance(raw_projection_points, list)
+        or len(raw_projection_points) != len(image_ids)
+        or not raw_projection_points
+        or not all(isinstance(point, list) for point in raw_projection_points)
+    ):
+        return jsonify(
+            {
+                "error": (
+                    "'projection_points' must match 'image_ids' and contain "
+                    "consistent 2D or 3D points"
+                )
+            }
+        ), 400
+    dimension = len(raw_projection_points[0])
+    if dimension not in (2, 3) or any(
+        len(point) != dimension for point in raw_projection_points
+    ):
+        return jsonify(
+            {
+                "error": (
+                    "'projection_points' must match 'image_ids' and contain "
+                    "consistent 2D or 3D points"
+                )
+            }
+        ), 400
+    if any(
+        isinstance(coordinate, bool)
+        or not isinstance(coordinate, (int, float))
+        for point in raw_projection_points
+        for coordinate in point
+    ):
+        return jsonify({"error": "'projection_points' must be numeric"}), 400
+    projection_points = np.asarray(raw_projection_points, dtype=float)
+    if not np.isfinite(projection_points).all():
+        return jsonify({"error": "'projection_points' must be finite"}), 400
+
+    result = analyze_neighbor_fidelity(
+        ctx.embeddings.cpu().numpy().astype("float32"),
+        image_ids,
+        projection_points,
+        selected_image_id,
+        k,
+    )
+    return jsonify({"dataset_id": dataset_id, **result})
+
+
+@bp.route("/datasets/<dataset_id>/concept-lens", methods=["POST"])
+def create_concept_lens(dataset_id: str):
+    ctx = _get_context(dataset_id)
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify({"error": "Expected a JSON object"}), 400
+
+    image_ids = payload.get("image_ids")
+    if (
+        not isinstance(image_ids, list)
+        or not image_ids
+        or any(
+            isinstance(image_id, bool) or not isinstance(image_id, int)
+            for image_id in image_ids
+        )
+    ):
+        return jsonify(
+            {"error": "'image_ids' must contain at least one integer image ID"}
+        ), 400
+    if len(set(image_ids)) != len(image_ids):
+        return jsonify({"error": "'image_ids' must not contain duplicates"}), 400
+    if any(
+        image_id < 0 or image_id >= len(ctx.embeddings)
+        for image_id in image_ids
+    ):
+        return jsonify({"error": "One or more image IDs are out of range"}), 400
+
+    concept_ids = payload.get("concept_ids")
+    if (
+        not isinstance(concept_ids, list)
+        or not 1 <= len(concept_ids) <= 2
+        or any(
+            not isinstance(concept_id, str) or not concept_id.strip()
+            for concept_id in concept_ids
+        )
+    ):
+        return jsonify(
+            {"error": "'concept_ids' must contain one or two SAO concept IDs"}
+        ), 400
+    concept_ids = [concept_id.strip() for concept_id in concept_ids]
+    if len(set(concept_ids)) != len(concept_ids):
+        return jsonify({"error": "'concept_ids' must not contain duplicates"}), 400
+
+    raw_projection_points = payload.get("projection_points")
+    projection_points = None
+    if raw_projection_points is not None:
+        if (
+            not isinstance(raw_projection_points, list)
+            or len(raw_projection_points) != len(image_ids)
+            or not raw_projection_points
+            or not all(isinstance(point, list) for point in raw_projection_points)
+        ):
+            return jsonify(
+                {
+                    "error": (
+                        "'projection_points' must match 'image_ids' and contain "
+                        "consistent 2D or 3D points"
+                    )
+                }
+            ), 400
+        dimension = len(raw_projection_points[0])
+        if dimension not in (2, 3) or any(
+            len(point) != dimension for point in raw_projection_points
+        ):
+            return jsonify(
+                {
+                    "error": (
+                        "'projection_points' must match 'image_ids' and contain "
+                        "consistent 2D or 3D points"
+                    )
+                }
+            ), 400
+        if any(
+            isinstance(coordinate, bool)
+            or not isinstance(coordinate, (int, float))
+            for point in raw_projection_points
+            for coordinate in point
+        ):
+            return jsonify({"error": "'projection_points' must be numeric"}), 400
+        projection_points = np.asarray(raw_projection_points, dtype=float)
+        if not np.isfinite(projection_points).all():
+            return jsonify({"error": "'projection_points' must be finite"}), 400
+
+    try:
+        from api import sao_terms
+
+        concept_embeddings, concepts = sao_terms.get_embeddings()
+        result = analyze_concept_lens(
+            ctx.embeddings.cpu().numpy().astype("float32"),
+            image_ids,
+            concept_embeddings,
+            concepts,
+            concept_ids,
+            projection_points,
+        )
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except Exception:
+        logging.exception("Failed to calculate concept lens for %s", dataset_id)
+        return jsonify({"error": "SAO concepts are unavailable"}), 503
+
+    return jsonify({"dataset_id": dataset_id, **result})
+
+
+@bp.route("/datasets/<dataset_id>/cluster-profiles", methods=["POST"])
+def create_cluster_profiles(dataset_id: str):
+    ctx = _get_context(dataset_id)
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify({"error": "Expected a JSON object"}), 400
+
+    image_ids = payload.get("image_ids")
+    if (
+        not isinstance(image_ids, list)
+        or len(image_ids) < 2
+        or any(
+            isinstance(image_id, bool) or not isinstance(image_id, int)
+            for image_id in image_ids
+        )
+    ):
+        return jsonify(
+            {"error": "'image_ids' must contain at least two integer image IDs"}
+        ), 400
+    if len(set(image_ids)) != len(image_ids):
+        return jsonify({"error": "'image_ids' must not contain duplicates"}), 400
+    if any(
+        image_id < 0 or image_id >= len(ctx.embeddings)
+        for image_id in image_ids
+    ):
+        return jsonify({"error": "One or more image IDs are out of range"}), 400
+
+    raw_points = payload.get("projection_points")
+    if (
+        not isinstance(raw_points, list)
+        or len(raw_points) != len(image_ids)
+        or not all(
+            isinstance(point, list) and len(point) == 2
+            for point in raw_points
+        )
+    ):
+        return jsonify(
+            {
+                "error": (
+                    "'projection_points' must match 'image_ids' and contain "
+                    "consistent 2D points"
+                )
+            }
+        ), 400
+    if any(
+        isinstance(coordinate, bool)
+        or not isinstance(coordinate, (int, float))
+        for point in raw_points
+        for coordinate in point
+    ):
+        return jsonify({"error": "'projection_points' must be numeric"}), 400
+    projection_points = np.asarray(raw_points, dtype=float)
+    if not np.isfinite(projection_points).all():
+        return jsonify({"error": "'projection_points' must be finite"}), 400
+
+    try:
+        clustering_config = ClusteringConfig.from_dict(payload.get("clustering"))
+        from api import sao_terms
+
+        concept_embeddings, concepts = sao_terms.get_embeddings()
+        result = analyze_cluster_profiles(
+            ctx.embeddings.cpu().numpy().astype("float32"),
+            image_ids,
+            projection_points,
+            clustering_config,
+            concept_embeddings,
+            concepts,
+        )
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except Exception:
+        logging.exception("Failed to calculate cluster profiles for %s", dataset_id)
+        return jsonify({"error": "SAO concepts are unavailable"}), 503
+
+    return jsonify({"dataset_id": dataset_id, **result})
+
+
+def _stability_number(
+    params: dict,
+    name: str,
+    *,
+    minimum: float,
+    maximum: float,
+) -> float:
+    value = params.get(name)
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not math.isfinite(float(value))
+        or not minimum <= float(value) <= maximum
+    ):
+        raise ValueError(
+            f"'{name}' must be a finite number between {minimum} and {maximum}"
+        )
+    return float(value)
+
+
+@bp.route(
+    "/datasets/<dataset_id>/projection-stability/jobs",
+    methods=["POST"],
+)
+def start_projection_stability_job(dataset_id: str):
+    ctx = _get_context(dataset_id)
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify({"error": "Expected a JSON object"}), 400
+
+    image_ids = payload.get("image_ids")
+    if (
+        not isinstance(image_ids, list)
+        or len(image_ids) < 10
+        or any(
+            isinstance(image_id, bool) or not isinstance(image_id, int)
+            for image_id in image_ids
+        )
+    ):
+        return jsonify(
+            {"error": "'image_ids' must contain at least ten integer image IDs"}
+        ), 400
+    if len(set(image_ids)) != len(image_ids):
+        return jsonify({"error": "'image_ids' must not contain duplicates"}), 400
+    if any(
+        image_id < 0 or image_id >= len(ctx.embeddings)
+        for image_id in image_ids
+    ):
+        return jsonify({"error": "One or more image IDs are out of range"}), 400
+
+    raw_points = payload.get("projection_points")
+    if (
+        not isinstance(raw_points, list)
+        or len(raw_points) != len(image_ids)
+        or not all(
+            isinstance(point, list) and len(point) == 2
+            for point in raw_points
+        )
+    ):
+        return jsonify(
+            {
+                "error": (
+                    "'projection_points' must match 'image_ids' and contain "
+                    "consistent 2D points"
+                )
+            }
+        ), 400
+    if any(
+        isinstance(coordinate, bool)
+        or not isinstance(coordinate, (int, float))
+        for point in raw_points
+        for coordinate in point
+    ):
+        return jsonify({"error": "'projection_points' must be numeric"}), 400
+    projection_points = np.asarray(raw_points, dtype=np.float64)
+    if not np.isfinite(projection_points).all():
+        return jsonify({"error": "'projection_points' must be finite"}), 400
+
+    raw_params = payload.get("params")
+    if not isinstance(raw_params, dict):
+        return jsonify({"error": "'params' must be an object"}), 400
+    try:
+        n_neighbors = raw_params.get("n_neighbors")
+        if (
+            isinstance(n_neighbors, bool)
+            or not isinstance(n_neighbors, int)
+            or not 2 <= n_neighbors <= 200
+        ):
+            raise ValueError(
+                "'n_neighbors' must be an integer between 2 and 200"
+            )
+        seed = raw_params.get("seed")
+        if (
+            isinstance(seed, bool)
+            or not isinstance(seed, int)
+            or not 0 <= seed <= 2_147_483_646
+        ):
+            raise ValueError(
+                "'seed' must be an integer between 0 and 2147483646"
+            )
+        min_dist = _stability_number(
+            raw_params,
+            "min_dist",
+            minimum=0.0,
+            maximum=10.0,
+        )
+        spread = _stability_number(
+            raw_params,
+            "spread",
+            minimum=1e-9,
+            maximum=100.0,
+        )
+        if min_dist > spread:
+            raise ValueError("'min_dist' must not be greater than 'spread'")
+        params = {
+            "n_neighbors": n_neighbors,
+            "min_dist": min_dist,
+            "spread": spread,
+            "seed": seed,
+        }
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    try:
+        from api import sao_terms
+
+        concept_embeddings, concepts = sao_terms.get_embeddings()
+    except Exception:
+        logging.exception(
+            "Failed to load SAO concepts for projection stability in %s",
+            dataset_id,
+        )
+        return jsonify({"error": "SAO concepts are unavailable"}), 503
+
+    image_embeddings = ctx.embeddings.cpu().numpy().astype(
+        "float32",
+        copy=False,
+    )
+    manager = get_projection_stability_job_manager()
+
+    def worker(progress_callback, cancelled):
+        return {
+            "dataset_id": dataset_id,
+            **analyze_projection_stability(
+                image_embeddings,
+                image_ids,
+                projection_points,
+                params,
+                concept_embeddings,
+                concepts,
+                progress_callback=progress_callback,
+                cancelled=cancelled,
+            ),
+        }
+
+    try:
+        job_id = manager.start(dataset_id, worker)
+    except ActiveStabilityJobError as exc:
+        return jsonify(
+            {
+                "error": "A projection stability job is already running",
+                "job_id": str(exc),
+            }
+        ), 409
+    return jsonify(
+        {
+            "job_id": job_id,
+            "dataset_id": dataset_id,
+            "status": "queued",
+            "progress": 0.0,
+        }
+    ), 202
+
+
+@bp.route(
+    "/datasets/<dataset_id>/projection-stability/jobs/<job_id>",
+    methods=["GET"],
+)
+def get_projection_stability_job(dataset_id: str, job_id: str):
+    _get_context(dataset_id)
+    state = get_projection_stability_job_manager().get(job_id, dataset_id)
+    if state is None:
+        return jsonify({"error": "Projection stability job not found"}), 404
+    return jsonify(state)
+
+
+@bp.route(
+    "/datasets/<dataset_id>/projection-stability/jobs/<job_id>",
+    methods=["DELETE"],
+)
+def cancel_projection_stability_job(dataset_id: str, job_id: str):
+    _get_context(dataset_id)
+    state = get_projection_stability_job_manager().cancel(job_id, dataset_id)
+    if state is None:
+        return jsonify({"error": "Projection stability job not found"}), 404
+    return jsonify(
+        {
+            "job_id": job_id,
+            "dataset_id": dataset_id,
+            "status": "cancelling"
+            if state.get("status") in {"queued", "running"}
+            else state.get("status"),
+        }
+    ), 202
 
 
 @bp.route("/datasets/<dataset_id>/embedding-for-text", methods=["GET"])

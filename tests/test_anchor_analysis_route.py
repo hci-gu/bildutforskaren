@@ -32,9 +32,19 @@ class AnchorAnalysisRouteTests(unittest.TestCase):
         self.context = SimpleNamespace(embeddings=FakeEmbeddings())
 
     def post(self, payload):
-        with patch(
-            "api.routes_dataset_scoped._get_context",
-            return_value=self.context,
+        concepts = [
+            {"id": str(index), "label": f"Concept {index}"}
+            for index in range(4)
+        ]
+        with (
+            patch(
+                "api.routes_dataset_scoped._get_context",
+                return_value=self.context,
+            ),
+            patch(
+                "api.sao_terms.get_embeddings",
+                return_value=(np.eye(4, dtype=np.float32), concepts),
+            ),
         ):
             return self.client.post("/datasets/test/anchor-analysis", json=payload)
 
@@ -86,6 +96,10 @@ class AnchorAnalysisRouteTests(unittest.TestCase):
                 "api.routes_dataset_scoped.analyze_anchor_paths",
                 return_value=analysis_result,
             ) as analyze,
+            patch(
+                "api.sao_terms.get_embeddings",
+                side_effect=FileNotFoundError,
+            ),
         ):
             response = self.client.post(
                 "/datasets/test/anchor-analysis",
@@ -99,6 +113,47 @@ class AnchorAnalysisRouteTests(unittest.TestCase):
         self.assertEqual(analyze.call_args.args[1], [0])
         self.assertEqual(analyze.call_args.args[2], [2])
         self.assertEqual(analyze.call_args.args[3], [1, 0, 2])
+        self.assertFalse(response.get_json()["semantics"]["available"])
+
+    def test_valid_response_includes_semantics(self):
+        response = self.post(
+            {
+                "anchor_a_ids": [0],
+                "anchor_b_ids": [1],
+                "candidate_ids": [0, 1, 2, 3],
+                "parameters": {"graph_k": 2},
+            }
+        )
+        self.assertEqual(response.status_code, 200)
+        semantics = response.get_json()["semantics"]
+        self.assertTrue(semantics["available"])
+        self.assertIn("endpoint_a", semantics)
+        self.assertIn("trajectories", semantics)
+
+    def test_sao_failure_preserves_anchor_response(self):
+        with (
+            patch(
+                "api.routes_dataset_scoped._get_context",
+                return_value=self.context,
+            ),
+            patch(
+                "api.sao_terms.get_embeddings",
+                side_effect=FileNotFoundError,
+            ),
+        ):
+            response = self.client.post(
+                "/datasets/test/anchor-analysis",
+                json={
+                    "anchor_a_ids": [0],
+                    "anchor_b_ids": [1],
+                    "candidate_ids": [0, 1, 2, 3],
+                    "parameters": {"graph_k": 2},
+                },
+            )
+        self.assertEqual(response.status_code, 200)
+        data = response.get_json()
+        self.assertIn("axis", data)
+        self.assertFalse(data["semantics"]["available"])
 
     def test_validates_parameter_ranges(self):
         base = {

@@ -5,6 +5,7 @@ import { useAtom, useAtomValue, useSetAtom } from 'jotai'
 import {
   activeDatasetIdAtom,
   applyTagMutationAtom,
+  openImageViewerAtom,
   projectionSettingsAtom,
   projectionRevisionAtom,
   selectedTagsAtom,
@@ -68,6 +69,7 @@ export const TagResultsPanel = () => {
   const [steerBlendAlpha, setSteerBlendAlpha] = useAtom(steerBlendAlphaAtom)
   const setSelectedTags = useSetAtom(selectedTagsAtom)
   const setSelectedEmbedding = useSetAtom(selectedEmbeddingAtom)
+  const openImageViewer = useSetAtom(openImageViewerAtom)
   const applyTagMutation = useSetAtom(applyTagMutationAtom)
   const bumpProjectionRevision = useSetAtom(projectionRevisionAtom)
   const bumpTagRefreshTrigger = useSetAtom(tagRefreshTriggerAtom)
@@ -339,6 +341,7 @@ export const TagResultsPanel = () => {
     event.preventDefault()
     event.stopPropagation()
     openImage(id)
+    openImageViewer(id)
   }
 
   const toggleSteerSuggestions = () => {

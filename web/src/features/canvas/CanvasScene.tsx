@@ -10,22 +10,36 @@ import {
   anchorAnalysisTrayCollapsedAtom,
   anchorAnalysisTrayHeightAtom,
   anchorAnalysisTrayOpenAtom,
+  clusterFocusRequestAtom,
+  clusterProfilesResultAtom,
   graphLayoutAtom,
   graphNetworksAtom,
   loadableProjectedEmbeddingsAtom,
   projectionSettingsAtom,
+  projectionStabilityOverlayEnabledAtom,
+  projectionStabilityResultAtom,
   selectedEmbeddingAtom,
   selectedEmbeddingIdsAtom,
+  selectedExplainedClusterAtom,
+  selectedStabilityClusterAtom,
+  stabilityClusterFocusRequestAtom,
   tagRefreshTriggerAtom,
   viewportFitScaleAtom,
   viewportScaleAtom,
+  xaiImageFocusRequestAtom,
 } from '@/store'
 import { Link } from 'react-router'
 import datasetIcon from '@/assets/settings-button.png'
 import { state } from './canvasState'
 import { Viewport } from './ViewPort'
 import Panel from './Panel'
-import { CANVAS_HEIGHT, CANVAS_WIDTH, CLICK_EPS } from './constants'
+import {
+  CANVAS_HEIGHT,
+  CANVAS_OFFSET_X,
+  CANVAS_OFFSET_Y,
+  CANVAS_WIDTH,
+  CLICK_EPS,
+} from './constants'
 import { buildSelectionRect, computeProjectionFit, pointIntersectsParticle } from './utils'
 import { useAtlasLoader } from './hooks/useAtlasLoader'
 import { EmbeddingsLayer } from './components/EmbeddingsLayer'
@@ -35,7 +49,17 @@ import { HUD } from './components/HUD'
 import { GraphNetworkLayer } from './components/GraphNetworkLayer'
 import { AnchorAnalysisOverlay } from './components/AnchorAnalysisOverlay'
 import { AnchorAnalysisTray } from './components/AnchorAnalysisTray'
+import { NeighborFidelityOverlay } from './components/NeighborFidelityOverlay'
 import { HomeLogoLink } from '@/shared/components/HomeLogoLink'
+import { useNeighborFidelity } from './hooks/useNeighborFidelity'
+import { useConceptLens } from './hooks/useConceptLens'
+import { ClusterProfileOverlay } from './components/ClusterProfileOverlay'
+import { ConceptAxisOverlay } from './components/ConceptAxisOverlay'
+import { ProjectionStabilityOverlay } from './components/ProjectionStabilityOverlay'
+import {
+  buildClusterRegions,
+  clusterAtWorldPoint,
+} from './clusterGeometry'
 
 extend({
   Viewport,
@@ -75,6 +99,10 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
   const setViewportScale = useSetAtom(viewportScaleAtom)
   const setViewportFitScale = useSetAtom(viewportFitScaleAtom)
   const setProjectionSettings = useSetAtom(projectionSettingsAtom)
+  const setSelectedClusterId = useSetAtom(selectedExplainedClusterAtom)
+  const setSelectedStabilityClusterId = useSetAtom(
+    selectedStabilityClusterAtom
+  )
 
   const datasetId = useAtomValue(activeDatasetIdAtom)
   const projectionSettings = useAtomValue(projectionSettingsAtom)
@@ -82,12 +110,21 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
   const graphNetworks = useAtomValue(graphNetworksAtom)
   const activeGraph = datasetId ? graphNetworks[datasetId] : null
   const tagRefreshTrigger = useAtomValue(tagRefreshTriggerAtom)
-  const viewportFitScale = useAtomValue(viewportFitScaleAtom)
   const trayOpen = useAtomValue(anchorAnalysisTrayOpenAtom)
   const trayCollapsed = useAtomValue(anchorAnalysisTrayCollapsedAtom)
   const trayHeight = useAtomValue(anchorAnalysisTrayHeightAtom)
   const analyzedCandidateIds = useAtomValue(anchorAnalysisCandidateIdsAtom)
   const setAnchorAnalysisStale = useSetAtom(anchorAnalysisStaleAtom)
+  const clusterProfilesResult = useAtomValue(clusterProfilesResultAtom)
+  const clusterFocusRequest = useAtomValue(clusterFocusRequestAtom)
+  const stabilityResult = useAtomValue(projectionStabilityResultAtom)
+  const stabilityOverlayEnabled = useAtomValue(
+    projectionStabilityOverlayEnabledAtom
+  )
+  const stabilityFocusRequest = useAtomValue(
+    stabilityClusterFocusRequestAtom
+  )
+  const xaiImageFocusRequest = useAtomValue(xaiImageFocusRequestAtom)
 
   const [showTagRefresh, setShowTagRefresh] = useState(false)
 
@@ -108,6 +145,13 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
   const minimapEmbeddingsLoadable = useAtomValue(
     loadableProjectedEmbeddingsAtom('minimap')
   )
+  const fidelityEmbeddings = useMemo(
+    () =>
+      mainEmbeddingsLoadable.state === 'hasData'
+        ? (mainEmbeddingsLoadable.data as ProjectedEmbedding[])
+        : [],
+    [mainEmbeddingsLoadable]
+  )
 
   const [rawEmbeddings, setRawEmbeddings] = useState<ProjectedEmbedding[]>([])
   const [rawEmbeddingsViewType, setRawEmbeddingsViewType] = useState<
@@ -124,6 +168,24 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
         .map((item) => Number(item.id))
         .filter((id: number) => Number.isInteger(id)),
     [rawEmbeddings]
+  )
+  const clusterRegions = useMemo(
+    () => buildClusterRegions(clusterProfilesResult, rawEmbeddings),
+    [clusterProfilesResult, rawEmbeddings]
+  )
+  const stabilityRegions = useMemo(
+    () => buildClusterRegions(stabilityResult, rawEmbeddings),
+    [rawEmbeddings, stabilityResult]
+  )
+  useNeighborFidelity(
+    fidelityEmbeddings,
+    projectionSettings.type === 'umap' &&
+      mainEmbeddingsLoadable.state === 'hasData'
+  )
+  useConceptLens(
+    fidelityEmbeddings,
+    projectionSettings.type === 'umap' &&
+      mainEmbeddingsLoadable.state === 'hasData'
   )
   const trayOffset = trayOpen ? (trayCollapsed ? 52 : trayHeight) : 0
   const canvasHeight = Math.max(240, windowSize.height - trayOffset)
@@ -331,7 +393,60 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
       viewport.off('moved', updateBounds)
       viewport.off('zoomed', updateBounds)
     }
-  }, [setViewportScale, viewportFitScale])
+  }, [setViewportFitScale, setViewportScale])
+
+  useEffect(() => {
+    if (!xaiImageFocusRequest || !viewportReady) return
+    const item = rawEmbeddings.find(
+      (embedding: any) =>
+        embedding.type === 'image' &&
+        Number(embedding.id) === xaiImageFocusRequest.imageId
+    )
+    if (!item?.point || !state.viewport) return
+    const position = {
+      x: CANVAS_OFFSET_X + item.point[0] * CANVAS_WIDTH,
+      y: CANVAS_OFFSET_Y + item.point[1] * CANVAS_HEIGHT,
+    }
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      state.viewport.moveCenter(position)
+      return
+    }
+    state.viewport.animate({
+      position,
+      time: 650,
+      ease: 'easeInOutCubic',
+      removeOnInterrupt: true,
+    })
+  }, [rawEmbeddings, viewportReady, xaiImageFocusRequest])
+
+  useEffect(() => {
+    if (!clusterFocusRequest || !viewportReady || !state.viewport) return
+    const region = clusterRegions.find(
+      (candidate) => candidate.clusterId === clusterFocusRequest.clusterId
+    )
+    if (!region) return
+    const xs = region.points.map((point) => point.x)
+    const ys = region.points.map((point) => point.y)
+    const width = Math.max(120, Math.max(...xs) - Math.min(...xs))
+    const height = Math.max(120, Math.max(...ys) - Math.min(...ys))
+    state.viewport.fit(false, width * 1.3, height * 1.3)
+    state.viewport.moveCenter(region.centroid)
+  }, [clusterFocusRequest, clusterRegions, viewportReady])
+
+  useEffect(() => {
+    if (!stabilityFocusRequest || !viewportReady || !state.viewport) return
+    const region = stabilityRegions.find(
+      (candidate) =>
+        candidate.clusterId === stabilityFocusRequest.clusterId
+    )
+    if (!region) return
+    const xs = region.points.map((point) => point.x)
+    const ys = region.points.map((point) => point.y)
+    const width = Math.max(120, Math.max(...xs) - Math.min(...xs))
+    const height = Math.max(120, Math.max(...ys) - Math.min(...ys))
+    state.viewport.fit(false, width * 1.3, height * 1.3)
+    state.viewport.moveCenter(region.centroid)
+  }, [stabilityFocusRequest, stabilityRegions, viewportReady])
 
   useEffect(() => {
     if (projectionSettings.type !== 'sao') return
@@ -555,14 +670,40 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
               setSelectedEmbedding(hit.data.embedding)
               setSelectedEmbeddingIds([String(hit.data.embedding.id)])
             } else {
-              setSelectedEmbedding(null)
-              setSelectedEmbeddingIds([])
+              const useStabilityRegions =
+                stabilityOverlayEnabled && stabilityResult !== null
+              const cluster = clusterAtWorldPoint(
+                useStabilityRegions ? stabilityRegions : clusterRegions,
+                world
+              )
+              if (cluster) {
+                if (useStabilityRegions) {
+                  setSelectedStabilityClusterId(cluster.clusterId)
+                } else {
+                  setSelectedClusterId(cluster.clusterId)
+                }
+              } else {
+                setSelectedEmbedding(null)
+                setSelectedEmbeddingIds([])
+              }
             }
           }}
         >
           {allLoaded && (
             <>
               {projectionSettings.type === 'graph' && <GraphNetworkLayer />}
+              {projectionSettings.type === 'umap' && (
+                <ClusterProfileOverlay rawEmbeddings={rawEmbeddings} />
+              )}
+              {projectionSettings.type === 'umap' && (
+                <ProjectionStabilityOverlay
+                  rawEmbeddings={rawEmbeddings}
+                />
+              )}
+              {projectionSettings.type === 'umap' && <ConceptAxisOverlay />}
+              {projectionSettings.type === 'umap' && (
+                <NeighborFidelityOverlay rawEmbeddings={rawEmbeddings} />
+              )}
               <EmbeddingsLayer
                 type="main"
                 masterAtlas={masterAtlas}

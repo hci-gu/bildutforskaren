@@ -29,6 +29,136 @@ export type ClusteringResult = {
   ignored_noise_point_indices: number[]
 }
 
+export type SaoConceptMetadata = {
+  concept_id: string
+  label: string
+  scope_note: string
+}
+
+export type ConceptLensImageScore = {
+  similarity: number
+  percentile: number
+}
+
+export type ConceptLensImage = {
+  image_id: number
+  scores: Record<string, ConceptLensImageScore>
+  comparison_delta?: number
+}
+
+export type ConceptLensAxis =
+  | {
+      available: true
+      mode: 'single' | 'contrast'
+      dimension: 2 | 3
+      start: number[]
+      end: number[]
+      direction: number[]
+      r_squared: number
+      stability: number
+      bootstrap_samples: number
+      boundary: 'convex_hull_inset'
+    }
+  | {
+      available: false
+      mode: 'single' | 'contrast'
+      dimension?: 2 | 3
+      reason: string
+    }
+
+export type ConceptLensResponse = {
+  dataset_id: string
+  concepts: SaoConceptMetadata[]
+  images: ConceptLensImage[]
+  axis: ConceptLensAxis
+}
+
+export type ClusterProfileConcept = SaoConceptMetadata & {
+  cluster_score: number
+  baseline_score: number
+  delta: number
+  strongest_rank: number | null
+  delta_direction: 'more' | 'less' | null
+  delta_rank: number | null
+}
+
+export type ExplainedCluster = {
+  cluster_id: number
+  centroid_position: [number, number]
+  image_ids: number[]
+  image_count: number
+  relevance_threshold: number
+  profile: {
+    strongest: ClusterProfileConcept[]
+    more_prominent: ClusterProfileConcept[]
+    less_prominent: ClusterProfileConcept[]
+  }
+}
+
+export type ClusterProfilesResponse = {
+  dataset_id: string
+  clustering: ClusteringMetadata
+  clusters: ExplainedCluster[]
+  noise_image_ids: number[]
+}
+
+export type ProjectionStabilityConcept = SaoConceptMetadata & {
+  similarity: number
+}
+
+export type ProjectionStabilityCluster = {
+  cluster_id: number
+  image_ids: number[]
+  image_count: number
+  centroid_position: [number, number]
+  stability: number
+  concepts: ProjectionStabilityConcept[]
+}
+
+export type ProjectionStabilityImage = {
+  image_id: number
+  reference_cluster_id: number | null
+  stability: number
+}
+
+export type ProjectionStabilityResult = {
+  dataset_id: string
+  runs: number
+  ambiguity_threshold: number
+  overall_stability: number
+  clusters: ProjectionStabilityCluster[]
+  images: ProjectionStabilityImage[]
+  ambiguous_images: ProjectionStabilityImage[]
+  noise_image_ids: number[]
+  clustering: {
+    algorithm: 'hdbscan'
+    feature_space: 'umap_2d'
+  }
+  params: {
+    n_neighbors: number
+    min_dist: number
+    spread: number
+    seed: number
+  }
+}
+
+export type ProjectionStabilityJob = {
+  job_id: string
+  dataset_id: string
+  status:
+    | 'queued'
+    | 'running'
+    | 'complete'
+    | 'error'
+    | 'cancelled'
+    | 'cancelling'
+  progress: number
+  completed_runs?: number
+  total_runs?: number
+  result?: ProjectionStabilityResult | null
+  error?: string | null
+}
+
 export type ClusterPreview = {
   id: string
   parent_id: string | null
@@ -130,6 +260,55 @@ export type AnchorAnalysisPath = {
   maximum_jump: number | null
 }
 
+export type AnchorSemanticConcept = {
+  concept_id: string
+  label: string
+  scope_note: string
+  score_a: number
+  score_b: number
+  delta: number
+  endpoint_a_rank: number | null
+  endpoint_b_rank: number | null
+  delta_direction: 'increasing' | 'decreasing' | null
+  delta_rank: number | null
+  in_endpoint_a: boolean
+  in_endpoint_b: boolean
+  in_trajectory: boolean
+}
+
+export type AnchorSemanticIdealPoint = {
+  progress: number
+  score: number
+}
+
+export type AnchorSemanticObservedPoint = {
+  progress: number
+  image_id: number | null
+  score: number | null
+  ideal_score: number
+  gap: number | null
+}
+
+export type AnchorSemanticTrajectory = {
+  concept_id: string
+  ideal: AnchorSemanticIdealPoint[]
+  interpolation: AnchorSemanticObservedPoint[]
+  axis: AnchorSemanticObservedPoint[]
+  graph_shortest: AnchorSemanticObservedPoint[]
+  graph_supported: AnchorSemanticObservedPoint[]
+}
+
+export type AnchorSemantics = {
+  available: boolean
+  error: string | null
+  relevance_threshold: number | null
+  endpoint_a: AnchorSemanticConcept[]
+  endpoint_b: AnchorSemanticConcept[]
+  increasing: AnchorSemanticConcept[]
+  decreasing: AnchorSemanticConcept[]
+  trajectories: AnchorSemanticTrajectory[]
+}
+
 export type AnchorAnalysisResponse = {
   dataset_id: string
   anchors: {
@@ -176,6 +355,7 @@ export type AnchorAnalysisResponse = {
     shortest: AnchorAnalysisPath
     supported: AnchorAnalysisPath
   }
+  semantics: AnchorSemantics
   parameters: AnchorAnalysisParameters
 }
 
@@ -488,6 +668,89 @@ export const fetchClusters = async (
   return response
 }
 
+export const fetchConceptLens = async (
+  datasetId: string,
+  payload: {
+    image_ids: number[]
+    concept_ids: string[]
+    projection_points: number[][]
+  },
+  signal?: AbortSignal
+) => {
+  return await fetchJson<ConceptLensResponse>(
+    datasetApiUrl(datasetId, '/concept-lens'),
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal,
+    }
+  )
+}
+
+export const fetchClusterProfiles = async (
+  datasetId: string,
+  payload: {
+    image_ids: number[]
+    projection_points: [number, number][]
+    clustering: ClusteringConfig
+  },
+  signal?: AbortSignal
+) => {
+  return await fetchJson<ClusterProfilesResponse>(
+    datasetApiUrl(datasetId, '/cluster-profiles'),
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal,
+    }
+  )
+}
+
+export const startProjectionStabilityJob = async (
+  datasetId: string,
+  payload: {
+    image_ids: number[]
+    projection_points: [number, number][]
+    params: {
+      n_neighbors: number
+      min_dist: number
+      spread: number
+      seed: number
+    }
+  },
+  signal?: AbortSignal
+) =>
+  await fetchJson<ProjectionStabilityJob>(
+    datasetApiUrl(datasetId, '/projection-stability/jobs'),
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal,
+    }
+  )
+
+export const fetchProjectionStabilityJob = async (
+  datasetId: string,
+  jobId: string,
+  signal?: AbortSignal
+) =>
+  await fetchJson<ProjectionStabilityJob>(
+    datasetApiUrl(datasetId, `/projection-stability/jobs/${jobId}`),
+    { signal }
+  )
+
+export const cancelProjectionStabilityJob = async (
+  datasetId: string,
+  jobId: string
+) =>
+  await fetchJson<ProjectionStabilityJob>(
+    datasetApiUrl(datasetId, `/projection-stability/jobs/${jobId}`),
+    { method: 'DELETE' }
+  )
+
 export const fetchEmbeddingById = async (datasetId: string, id: string) => {
   return await fetchJson<number[]>(datasetApiUrl(datasetId, `/embedding/${id}`))
 }
@@ -732,3 +995,44 @@ export const updateMetadataSource = async (
     body: JSON.stringify({ source }),
   })
 }
+
+export type NeighborFidelityRecord = {
+  image_id: number
+  clip_rank: number | null
+  projection_rank: number | null
+  clip_similarity: number
+  projection_distance: number
+}
+
+export type NeighborFidelityResponse = {
+  dataset_id: string
+  selected_image_id: number
+  requested_k: number
+  effective_k: number
+  retention: number
+  neighbors: {
+    preserved: NeighborFidelityRecord[]
+    clip_only: NeighborFidelityRecord[]
+    projection_only: NeighborFidelityRecord[]
+  }
+}
+
+export const fetchNeighborFidelity = async (
+  datasetId: string,
+  payload: {
+    image_ids: number[]
+    projection_points: number[][]
+    selected_image_id: number
+    k: number
+  },
+  signal?: AbortSignal
+) =>
+  await fetchJson<NeighborFidelityResponse>(
+    datasetApiUrl(datasetId, '/neighbor-fidelity'),
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal,
+    }
+  )

@@ -4,6 +4,8 @@ import { useTick } from '@pixi/react'
 import * as PIXI from 'pixi.js'
 import {
   activeDatasetIdAtom,
+  conceptLensResultAtom,
+  conceptLensThresholdAtom,
   displaySettingsAtom,
   filterSettingsAtom,
   graphNetworksAtom,
@@ -44,6 +46,7 @@ import type { CustomParticle } from '../types'
 import { colorForMetadata } from '../utils'
 import type { AtlasMeta } from '../hooks/useAtlasLoader'
 import { state } from '../canvasState'
+import { conceptLensVisual } from '../xaiVisuals'
 
 const clusterTextureCache = new Map<string, Promise<PIXI.Texture>>()
 const CLUSTER_LEVEL_ZOOM_STEP = 2
@@ -115,6 +118,8 @@ export const EmbeddingsLayer: React.FC<{
   const searchQuery = useAtomValue(searchQueryAtom)
   const datasetId = useAtomValue(activeDatasetIdAtom)
   const displaySettings = useAtomValue(displaySettingsAtom)
+  const conceptLensResult = useAtomValue(conceptLensResultAtom)
+  const conceptLensThreshold = useAtomValue(conceptLensThresholdAtom)
   const filterSettings = useAtomValue(filterSettingsAtom)
   const projectionSettings = useAtomValue(projectionSettingsAtom)
   const graphNetworks = useAtomValue(graphNetworksAtom)
@@ -138,6 +143,30 @@ export const EmbeddingsLayer: React.FC<{
     datasetId && projectionSettings.type === 'graph'
       ? graphNetworks[datasetId]?.root_image_id
       : null
+  const lensConceptIds = useMemo(
+    () => conceptLensResult?.concepts.map((concept) => concept.concept_id) ?? [],
+    [conceptLensResult]
+  )
+  const maximumAbsoluteLensDelta = useMemo(
+    () =>
+      Math.max(
+        0,
+        ...(conceptLensResult?.images.map((image) =>
+          Math.abs(image.comparison_delta ?? 0)
+        ) ?? [])
+      ),
+    [conceptLensResult]
+  )
+  const lensImagesById = useMemo(
+    () =>
+      new Map(
+        (conceptLensResult?.images ?? []).map((image) => [
+          image.image_id,
+          image,
+        ])
+      ),
+    [conceptLensResult]
+  )
 
   const textEmbeddings = rawEmbeddings.filter((e: any) => e.type === 'text')
   const usesDefaultClusterProjection =
@@ -377,6 +406,21 @@ export const EmbeddingsLayer: React.FC<{
     let tint = displaySettings.colorPhotographer
       ? colorForMetadata(embed.meta)
       : 0xffffff
+    let alpha = 1
+    const lensRecord =
+      type === 'main' && projectionSettings.type === 'umap'
+        ? lensImagesById.get(Number(embed.id))
+        : undefined
+    if (lensRecord && lensConceptIds.length > 0) {
+      const visual = conceptLensVisual(
+        lensRecord,
+        lensConceptIds,
+        conceptLensThreshold,
+        maximumAbsoluteLensDelta
+      )
+      tint = visual.tint
+      alpha = visual.alpha
+    }
 
     if (type === 'minimap') {
       if (embed.meta.matched) {
@@ -386,7 +430,7 @@ export const EmbeddingsLayer: React.FC<{
       } else {
         targetScale = BASE_SCALE * displaySettings.scale * 5
       }
-      return { targetScale, tint }
+      return { targetScale, tint, alpha }
     }
 
     if (
@@ -414,12 +458,17 @@ export const EmbeddingsLayer: React.FC<{
     } else if (isSelected) {
       targetScale *= 1.6
       tint = 0xffaa33
+      alpha = 1
     }
 
-    return { targetScale, tint }
+    return { targetScale, tint, alpha }
   }, [
+    conceptLensThreshold,
     displaySettings,
     graphRootId,
+    lensConceptIds,
+    lensImagesById,
+    maximumAbsoluteLensDelta,
     projectionSettings.type,
     searchQuery,
     type,
@@ -598,7 +647,7 @@ export const EmbeddingsLayer: React.FC<{
         const isSteerTagged = isSteerActive && steerTaggedSet.has(String(id))
         const isSteerSuggested =
           isSteerActive && steerSuggestedSet.has(String(id))
-        const { targetScale, tint } = computeParticleVisuals(
+        const { targetScale, tint, alpha } = computeParticleVisuals(
           embed,
           isSelected,
           isSteerActive,
@@ -615,6 +664,7 @@ export const EmbeddingsLayer: React.FC<{
           anchorX: 0.5,
           anchorY: 0.5,
           tint,
+          alpha,
         }) as CustomParticle
 
         particle.data = {
@@ -672,7 +722,7 @@ export const EmbeddingsLayer: React.FC<{
       const isSelected = selectedIdSet.has(String(id))
       const isSteerTagged = isSteerActive && steerTaggedSet.has(String(id))
       const isSteerSuggested = isSteerActive && steerSuggestedSet.has(String(id))
-      const { targetScale, tint } = computeParticleVisuals(
+      const { targetScale, tint, alpha } = computeParticleVisuals(
         embed,
         isSelected,
         isSteerActive,
@@ -681,6 +731,7 @@ export const EmbeddingsLayer: React.FC<{
       )
       particle.data.targetScale = targetScale
       particle.tint = tint
+      particle.alpha = alpha
     }
   }, [
     computeParticleVisuals,
@@ -732,7 +783,7 @@ export const EmbeddingsLayer: React.FC<{
             position: true,
             scale: true,
             rotation: false,
-            alpha: false,
+            alpha: true,
           }}
         />
       ))}

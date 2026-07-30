@@ -18,9 +18,9 @@ _LABELS_NORM: list[str] | None = None
 _EMBEDDINGS: np.ndarray | None = None
 _EMBEDDINGS_HASH: str | None = None
 
-_PROMPT_TEMPLATE = "Ett fotografi som visar {label}."
-_PROMPT_VERSION = "sao_prompt_v1"
-_UMAP_VERSION = "sao_umap_v2"
+_TERMS_FILENAME = "sao_terms_english.csv"
+_EMBEDDING_VERSION = "sao_english_embeddings_v1"
+_UMAP_VERSION = "sao_english_umap_v1"
 
 
 def normalize_label(text: str) -> str:
@@ -34,19 +34,63 @@ def normalize_label(text: str) -> str:
 def _load_terms(path: Path) -> tuple[list[dict], list[str]]:
     terms: list[dict] = []
     labels_norm: list[str] = []
+    seen_ids: set[str] = set()
     with path.open(newline="", encoding="utf-8") as fh:
         reader = csv.DictReader(fh)
-        for row in reader:
+        required_columns = {
+            "controlNumber",
+            "prefLabel",
+            "scopeNote",
+            "prefLabelEnglish",
+            "embeddingPromptEnglish",
+            "translationModel",
+            "translationPromptVersion",
+        }
+        missing_columns = required_columns.difference(reader.fieldnames or [])
+        if missing_columns:
+            raise ValueError(
+                f"{path.name} is missing required columns: "
+                f"{', '.join(sorted(missing_columns))}"
+            )
+
+        for row_number, row in enumerate(reader, start=2):
+            concept_id = (row.get("controlNumber") or "").strip()
             label = (row.get("prefLabel") or "").strip()
+            embedding_label = (row.get("prefLabelEnglish") or "").strip()
+            embedding_prompt = (row.get("embeddingPromptEnglish") or "").strip()
+            if not concept_id:
+                raise ValueError(
+                    f"{path.name}:{row_number} has an empty controlNumber"
+                )
+            if concept_id in seen_ids:
+                raise ValueError(
+                    f"{path.name}:{row_number} has duplicate controlNumber "
+                    f"{concept_id!r}"
+                )
             if not label:
-                continue
+                raise ValueError(
+                    f"{path.name}:{row_number} has an empty prefLabel"
+                )
+            if not embedding_label or not embedding_prompt:
+                raise ValueError(
+                    f"{path.name}:{row_number} has no English label or "
+                    "embedding prompt"
+                )
+            seen_ids.add(concept_id)
             scope = (row.get("scopeNote") or "").strip()
             term = {
-                "id": (row.get("controlNumber") or "").strip(),
+                "id": concept_id,
                 "label": label,
                 "scope_note": scope,
-            "label_norm": normalize_label(label),
-            "scope_norm": normalize_label(scope) if scope else "",
+                "embedding_label": embedding_label,
+                "embedding_prompt": embedding_prompt,
+                "translation_model": (row.get("translationModel") or "").strip(),
+                "translation_prompt_version": (
+                    row.get("translationPromptVersion") or ""
+                ).strip(),
+                "label_norm": normalize_label(label),
+                "scope_norm": normalize_label(scope) if scope else "",
+                "embedding_label_norm": normalize_label(embedding_label),
             }
             terms.append(term)
             labels_norm.append(term["label_norm"])
@@ -56,23 +100,41 @@ def _load_terms(path: Path) -> tuple[list[dict], list[str]]:
 def get_terms() -> tuple[list[dict], list[str]]:
     global _TERMS, _LABELS_NORM
     if _TERMS is None or _LABELS_NORM is None:
-        path = config.REPO_ROOT / "sao_terms.csv"
+        path = config.REPO_ROOT / _TERMS_FILENAME
         _TERMS, _LABELS_NORM = _load_terms(path)
     return _TERMS, _LABELS_NORM
 
 
 def _labels_hash(terms: list[dict]) -> str:
-    payload = "\n".join(t["label_norm"] for t in terms)
-    payload = f"{_PROMPT_VERSION}\n{_PROMPT_TEMPLATE}\n{payload}"
+    rows = "\n".join(
+        "\t".join(
+            (
+                term["id"],
+                term["embedding_prompt"],
+                term["translation_model"],
+                term["translation_prompt_version"],
+            )
+        )
+        for term in terms
+    )
+    payload = (
+        f"{_EMBEDDING_VERSION}\n"
+        f"{clip_service.CLIP_MODEL_ID}\n"
+        f"{rows}"
+    )
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 def _cache_path() -> Path:
-    return config.REPO_ROOT / ".cache" / "sao_terms_embeddings.npz"
+    return (
+        config.REPO_ROOT
+        / ".cache"
+        / "sao_terms_english_embeddings.npz"
+    )
 
 
 def _umap_cache_path() -> Path:
-    return config.REPO_ROOT / ".cache" / "sao_terms_umap.npz"
+    return config.REPO_ROOT / ".cache" / "sao_terms_english_umap.npz"
 
 
 def _load_embeddings_from_cache(path: Path, expected_hash: str) -> np.ndarray | None:
@@ -111,14 +173,16 @@ def ensure_embeddings() -> np.ndarray:
         logging.info("Loaded SAO term embeddings from cache (%s)", cache_path)
         return _EMBEDDINGS
 
-    labels = [t["label"] for t in terms]
-    if not labels:
+    prompts = [term["embedding_prompt"] for term in terms]
+    if not prompts:
         _EMBEDDINGS = np.empty((0, 0), dtype="float32")
         _EMBEDDINGS_HASH = labels_hash
         return _EMBEDDINGS
 
-    prompts = [_PROMPT_TEMPLATE.format(label=label) for label in labels]
-    logging.info("Computing SAO term embeddings (%s terms)…", len(prompts))
+    logging.info(
+        "Computing English SAO term embeddings (%s terms)…",
+        len(prompts),
+    )
     batch_size = 256
     chunks: list[np.ndarray] = []
     for i in range(0, len(prompts), batch_size):
