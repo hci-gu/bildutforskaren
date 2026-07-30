@@ -44,7 +44,7 @@ import { useProjectionStability } from './hooks/useProjectionStability'
 const Search = () => {
   const [settings, setSettings] = useAtom(searchSettingsAtom)
   const [query, setQuery] = useState('')
-  const [_, setDebouncedQuery] = useAtom(searchQueryAtom)
+  const [, setDebouncedQuery] = useAtom(searchQueryAtom)
   useEffect(() => {
     const handler = setTimeout(() => {
       setDebouncedQuery(query)
@@ -53,7 +53,7 @@ const Search = () => {
     return () => {
       clearTimeout(handler)
     }
-  }, [query])
+  }, [query, setDebouncedQuery])
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target
@@ -95,25 +95,11 @@ const Search = () => {
 
 const ProjectionSettings = () => {
   const [settings, setSettings] = useAtom(projectionSettingsAtom)
-  const [fidelitySettings, setFidelitySettings] = useAtom(
-    neighborFidelitySettingsAtom
-  )
   const [viewMode, setViewMode] = useAtom(projectionViewModeAtom)
-  const [graphLayout, setGraphLayout] = useAtom(graphLayoutAtom)
   const datasetId = useAtomValue(activeDatasetIdAtom)
   const graphNetworks = useAtomValue(graphNetworksAtom)
-  const stabilityStatus = useAtomValue(projectionStabilityStatusAtom)
-  const stabilityError = useAtomValue(projectionStabilityErrorAtom)
-  const stability = useProjectionStability()
   const hasGraph = !!datasetId && !!graphNetworks[datasetId]
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const { name, value } = e.target
-    setSettings((prev) => ({
-      ...prev,
-      [name]: parseFloat(value),
-    }))
-  }
   return (
     <div className="flex flex-col gap-2 mt-2">
       <CardHeader className="p-0 mt-2">
@@ -154,6 +140,41 @@ const ProjectionSettings = () => {
               <SelectItem value="3d">3D</SelectItem>
             </SelectContent>
           </Select>
+        </>
+      )}
+    </div>
+  )
+}
+
+const AdvancedSettings = ({
+  stability,
+}: {
+  stability: ReturnType<typeof useProjectionStability>
+}) => {
+  const [settings, setSettings] = useAtom(projectionSettingsAtom)
+  const [fidelitySettings, setFidelitySettings] = useAtom(
+    neighborFidelitySettingsAtom
+  )
+  const [displaySettings, setDisplaySettings] = useAtom(displaySettingsAtom)
+  const [viewMode] = useAtom(projectionViewModeAtom)
+  const [graphLayout, setGraphLayout] = useAtom(graphLayoutAtom)
+  const stabilityStatus = useAtomValue(projectionStabilityStatusAtom)
+  const stabilityError = useAtomValue(projectionStabilityErrorAtom)
+
+  const handleProjectionChange = (
+    event: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const { name, value } = event.target
+    setSettings((previous) => ({
+      ...previous,
+      [name]: parseFloat(value),
+    }))
+  }
+
+  return (
+    <div className="space-y-3 border-t border-white/10 pt-3">
+      {settings.type === 'umap' && (
+        <>
           {viewMode === '3d' && (
             <div className="text-xs text-white/70">
               Vänsterklick + dra: rotera. Högerklick + dra: panorera. Hjul:
@@ -186,6 +207,7 @@ const ProjectionSettings = () => {
               )}
             </>
           )}
+
           <div className="flex items-center space-x-2">
             <Checkbox
               id="neighborFidelity"
@@ -223,13 +245,60 @@ const ProjectionSettings = () => {
               />
             </div>
           )}
+
+          <div className="space-y-2">
+            <div className="text-xs font-semibold text-white/80">
+              Projektionsparametrar
+            </div>
+            <div className="flex items-center space-x-2">
+              <Label htmlFor="minDist" className="w-24">
+                Min distans
+              </Label>
+              <Input
+                id="minDist"
+                type="number"
+                name="minDist"
+                value={settings.minDist}
+                onChange={handleProjectionChange}
+                step={0.1}
+                className="border border-white/20 bg-white/10 text-white shadow-sm focus-visible:ring-white/30"
+              />
+            </div>
+            <div className="flex items-center space-x-2">
+              <Label htmlFor="nNeighbors" className="w-24">
+                Grannar
+              </Label>
+              <Input
+                id="nNeighbors"
+                type="number"
+                name="nNeighbors"
+                value={settings.nNeighbors}
+                onChange={handleProjectionChange}
+                step={1}
+                className="border border-white/20 bg-white/10 text-white shadow-sm focus-visible:ring-white/30"
+              />
+            </div>
+            <div className="flex items-center space-x-2">
+              <Label htmlFor="spread" className="w-24">
+                Spridning
+              </Label>
+              <Input
+                id="spread"
+                type="number"
+                name="spread"
+                value={settings.spread}
+                onChange={handleProjectionChange}
+                step={0.25}
+                className="border border-white/20 bg-white/10 text-white shadow-sm focus-visible:ring-white/30"
+              />
+            </div>
+          </div>
         </>
       )}
+
       {viewMode === '2d' && settings.type === 'graph' && (
-        <>
-          <CardHeader className="p-0 mt-2">
-            <CardTitle>Graph layout</CardTitle>
-          </CardHeader>
+        <div className="space-y-2">
+          <div className="text-xs font-semibold text-white/80">Graph layout</div>
           <div className="grid grid-cols-2 gap-2">
             <Button
               type="button"
@@ -248,75 +317,9 @@ const ProjectionSettings = () => {
               Free force
             </Button>
           </div>
-        </>
+        </div>
       )}
-      {settings.type === 'umap' && (
-        <>
-          <CardHeader className="p-0 mt-2">
-            <CardTitle>Inställningar för projektion</CardTitle>
-          </CardHeader>
-          <div className="flex items-center space-x-2">
-            <Label htmlFor="minDist" className="w-24">
-              Min distans
-            </Label>
-            <Input
-              id="minDist"
-              type="number"
-              name="minDist"
-              value={settings.minDist}
-              onChange={handleChange}
-              placeholder="minDist"
-              step={0.1}
-              className="border border-white/20 bg-white/10 text-white placeholder:text-white/40 shadow-sm focus-visible:ring-white/30"
-            />
-          </div>
-          <div className="flex items-center space-x-2">
-            <Label htmlFor="nNeighbors" className="w-24">
-              Grannar
-            </Label>
-            <Input
-              id="nNeighbors"
-              type="number"
-              name="nNeighbors"
-              value={settings.nNeighbors}
-              onChange={handleChange}
-              placeholder="nNeighbors"
-              step={1}
-              className="border border-white/20 bg-white/10 text-white placeholder:text-white/40 shadow-sm focus-visible:ring-white/30"
-            />
-          </div>
-          <div className="flex items-center space-x-2">
-            <Label htmlFor="spread" className="w-24">
-              Spridning
-            </Label>
-            <Input
-              id="spread"
-              type="number"
-              name="spread"
-              value={settings.spread}
-              onChange={handleChange}
-              placeholder="spread"
-              step={0.25}
-              className="border border-white/20 bg-white/10 text-white placeholder:text-white/40 shadow-sm focus-visible:ring-white/30"
-            />
-          </div>
-          {/* <div className="flex items-center space-x-2">
-            <Label htmlFor="seed" className="w-24">
-              Seed
-            </Label>
-            <Input
-              id="seed"
-              type="number"
-              name="seed"
-              value={settings.seed}
-              onChange={handleChange}
-              placeholder="seed"
-              step={1}
-              className="border border-gray-300 rounded-md shadow-sm focus:ring focus:ring-blue-500 focus:border-blue-500 p-2"
-            />
-          </div> */}
-        </>
-      )}
+
       {viewMode === '2d' && settings.type === 'sao' && (
         <div className="flex items-center space-x-2">
           <Checkbox
@@ -338,6 +341,7 @@ const ProjectionSettings = () => {
           </label>
         </div>
       )}
+
       {viewMode === '2d' && settings.type === 'tagged' && (
         <div className="flex items-center space-x-2">
           <Checkbox
@@ -359,13 +363,45 @@ const ProjectionSettings = () => {
           </label>
         </div>
       )}
+
+      {viewMode === '2d' && (
+        <>
+          <div className="flex items-center space-x-2">
+            <Checkbox
+              id="colorPhotographer"
+              checked={displaySettings.colorPhotographer}
+              onCheckedChange={(checked) =>
+                setDisplaySettings((previous) => ({
+                  ...previous,
+                  colorPhotographer: !!checked,
+                }))
+              }
+            />
+            <Label htmlFor="colorPhotographer">Färga fotograf</Label>
+          </div>
+          <div className="flex items-center space-x-2">
+            <Checkbox
+              id="showClusterImages"
+              checked={displaySettings.showClusterImages}
+              onCheckedChange={(checked) =>
+                setDisplaySettings((previous) => ({
+                  ...previous,
+                  showClusterImages: !!checked,
+                }))
+              }
+            />
+            <Label htmlFor="showClusterImages">Visa klusterbilder</Label>
+          </div>
+        </>
+      )}
+
+      <FilterSettings />
     </div>
   )
 }
 
 const DisplaySettings = () => {
   const [settings, setSettings] = useAtom(displaySettingsAtom)
-  const viewMode = useAtomValue(projectionViewModeAtom)
 
   return (
     <div className="flex flex-col gap-2 mt-2">
@@ -373,44 +409,6 @@ const DisplaySettings = () => {
         <CardTitle>Visningsinställningar</CardTitle>
         <CardDescription>Ändra hur bilderna syns</CardDescription>
       </CardHeader>
-      {viewMode === '2d' && <div className="flex items-center space-x-2">
-        <Checkbox
-          id="terms"
-          name="colorPhotographer"
-          onCheckedChange={(checked) =>
-            setSettings((prev) => ({
-              ...prev,
-              colorPhotographer: !!checked,
-            }))
-          }
-          checked={settings.colorPhotographer}
-        />
-        <label
-          htmlFor="terms"
-          className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
-        >
-          Färga fotograf
-        </label>
-      </div>}
-      {viewMode === '2d' && <div className="flex items-center space-x-2">
-        <Checkbox
-          id="showClusterImages"
-          name="showClusterImages"
-          onCheckedChange={(checked) =>
-            setSettings((prev) => ({
-              ...prev,
-              showClusterImages: !!checked,
-            }))
-          }
-          checked={settings.showClusterImages}
-        />
-        <label
-          htmlFor="showClusterImages"
-          className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
-        >
-          Visa klusterbilder
-        </label>
-      </div>}
       <Label htmlFor="scale">Bildstorlek</Label>
       <Input
         id="scale"
@@ -448,17 +446,19 @@ const FilterSettings = () => {
         <CardTitle>Filter</CardTitle>
       </CardHeader>
       <Select
-        value={settings.photographer || ''}
+        value={settings.photographer ?? 'none'}
         onValueChange={(value) =>
-          setSettings((prev: any) => ({ ...prev, photographer: value }))
+          setSettings((previous) => ({
+            ...previous,
+            photographer: value === 'none' ? null : value,
+          }))
         }
       >
-      <SelectTrigger className="w-[180px] border-white/20 bg-white/10 text-white">
-        <SelectValue placeholder="Fotograf" />
-      </SelectTrigger>
+        <SelectTrigger className="w-[180px] border-white/20 bg-white/10 text-white">
+          <SelectValue placeholder="Fotograf" />
+        </SelectTrigger>
         <SelectContent>
-          {/* @ts-ignore */}
-          <SelectItem value={null}>Ingen</SelectItem>
+          <SelectItem value="none">Ingen</SelectItem>
           <SelectItem value="1">1</SelectItem>
           <SelectItem value="2">2</SelectItem>
           <SelectItem value="3">3</SelectItem>
@@ -567,7 +567,7 @@ const TaggedInfoPanel = () => {
             tagged_percent: data.tagged_percent ?? 0,
           })
         }
-      } catch (err) {
+      } catch {
         if (!cancelled) setStats(null)
       }
     }
@@ -664,6 +664,8 @@ const ProjectionStabilityProgressOverlay = () => {
 export default function Panel() {
   const settings = useAtomValue(projectionSettingsAtom)
   const viewMode = useAtomValue(projectionViewModeAtom)
+  const [advancedOpen, setAdvancedOpen] = useState(false)
+  const stability = useProjectionStability()
 
   return (
     <>
@@ -673,14 +675,30 @@ export default function Panel() {
         <TextPanel />
       )}
       <Card
-        className="glass-panel absolute top-4 right-4 z-10 w-1/6 text-white shadow-lg"
+        className="glass-panel absolute top-4 right-4 z-10 max-h-[calc(100vh-2rem)] w-1/6 overflow-hidden text-white shadow-lg"
         data-canvas-ui="true"
       >
-        <CardContent className="px-4">
+        <CardContent className="max-h-[calc(100vh-2rem)] overflow-y-auto px-4 pb-4">
           <Search />
           <ProjectionSettings />
           <DisplaySettings />
-          <FilterSettings />
+          <button
+            type="button"
+            className="mt-4 flex w-full items-center justify-between rounded-md border border-white/15 bg-white/5 px-3 py-2 text-left text-sm font-medium transition hover:bg-white/10"
+            aria-expanded={advancedOpen}
+            onClick={() => setAdvancedOpen((open) => !open)}
+          >
+            <span>Avancerad</span>
+            <span
+              aria-hidden="true"
+              className={`text-white/55 transition-transform ${
+                advancedOpen ? 'rotate-180' : ''
+              }`}
+            >
+              ▾
+            </span>
+          </button>
+          {advancedOpen && <AdvancedSettings stability={stability} />}
         </CardContent>
       </Card>
       <ExplanationPanel />

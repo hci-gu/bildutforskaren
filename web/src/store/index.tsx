@@ -584,7 +584,10 @@ export const displaySettingsAtom = atom({
   scale: 1,
 })
 
-export const filterSettingsAtom = atom({
+export const filterSettingsAtom = atom<{
+  year: string | null
+  photographer: string | null
+}>({
   year: null,
   photographer: null,
 })
