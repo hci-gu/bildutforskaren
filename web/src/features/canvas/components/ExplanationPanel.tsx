@@ -41,7 +41,9 @@ import type {
 } from '@/shared/lib/api'
 import { Card, CardContent, CardHeader, CardTitle } from '@/shared/ui/card'
 import { Button } from '@/shared/ui/button'
+import { Checkbox } from '@/shared/ui/checkbox'
 import { Input } from '@/shared/ui/input'
+import { Label } from '@/shared/ui/label'
 import { Slider } from '@/shared/ui/slider'
 import {
   Select,
@@ -64,6 +66,18 @@ type ProjectedItem = {
   point?: [number, number]
   type?: string
   meta?: Record<string, unknown>
+}
+
+type ClusterParameters = {
+  kmeansMaxClusters: number
+  kmeansRandomState: number
+  kmeansLevels: number
+  dbscanEps: number
+  dbscanMinSamples: number
+  hdbscanMinClusterSize: number
+  hdbscanMinSamples: number
+  hdbscanSelectionEpsilon: number
+  hdbscanAllowSingleCluster: boolean
 }
 
 const ConceptPicker = ({
@@ -273,7 +287,7 @@ const ProfileList = ({
         Inga tillräckligt relevanta begrepp.
       </div>
     ) : (
-      concepts.map((concept) => (
+      concepts.slice(0, 3).map((concept) => (
         <div
           key={concept.concept_id}
           className="rounded border border-white/10 bg-black/20 px-2 py-1.5"
@@ -326,6 +340,17 @@ export const ExplanationPanel = () => {
   const setSelectedIds = useSetAtom(selectedEmbeddingIdsAtom)
   const setFocusRequest = useSetAtom(xaiImageFocusRequestAtom)
   const [algorithm, setAlgorithm] = useAtom(clusterProfilesAlgorithmAtom)
+  const [clusterParameters, setClusterParameters] = useState<ClusterParameters>({
+    kmeansMaxClusters: 9,
+    kmeansRandomState: 1999,
+    kmeansLevels: 4,
+    dbscanEps: 0.5,
+    dbscanMinSamples: 5,
+    hdbscanMinClusterSize: 5,
+    hdbscanMinSamples: 5,
+    hdbscanSelectionEpsilon: 0,
+    hdbscanAllowSingleCluster: false,
+  })
   const [clusterResult, setClusterResult] = useAtom(clusterProfilesResultAtom)
   const [clusterStatus, setClusterStatus] = useAtom(clusterProfilesStatusAtom)
   const [clusterError, setClusterError] = useAtom(clusterProfilesErrorAtom)
@@ -359,9 +384,18 @@ export const ExplanationPanel = () => {
         projectionSettings.minDist,
         projectionSettings.spread,
         projectionSettings.seed,
+        algorithm,
+        JSON.stringify(clusterParameters),
         projectedItems.map((item) => item.id).join(','),
       ].join(':'),
-    [datasetId, projectedItems, projectionSettings, viewMode]
+    [
+      algorithm,
+      clusterParameters,
+      datasetId,
+      projectedItems,
+      projectionSettings,
+      viewMode,
+    ]
   )
 
   const clearClusters = useCallback(() => {
@@ -405,6 +439,25 @@ export const ExplanationPanel = () => {
     setClusterStatus('loading')
     setClusterError(null)
     try {
+      const parameters =
+        algorithm === 'kmeans'
+          ? {
+              max_clusters: clusterParameters.kmeansMaxClusters,
+              random_state: clusterParameters.kmeansRandomState,
+            }
+          : algorithm === 'dbscan'
+            ? {
+                eps: clusterParameters.dbscanEps,
+                min_samples: clusterParameters.dbscanMinSamples,
+              }
+            : {
+                min_cluster_size: clusterParameters.hdbscanMinClusterSize,
+                min_samples: clusterParameters.hdbscanMinSamples,
+                cluster_selection_epsilon:
+                  clusterParameters.hdbscanSelectionEpsilon,
+                allow_single_cluster:
+                  clusterParameters.hdbscanAllowSingleCluster,
+              }
       const result = await fetchClusterProfiles(
         datasetId,
         {
@@ -412,7 +465,9 @@ export const ExplanationPanel = () => {
           projection_points: projectedItems.map(
             (item) => [...(item.point ?? [0, 0])] as [number, number]
           ),
-          clustering: { algorithm },
+          clustering: { algorithm, parameters },
+          levels:
+            algorithm === 'kmeans' ? clusterParameters.kmeansLevels : 1,
         },
         controller.signal
       )
@@ -447,33 +502,34 @@ export const ExplanationPanel = () => {
     return (
       <Button
         type="button"
-        className="glass-panel absolute top-4 z-20"
+        className="glass-panel absolute top-4 z-20 h-11 px-5 text-base text-white shadow-lg hover:bg-white/15"
         style={{ right: panelRight }}
         onClick={() => setOpen(true)}
+        data-canvas-ui="true"
       >
-        Förklaring
+        Förklaring (XAI)
       </Button>
     )
   }
 
   return (
     <Card
-      className="glass-panel absolute top-4 z-20 w-[380px] text-white shadow-xl"
+      className="glass-panel absolute top-4 z-20 w-[380px] gap-3 py-3 text-white shadow-xl"
       style={{ right: panelRight, maxHeight: 'calc(100vh - 2rem)' }}
       data-canvas-ui="true"
     >
-      <CardHeader className="flex-row items-center justify-between px-4 py-3">
-        <CardTitle>Förklaring</CardTitle>
+      <CardHeader className="flex items-start justify-between px-3">
+        <CardTitle className="pt-1">Förklaring</CardTitle>
         <button
           type="button"
-          className="text-lg text-white/55 hover:text-white"
+          className="flex size-7 items-center justify-center rounded-md bg-red-500/20 text-lg leading-none text-red-300 transition hover:bg-red-500/35 hover:text-red-100"
           onClick={() => setOpen(false)}
           aria-label="Stäng förklaringspanelen"
         >
           ×
         </button>
       </CardHeader>
-      <CardContent className="overflow-y-auto px-4 pb-4">
+      <CardContent className="overflow-y-auto px-3 pb-0">
         <Tabs
           value={tab}
           onValueChange={(value) =>
@@ -616,6 +672,183 @@ export const ExplanationPanel = () => {
                     <SelectItem value="kmeans">K-means</SelectItem>
                   </SelectContent>
                 </Select>
+                {algorithm === 'kmeans' && (
+                  <div className="grid grid-cols-2 gap-2">
+                    <Label className="space-y-1 text-[11px]">
+                      <span>Max kluster</span>
+                      <Input
+                        type="number"
+                        min={2}
+                        step={1}
+                        value={clusterParameters.kmeansMaxClusters}
+                        onChange={(event) => {
+                          const value = event.currentTarget.valueAsNumber
+                          if (!Number.isFinite(value)) return
+                          setClusterParameters((previous) => ({
+                            ...previous,
+                            kmeansMaxClusters: Math.max(2, Math.round(value)),
+                          }))
+                        }}
+                        className="h-8 border-white/20 bg-black/25"
+                      />
+                    </Label>
+                    <Label className="space-y-1 text-[11px]">
+                      <span>Underklusternivåer</span>
+                      <Input
+                        type="number"
+                        min={1}
+                        max={6}
+                        step={1}
+                        value={clusterParameters.kmeansLevels}
+                        onChange={(event) => {
+                          const value = event.currentTarget.valueAsNumber
+                          if (!Number.isFinite(value)) return
+                          setClusterParameters((previous) => ({
+                            ...previous,
+                            kmeansLevels: Math.max(
+                              1,
+                              Math.min(6, Math.round(value))
+                            ),
+                          }))
+                        }}
+                        className="h-8 border-white/20 bg-black/25"
+                      />
+                    </Label>
+                    <Label className="space-y-1 text-[11px]">
+                      <span>Slumpfrö</span>
+                      <Input
+                        type="number"
+                        min={0}
+                        step={1}
+                        value={clusterParameters.kmeansRandomState}
+                        onChange={(event) => {
+                          const value = event.currentTarget.valueAsNumber
+                          if (!Number.isFinite(value)) return
+                          setClusterParameters((previous) => ({
+                            ...previous,
+                            kmeansRandomState: Math.max(0, Math.round(value)),
+                          }))
+                        }}
+                        className="h-8 border-white/20 bg-black/25"
+                      />
+                    </Label>
+                  </div>
+                )}
+                {algorithm === 'dbscan' && (
+                  <div className="grid grid-cols-2 gap-2">
+                    <Label className="space-y-1 text-[11px]">
+                      <span>Epsilon</span>
+                      <Input
+                        type="number"
+                        min={0.001}
+                        step={0.05}
+                        value={clusterParameters.dbscanEps}
+                        onChange={(event) => {
+                          const value = event.currentTarget.valueAsNumber
+                          if (!Number.isFinite(value)) return
+                          setClusterParameters((previous) => ({
+                            ...previous,
+                            dbscanEps: Math.max(0.001, value),
+                          }))
+                        }}
+                        className="h-8 border-white/20 bg-black/25"
+                      />
+                    </Label>
+                    <Label className="space-y-1 text-[11px]">
+                      <span>Minsta antal punkter</span>
+                      <Input
+                        type="number"
+                        min={1}
+                        step={1}
+                        value={clusterParameters.dbscanMinSamples}
+                        onChange={(event) => {
+                          const value = event.currentTarget.valueAsNumber
+                          if (!Number.isFinite(value)) return
+                          setClusterParameters((previous) => ({
+                            ...previous,
+                            dbscanMinSamples: Math.max(1, Math.round(value)),
+                          }))
+                        }}
+                        className="h-8 border-white/20 bg-black/25"
+                      />
+                    </Label>
+                  </div>
+                )}
+                {algorithm === 'hdbscan' && (
+                  <div className="grid grid-cols-2 gap-2">
+                    <Label className="space-y-1 text-[11px]">
+                      <span>Minsta klusterstorlek</span>
+                      <Input
+                        type="number"
+                        min={2}
+                        step={1}
+                        value={clusterParameters.hdbscanMinClusterSize}
+                        onChange={(event) => {
+                          const value = event.currentTarget.valueAsNumber
+                          if (!Number.isFinite(value)) return
+                          setClusterParameters((previous) => ({
+                            ...previous,
+                            hdbscanMinClusterSize: Math.max(
+                              2,
+                              Math.round(value)
+                            ),
+                          }))
+                        }}
+                        className="h-8 border-white/20 bg-black/25"
+                      />
+                    </Label>
+                    <Label className="space-y-1 text-[11px]">
+                      <span>Minsta antal punkter</span>
+                      <Input
+                        type="number"
+                        min={1}
+                        step={1}
+                        value={clusterParameters.hdbscanMinSamples}
+                        onChange={(event) => {
+                          const value = event.currentTarget.valueAsNumber
+                          if (!Number.isFinite(value)) return
+                          setClusterParameters((previous) => ({
+                            ...previous,
+                            hdbscanMinSamples: Math.max(1, Math.round(value)),
+                          }))
+                        }}
+                        className="h-8 border-white/20 bg-black/25"
+                      />
+                    </Label>
+                    <Label className="space-y-1 text-[11px]">
+                      <span>Urvals-epsilon</span>
+                      <Input
+                        type="number"
+                        min={0}
+                        step={0.05}
+                        value={clusterParameters.hdbscanSelectionEpsilon}
+                        onChange={(event) => {
+                          const value = event.currentTarget.valueAsNumber
+                          if (!Number.isFinite(value)) return
+                          setClusterParameters((previous) => ({
+                            ...previous,
+                            hdbscanSelectionEpsilon: Math.max(0, value),
+                          }))
+                        }}
+                        className="h-8 border-white/20 bg-black/25"
+                      />
+                    </Label>
+                    <Label className="flex items-center gap-2 self-end pb-2 text-[11px]">
+                      <Checkbox
+                        checked={
+                          clusterParameters.hdbscanAllowSingleCluster
+                        }
+                        onCheckedChange={(checked) =>
+                          setClusterParameters((previous) => ({
+                            ...previous,
+                            hdbscanAllowSingleCluster: !!checked,
+                          }))
+                        }
+                      />
+                      Tillåt ett kluster
+                    </Label>
+                  </div>
+                )}
                 <Button
                   type="button"
                   className="w-full"

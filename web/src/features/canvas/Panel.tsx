@@ -119,7 +119,6 @@ const ProjectionSettings = () => {
           <SelectItem value="umap">Projektion</SelectItem>
           <SelectItem value="grid">Rutnät</SelectItem>
           <SelectItem value="tagged">Taggade/otaggade</SelectItem>
-          <SelectItem value="sao">SAO-termer</SelectItem>
           <SelectItem value="graph" disabled={!hasGraph}>
             Graph network
           </SelectItem>
@@ -317,28 +316,6 @@ const AdvancedSettings = ({
               Free force
             </Button>
           </div>
-        </div>
-      )}
-
-      {viewMode === '2d' && settings.type === 'sao' && (
-        <div className="flex items-center space-x-2">
-          <Checkbox
-            id="saoOnlyDataset"
-            name="saoOnlyDataset"
-            onCheckedChange={(checked) =>
-              setSettings((prev) => ({
-                ...prev,
-                saoOnlyDataset: !!checked,
-              }))
-            }
-            checked={settings.saoOnlyDataset}
-          />
-          <label
-            htmlFor="saoOnlyDataset"
-            className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
-          >
-            Visa bara termer i datasetet
-          </label>
         </div>
       )}
 

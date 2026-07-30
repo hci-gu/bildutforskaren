@@ -89,6 +89,7 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
   const selectionStart = useRef<PIXI.PointData | null>(null)
   const selectionActiveRef = useRef(false)
   const lastFittedViewTypeRef = useRef<string | null>(null)
+  const fitAfterProjectionRef = useRef(false)
   const previousTrayOpenRef = useRef(false)
   const [selectionRect, setSelectionRect] = useState<PIXI.Rectangle | null>(null)
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -290,6 +291,10 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
     setViewportFitScale(fitScale)
   }, [projectionFit, setViewportFitScale, setViewportScale])
 
+  const requestFitAfterProjection = useCallback(() => {
+    fitAfterProjectionRef.current = true
+  }, [])
+
   const isCanvasEvent = (e: any) => {
     const target = e?.data?.originalEvent?.target as HTMLElement | null
     if (!target || typeof target.closest !== 'function') return true
@@ -449,43 +454,16 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
   }, [stabilityFocusRequest, stabilityRegions, viewportReady])
 
   useEffect(() => {
-    if (projectionSettings.type !== 'sao') return
-    const viewport = viewportRef.current
-    if (!viewport) return
-    let lastScale = viewport.scale?.x ?? 1
-    const tick = () => {
-      const nextScale = viewport.scale?.x ?? 1
-      if (Math.abs(nextScale - lastScale) > 0.01) {
-        lastScale = nextScale
-        setViewportScale(nextScale)
-        setViewportFitScale((prev) => Math.min(prev, nextScale))
-        if (typeof (viewport as any).getVisibleBounds === 'function') {
-          setVisibleBounds((viewport as any).getVisibleBounds())
-        } else {
-          const topLeft = viewport.toWorld(new PIXI.Point(0, 0))
-          const bottomRight = viewport.toWorld(
-            new PIXI.Point(viewport.screenWidth, viewport.screenHeight)
-          )
-          setVisibleBounds(
-            new PIXI.Rectangle(
-              topLeft.x,
-              topLeft.y,
-              bottomRight.x - topLeft.x,
-              bottomRight.y - topLeft.y
-            )
-          )
-        }
-      }
-    }
-    const interval = setInterval(tick, 150)
-    return () => clearInterval(interval)
-  }, [projectionSettings.type, setViewportFitScale, setViewportScale])
-
-  useEffect(() => {
     if (!viewportReady || !projectionFit) return
     if (rawEmbeddingsViewType !== projectionViewKey) return
-    if (lastFittedViewTypeRef.current === projectionViewKey) return
+    if (
+      lastFittedViewTypeRef.current === projectionViewKey &&
+      !fitAfterProjectionRef.current
+    ) {
+      return
+    }
     fitProjection()
+    fitAfterProjectionRef.current = false
     lastFittedViewTypeRef.current = projectionViewKey
   }, [
     fitProjection,
@@ -570,6 +548,7 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
       <HUD
         canFitProjection={projectionFit !== null}
         onFitProjection={fitProjection}
+        onRequestFitAfterProjection={requestFitAfterProjection}
         candidateIds={candidateIds}
         bottomOffset={trayOffset}
       />

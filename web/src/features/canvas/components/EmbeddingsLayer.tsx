@@ -118,6 +118,7 @@ export const EmbeddingsLayer: React.FC<{
   const searchQuery = useAtomValue(searchQueryAtom)
   const datasetId = useAtomValue(activeDatasetIdAtom)
   const displaySettings = useAtomValue(displaySettingsAtom)
+  const setDisplaySettings = useSetAtom(displaySettingsAtom)
   const conceptLensResult = useAtomValue(conceptLensResultAtom)
   const conceptLensThreshold = useAtomValue(conceptLensThresholdAtom)
   const filterSettings = useAtomValue(filterSettingsAtom)
@@ -229,22 +230,7 @@ export const EmbeddingsLayer: React.FC<{
   const [clusterTextures, setClusterTextures] = useState<Map<string, PIXI.Texture>>(
     () => new Map()
   )
-  const shouldCullSao = projectionSettings.type === 'sao' && !projectionSettings.saoOnlyDataset
-  const displayedTextEmbeddings =
-    shouldCullSao && visibleBounds
-      ? textEmbeddings.filter((embed: any) => {
-          const [nx, ny] = embed.point ? embed.point : [0, 0]
-          const x = nx * CANVAS_WIDTH + CANVAS_OFFSET_X
-          const y = ny * CANVAS_HEIGHT + CANVAS_OFFSET_Y
-          const margin = 300
-          return (
-            x >= visibleBounds.x - margin &&
-            x <= visibleBounds.x + visibleBounds.width + margin &&
-            y >= visibleBounds.y - margin &&
-            y <= visibleBounds.y + visibleBounds.height + margin
-          )
-        })
-      : textEmbeddings
+  const displayedTextEmbeddings = textEmbeddings
   const textRefs = useRef(new Map<string, PIXI.Text>())
   const textSizes = useRef(
     new Map<string, { current: number; target: number }>()
@@ -304,16 +290,38 @@ export const EmbeddingsLayer: React.FC<{
     let cancelled = false
     fetchClusterPreviewManifest(datasetId)
       .then((manifest) => {
-        if (!cancelled) setClusterManifest(manifest)
+        if (cancelled) return
+        setClusterManifest(manifest)
+        setDisplaySettings((previous) =>
+          previous.clusterImagesDatasetId === datasetId
+            ? previous
+            : {
+                ...previous,
+                showClusterImages: manifest.clusters.some(
+                  (cluster) => cluster.has_image
+                ),
+                clusterImagesDatasetId: datasetId,
+              }
+        )
       })
       .catch(() => {
-        if (!cancelled) setClusterManifest(null)
+        if (cancelled) return
+        setClusterManifest(null)
+        setDisplaySettings((previous) =>
+          previous.clusterImagesDatasetId === datasetId
+            ? previous
+            : {
+                ...previous,
+                showClusterImages: false,
+                clusterImagesDatasetId: datasetId,
+              }
+        )
       })
 
     return () => {
       cancelled = true
     }
-  }, [datasetId, type, usesDefaultClusterProjection])
+  }, [datasetId, setDisplaySettings, type, usesDefaultClusterProjection])
 
   useEffect(() => {
     if (
@@ -589,7 +597,7 @@ export const EmbeddingsLayer: React.FC<{
       ref.current.update()
     })
 
-    if (projectionSettings.type !== 'sao' && projectionSettings.type !== 'tagged') {
+    if (projectionSettings.type !== 'tagged') {
       textSizes.current.forEach((state, key) => {
         const node = textRefs.current.get(key)
         if (!node) return
@@ -601,7 +609,7 @@ export const EmbeddingsLayer: React.FC<{
   })
 
   useEffect(() => {
-    if (projectionSettings.type === 'sao' || projectionSettings.type === 'tagged') return
+    if (projectionSettings.type === 'tagged') return
     displayedTextEmbeddings.forEach((embed: any, index: number) => {
       const textKey = String(embed.id ?? embed.text ?? index)
       const state = textSizes.current.get(textKey) || {
@@ -615,7 +623,7 @@ export const EmbeddingsLayer: React.FC<{
       }
       textSizes.current.set(textKey, state)
     })
-  }, [hoveredText, displayedTextEmbeddings])
+  }, [hoveredText, displayedTextEmbeddings, projectionSettings.type])
 
   useEffect(() => {
     const byId = particlesByIdRef.current
@@ -879,12 +887,7 @@ export const EmbeddingsLayer: React.FC<{
         {displayedTextEmbeddings.map((embed: any, index: number) => {
           const [nx, ny] = embed.point ? embed.point : [0, 0]
           const textKey = String(embed.id ?? embed.text ?? index)
-          const isSao = projectionSettings.type === 'sao'
           const isTaggedHeaders = projectionSettings.type === 'tagged'
-          const saoFontSize = Math.max(
-            1.5,
-            Math.min(18, 16 / Math.max(0.2, viewportScale))
-          )
           const taggedFontSize = 8
           return (
             <pixiText
@@ -894,10 +897,10 @@ export const EmbeddingsLayer: React.FC<{
               y={ny * CANVAS_HEIGHT - (isTaggedHeaders ? 0 : 12)}
               rotation={projectionSettings.type === 'year' ? -Math.PI / 4 : 0}
               anchor={isTaggedHeaders ? 0 : 0.5}
-              eventMode={isSao || isTaggedHeaders ? 'static' : 'static'}
-              cursor={isSao || isTaggedHeaders ? 'pointer' : 'pointer'}
+              eventMode="static"
+              cursor="pointer"
               onPointerDown={(e: any) => {
-                if (!isSao && !isTaggedHeaders) return
+                if (!isTaggedHeaders) return
                 if (typeof embed.text === 'string' && embed.text.trim()) {
                   const label = embed.text.trim()
                   const isShift = !!e?.data?.originalEvent?.shiftKey
@@ -913,7 +916,7 @@ export const EmbeddingsLayer: React.FC<{
                 }
               }}
               onPointerOver={() => {
-                if (isSao || isTaggedHeaders) return
+                if (isTaggedHeaders) return
                 const state = textSizes.current.get(textKey) || {
                   current: TEXT_BASE_SIZE,
                   target: TEXT_BASE_SIZE,
@@ -922,7 +925,7 @@ export const EmbeddingsLayer: React.FC<{
                 textSizes.current.set(textKey, state)
               }}
               onPointerOut={() => {
-                if (isSao || isTaggedHeaders) return
+                if (isTaggedHeaders) return
                 const state = textSizes.current.get(textKey) || {
                   current: TEXT_BASE_SIZE,
                   target: TEXT_BASE_SIZE,
@@ -939,17 +942,10 @@ export const EmbeddingsLayer: React.FC<{
                       target: isTaggedHeaders ? taggedFontSize : TEXT_BASE_SIZE,
                     })
                   }
-                  node.style.fontSize = isSao
-                    ? saoFontSize
-                    : isTaggedHeaders
-                      ? taggedFontSize
-                      : textSizes.current.get(textKey)?.current ?? TEXT_BASE_SIZE
-                  if (isSao) {
-                    node.resolution = Math.min(
-                      6,
-                      Math.max(2, viewportScale * 2)
-                    )
-                  } else if (isTaggedHeaders) {
+                  node.style.fontSize = isTaggedHeaders
+                    ? taggedFontSize
+                    : textSizes.current.get(textKey)?.current ?? TEXT_BASE_SIZE
+                  if (isTaggedHeaders) {
                     node.resolution = 2
                   }
                 } else {
@@ -958,11 +954,7 @@ export const EmbeddingsLayer: React.FC<{
                 }
               }}
               style={{
-                fontSize: isSao
-                  ? saoFontSize
-                  : isTaggedHeaders
-                    ? taggedFontSize
-                    : TEXT_BASE_SIZE,
+                fontSize: isTaggedHeaders ? taggedFontSize : TEXT_BASE_SIZE,
                 fill: embed.meta.matched ? 0xff5555 : 0xffffff,
                 align: 'center',
               }}

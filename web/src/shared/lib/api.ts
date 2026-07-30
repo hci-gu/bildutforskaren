@@ -543,10 +543,6 @@ export const fetchTagsWithImages = async (datasetId: string) => {
   return await fetchJson<Json[]>(datasetApiUrl(datasetId, '/tags/with-images'))
 }
 
-export const fetchSaoTermsUmap = async () => {
-  return await fetchJson<Json>(`${API_URL}/terms/sao/umap`)
-}
-
 export const searchSaoTerms = async (query: string, limit = 20) => {
   return await fetchJson<Json[]>(
     `${API_URL}/terms/sao?q=${encodeURIComponent(query)}&limit=${limit}`
@@ -694,6 +690,7 @@ export const fetchClusterProfiles = async (
     image_ids: number[]
     projection_points: [number, number][]
     clustering: ClusteringConfig
+    levels?: number
   },
   signal?: AbortSignal
 ) => {

@@ -44,7 +44,7 @@ import {
   SelectValue,
 } from '@/shared/ui/select'
 
-type ArtifactGroup = 'clip' | 'florence' | 'sdxl' | 'ip_adapter'
+type ArtifactGroup = 'florence' | 'sdxl' | 'ip_adapter'
 
 const artifactGroups: Array<{
   key: ArtifactGroup
@@ -52,12 +52,6 @@ const artifactGroups: Array<{
   description: string
   confirm: string
 }> = [
-  {
-    key: 'clip',
-    label: 'CLIP',
-    description: 'Sparade CLIP-embeddings från datasetets bildindex.',
-    confirm: 'Detta tar bort sparade CLIP-filer för bildmetadata.',
-  },
   {
     key: 'florence',
     label: 'Florence-2',
