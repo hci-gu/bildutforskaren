@@ -174,7 +174,9 @@ def analyze_cluster_profiles(
         cluster_records.append(
             {
                 "cluster_id": cluster_id,
-                "centroid_position": cluster.centroid_position,
+                "centroid_position": projection_points[local_indices]
+                .mean(axis=0)
+                .tolist(),
                 "image_ids": [image_ids[index] for index in local_indices],
                 "image_count": len(local_indices),
                 "relevance_threshold": relevance_threshold,
