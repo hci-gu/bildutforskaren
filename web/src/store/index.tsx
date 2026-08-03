@@ -169,10 +169,19 @@ export const datasetsAtom = atom(async (get) => {
   }
 })
 
-export const textsAtom = atom<string[]>([])
+export type RoomTerm = {
+  id: string
+  label: string
+}
+
+export const textsAtom = atom<RoomTerm[]>([])
 export const textItemsAtom = atom((get) => {
   const texts = get(textsAtom)
-  return texts.map((text) => ({ text, type: 'text' }))
+  return texts.map((term) => ({
+    id: term.id,
+    text: term.label,
+    type: 'text',
+  }))
 })
 
 const getImages = async (datasetId: string) => {
@@ -697,7 +706,7 @@ export const embeddingProjection = atomFamily((type: string) =>
       const data = await fetchUmapProjection(
         datasetId,
         imageIds,
-        texts,
+        texts.map((term) => term.id),
         umapParams
       )
       const imagePointsById = new Map<number, [number, number]>()

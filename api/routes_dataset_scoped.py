@@ -2163,6 +2163,21 @@ def get_umap(dataset_id: str):
             return jsonify({"error": "'texts' must be a list of strings"}), 400
         texts = [t.strip() for t in texts if t.strip()]
 
+        sao_term_ids = payload.get("sao_term_ids", []) or []
+        if not isinstance(sao_term_ids, list) or any(
+            not isinstance(term_id, str) for term_id in sao_term_ids
+        ):
+            return jsonify({"error": "'sao_term_ids' must be a list of strings"}), 400
+        if sao_term_ids:
+            from api import sao_terms
+
+            terms, _ = sao_terms.get_terms()
+            terms_by_id = {term["id"]: term for term in terms}
+            missing_ids = [term_id for term_id in sao_term_ids if term_id not in terms_by_id]
+            if missing_ids:
+                return jsonify({"error": "One or more SAO term IDs are invalid"}), 400
+            texts.extend(terms_by_id[term_id]["embedding_prompt"] for term_id in sao_term_ids)
+
         image_ids = payload.get("image_ids")
         if image_ids is None:
             image_ids = list(range(len(ctx.pca_embeddings_np)))

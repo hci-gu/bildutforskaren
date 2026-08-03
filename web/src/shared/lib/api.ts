@@ -612,7 +612,7 @@ export const fetchEmbeddings = async (datasetId: string, timeoutMs = 60000) => {
 export const fetchUmapProjection = async (
   datasetId: string,
   imageIds: number[],
-  texts: string[],
+  saoTermIds: string[],
   params: {
     n_neighbors: number
     min_dist: number
@@ -624,7 +624,7 @@ export const fetchUmapProjection = async (
   return await fetchJson<Json>(datasetApiUrl(datasetId, '/umap'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ image_ids: imageIds, texts, params }),
+    body: JSON.stringify({ image_ids: imageIds, sao_term_ids: saoTermIds, params }),
   })
 }
 
