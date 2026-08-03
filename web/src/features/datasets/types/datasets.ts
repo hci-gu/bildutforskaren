@@ -1,3 +1,13 @@
+export type DatasetLifecycleStatus =
+  | 'created'
+  | 'uploading'
+  | 'upload_failed'
+  | 'uploaded'
+  | 'processing'
+  | 'ready'
+  | 'error'
+  | 'deleted'
+
 export type DatasetJob = {
   stage?: string
   progress?: number
@@ -14,7 +24,7 @@ export type DatasetJob = {
 export type DatasetStatus = {
   dataset_id?: string
   name?: string
-  status?: string
+  status?: DatasetLifecycleStatus | string
   metadata_source?: string
   has_metadata_xlsx?: boolean
   embeddings_cached?: boolean
@@ -56,6 +66,22 @@ export type DatasetStatus = {
   error?: string | null
   job?: DatasetJob
 }
+
+const activeJobStages = new Set([
+  'queued',
+  'thumbnails',
+  'indexing',
+  'embeddings',
+  'atlas',
+  'image-roundtrip',
+  'cluster-previews',
+])
+
+export const isDatasetActive = (dataset?: DatasetStatus | null) =>
+  dataset?.status === 'uploading' ||
+  dataset?.status === 'uploaded' ||
+  dataset?.status === 'processing' ||
+  (!!dataset?.job?.stage && activeJobStages.has(dataset.job.stage))
 
 export type TagStats = {
   total_images: number

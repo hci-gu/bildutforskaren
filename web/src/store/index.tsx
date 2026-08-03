@@ -18,6 +18,13 @@ import { closePhotoViewer } from '@/shared/lib/photoViewer'
 export const activeDatasetIdAtom = atom<string | null>(null)
 
 export const datasetsRevisionAtom = atom(0)
+export type ActiveDatasetUpload = {
+  datasetId: string
+  datasetName: string
+  phase: 'preparing' | 'uploading'
+}
+
+export const activeDatasetUploadAtom = atom<ActiveDatasetUpload | null>(null)
 export const embeddingsRevisionAtom = atom(0)
 export const taggedImagesRevisionAtom = atom(0)
 export const tagStatsRevisionAtom = atom(0)

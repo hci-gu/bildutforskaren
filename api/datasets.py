@@ -128,10 +128,31 @@ def create_dataset(name: str | None) -> dict:
     return data
 
 
+def reset_upload_artifacts(dataset_id: str) -> None:
+    """Remove files produced by an incomplete upload before retrying it."""
+    ddir = _dataset_dir(dataset_id)
+    for directory_name in ("original", "thumb", "cache", "atlas"):
+        shutil.rmtree(ddir / directory_name, ignore_errors=True)
+    dataset_db.dataset_db_path(ddir).unlink(missing_ok=True)
+
+    for directory_name in ("original", "thumb", "cache", "atlas"):
+        (ddir / directory_name).mkdir(parents=True, exist_ok=True)
+    conn = dataset_db.init_dataset_db(dataset_db.dataset_db_path(ddir))
+    conn.close()
+
+
 def get_dataset_config(dataset_id: str) -> DatasetConfig:
     meta = read_dataset_json(dataset_id)
     status = meta.get("status")
-    if status not in {"created", "uploaded", "processing", "ready", "error"}:
+    if status not in {
+        "created",
+        "uploading",
+        "upload_failed",
+        "uploaded",
+        "processing",
+        "ready",
+        "error",
+    }:
         raise ValueError("Invalid dataset status")
 
     ddir = _dataset_dir(dataset_id)

@@ -37,9 +37,14 @@ const DatasetCanvasRoute = () => {
 
   const isPending = useMemo(() => {
     const current = status?.status
-    return current === 'created' || current === 'uploaded' || current === 'processing'
+    return (
+      current === 'created' ||
+      current === 'uploading' ||
+      current === 'uploaded' ||
+      current === 'processing'
+    )
   }, [status?.status])
-  const isError = status?.status === 'error'
+  const isError = status?.status === 'error' || status?.status === 'upload_failed'
 
   if (loading || error) {
     if (loading && !error) {

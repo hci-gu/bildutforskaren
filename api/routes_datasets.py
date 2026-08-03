@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import re
 
 from flask import Blueprint, jsonify, request, send_file
@@ -15,6 +16,21 @@ from api.clustering import ClusteringConfig
 
 
 bp = Blueprint("datasets", __name__)
+
+
+def _json_no_store(data: object, status: int = 200):
+    response = jsonify(data)
+    response.status_code = status
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+def _mark_upload_failed(dataset_id: str, meta: dict, error: str) -> dict:
+    failed_meta = dict(meta)
+    failed_meta["status"] = "upload_failed"
+    failed_meta["error"] = error
+    datasets.write_dataset_json(dataset_id, failed_meta)
+    return failed_meta
 
 
 @bp.route("/models/status", methods=["GET"])
@@ -55,7 +71,7 @@ def model_status():
 @bp.route("/datasets", methods=["GET", "POST"])
 def datasets_route():
     if request.method == "GET":
-        return jsonify(datasets.list_datasets())
+        return _json_no_store(datasets.list_datasets())
 
     # Frontent makes initial POST request when creating new dataset
     payload = request.get_json(silent=True) or {}
@@ -92,7 +108,7 @@ def dataset_status(dataset_id: str):
     if job:
         meta["job"] = job
 
-    return jsonify(meta)
+    return _json_no_store(meta)
 
 
 @bp.route("/datasets/<dataset_id>", methods=["DELETE"])
@@ -176,34 +192,76 @@ def upload_zip(dataset_id: str):
     except FileNotFoundError:
         return jsonify({"error": "Dataset not found"}), 404
 
-    # Try to send an already processed file
-    if meta.get("status") != "created":
-        return jsonify({"error": "Dataset is immutable and already uploaded/processed"}), 409
+    if meta.get("status") != "uploading":
+        return jsonify({"error": "Start an upload attempt before uploading a zip"}), 409
 
-    # We either sent an empty .zip or something went wrong in transfer
-    if "file" not in request.files:
-        return jsonify({"error": "Missing 'file' field"}), 400
-
-    # This contains the .zip file
-    file = request.files["file"]
-
-    # Extra zip contents to original/ folder 
     try:
+        if "file" not in request.files:
+            raise ValueError("Missing 'file' field")
+        file = request.files["file"]
         extracted = datasets.extract_zip_to_originals(dataset_id, file.stream)
-    except ValueError:
-        return jsonify({"error": "Could not read zip"}), 400
+        if extracted == 0:
+            raise ValueError("Zip contained no supported image files")
+    except ValueError as exc:
+        _mark_upload_failed(dataset_id, meta, str(exc))
+        return jsonify({"error": str(exc)}), 400
+    except Exception:
+        logging.exception("Dataset upload failed for %s", dataset_id)
+        _mark_upload_failed(dataset_id, meta, "Could not process uploaded zip")
+        return jsonify({"error": "Could not process uploaded zip"}), 500
 
-    if extracted == 0:
-        return jsonify({"error": "Zip contained no supported image files"}), 400
-
-    # Update status created -> uploaded
     meta["status"] = "uploaded"
+    meta["error"] = None
     datasets.write_dataset_json(dataset_id, meta)
 
-    # Start image pre-processing job in separate thread
-    jobs.submit_processing(dataset_id)
+    try:
+        jobs.submit_processing(dataset_id)
+    except Exception:
+        logging.exception("Could not start processing for uploaded dataset %s", dataset_id)
+        _mark_upload_failed(dataset_id, meta, "Could not start dataset processing")
+        return jsonify({"error": "Could not start dataset processing"}), 500
 
     return jsonify({"dataset_id": dataset_id, "status": "processing", "extracted": extracted}), 202
+
+
+@bp.route("/datasets/<dataset_id>/upload-attempt", methods=["POST"])
+def start_upload_attempt(dataset_id: str):
+    if not datasets.is_safe_dataset_id(dataset_id):
+        return jsonify({"error": "Invalid dataset_id"}), 400
+
+    try:
+        meta = datasets.read_dataset_json(dataset_id)
+    except FileNotFoundError:
+        return jsonify({"error": "Dataset not found"}), 404
+
+    if meta.get("status") not in {"created", "upload_failed"}:
+        return jsonify({"error": "Dataset is already being uploaded or processed"}), 409
+
+    datasets.reset_upload_artifacts(dataset_id)
+    meta = dict(meta)
+    meta["status"] = "uploading"
+    meta["error"] = None
+    datasets.write_dataset_json(dataset_id, meta)
+    return jsonify({"dataset_id": dataset_id, "status": "uploading"}), 202
+
+
+@bp.route("/datasets/<dataset_id>/upload-failed", methods=["POST"])
+def report_upload_failure(dataset_id: str):
+    if not datasets.is_safe_dataset_id(dataset_id):
+        return jsonify({"error": "Invalid dataset_id"}), 400
+
+    try:
+        meta = datasets.read_dataset_json(dataset_id)
+    except FileNotFoundError:
+        return jsonify({"error": "Dataset not found"}), 404
+
+    if meta.get("status") == "uploading":
+        meta = _mark_upload_failed(
+            dataset_id,
+            meta,
+            "Upload request failed before it completed",
+        )
+    return jsonify({"dataset_id": dataset_id, "status": meta.get("status")})
 
 
 @bp.route("/datasets/<dataset_id>/resume-processing", methods=["POST"])
