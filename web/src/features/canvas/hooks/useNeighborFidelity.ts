@@ -29,29 +29,37 @@ export const useNeighborFidelity = (
 
   const payload = useMemo(() => {
     if (!active || !settings.enabled || selectedIds.length !== 1) return null
-    const selectedImageId = Number(selectedIds[0])
-    if (!Number.isInteger(selectedImageId)) return null
+    const selectedItemId = selectedIds[0]
 
-    const images = items.filter(
-      (item) =>
-        (item.type === undefined || item.type === 'image') &&
+    const images = items
+      .filter(
+        (item) =>
+          item.type === 'image' &&
         Array.isArray(item.point) &&
         (item.point.length === 2 || item.point.length === 3) &&
         item.point.every(Number.isFinite)
-    )
+      )
+      .map((item) => ({ ...item, imageId: Number(item.id) }))
+      .filter(
+        (item) => Number.isInteger(item.imageId) && item.imageId >= 0
+      )
+
     if (images.length < 2) return null
     const dimension = images[0].point?.length
+    const selectedImage = images.find(
+      (item) => String(item.id) === selectedItemId
+    )
     if (
       !images.every((item) => item.point?.length === dimension) ||
-      !images.some((item) => Number(item.id) === selectedImageId)
+      !selectedImage
     ) {
       return null
     }
 
     return {
-      image_ids: images.map((item) => Number(item.id)),
+      image_ids: images.map((item) => item.imageId),
       projection_points: images.map((item) => [...(item.point ?? [])]),
-      selected_image_id: selectedImageId,
+      selected_image_id: selectedImage.imageId,
       k: settings.k,
     }
   }, [active, items, selectedIds, settings.enabled, settings.k])
