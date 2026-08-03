@@ -7,6 +7,8 @@ import {
   conceptLensResultAtom,
   conceptLensThresholdAtom,
   displaySettingsAtom,
+  explanationPanelOpenAtom,
+  explanationTabAtom,
   filterSettingsAtom,
   graphNetworksAtom,
   hoveredTextAtom,
@@ -67,6 +69,28 @@ const clusterPreviewSize = (cluster: ClusterPreview) => {
 const clusterLevel = (cluster: ClusterPreview) =>
   Math.max(1, Math.floor(Number(cluster.level) || 1))
 
+const clusterLevelForZoom = (
+  viewportScale: number,
+  viewportFitScale: number,
+  maxLevel: number
+) => {
+  if (maxLevel <= 1) return 1
+  const zoomSpanRatio = Math.max(
+    1,
+    viewportScale / Math.max(1e-6, viewportFitScale)
+  )
+  return Math.min(
+    maxLevel,
+    Math.max(
+      1,
+      1 +
+        Math.floor(
+          Math.log(zoomSpanRatio) / Math.log(CLUSTER_LEVEL_ZOOM_STEP)
+        )
+    )
+  )
+}
+
 const clusterWorldBounds = (cluster: ClusterPreview) => {
   const minX = Number(cluster.bounds.min_x) * CANVAS_WIDTH
   const minY = Number(cluster.bounds.min_y) * CANVAS_HEIGHT
@@ -118,8 +142,11 @@ export const EmbeddingsLayer: React.FC<{
   const searchQuery = useAtomValue(searchQueryAtom)
   const datasetId = useAtomValue(activeDatasetIdAtom)
   const displaySettings = useAtomValue(displaySettingsAtom)
+  const setDisplaySettings = useSetAtom(displaySettingsAtom)
   const conceptLensResult = useAtomValue(conceptLensResultAtom)
   const conceptLensThreshold = useAtomValue(conceptLensThresholdAtom)
+  const explanationOpen = useAtomValue(explanationPanelOpenAtom)
+  const explanationTab = useAtomValue(explanationTabAtom)
   const filterSettings = useAtomValue(filterSettingsAtom)
   const projectionSettings = useAtomValue(projectionSettingsAtom)
   const graphNetworks = useAtomValue(graphNetworksAtom)
@@ -187,64 +214,79 @@ export const EmbeddingsLayer: React.FC<{
     () => Math.max(1, ...bakedClusters.map((cluster) => clusterLevel(cluster))),
     [bakedClusters]
   )
-  const activeClusterLevel = useMemo(() => {
-    if (maxClusterLevel <= 1 || bakedClusters.length === 0) return 1
-    const zoomSpanRatio = Math.max(
-      1,
-      viewportScale / Math.max(1e-6, viewportFitScale)
+  const [activeClusterLevel, setActiveClusterLevel] = useState(1)
+  const activeClusterLevelRef = useRef(1)
+  useEffect(() => {
+    const nextLevel = clusterLevelForZoom(
+      viewportScale,
+      viewportFitScale,
+      maxClusterLevel
     )
-    return Math.min(
-      maxClusterLevel,
-      Math.max(1, 1 + Math.floor(Math.log(zoomSpanRatio) / Math.log(CLUSTER_LEVEL_ZOOM_STEP)))
+    activeClusterLevelRef.current = nextLevel
+    setActiveClusterLevel(nextLevel)
+  }, [maxClusterLevel, viewportFitScale, viewportScale])
+  useTick(() => {
+    if (type !== 'main') return
+    const liveScale = state.viewport?.scale?.x
+    if (typeof liveScale !== 'number' || !Number.isFinite(liveScale)) return
+    const nextLevel = clusterLevelForZoom(
+      liveScale,
+      viewportFitScale,
+      maxClusterLevel
     )
-  }, [
-    bakedClusters,
-    maxClusterLevel,
-    viewportFitScale,
-    viewportScale,
-  ])
+    if (activeClusterLevelRef.current === nextLevel) return
+    activeClusterLevelRef.current = nextLevel
+    setActiveClusterLevel(nextLevel)
+  })
+  const clustersAtActiveLevel = useMemo(() => {
+    const childrenByParent = new Map<string, ClusterPreview[]>()
+    const roots: ClusterPreview[] = []
+    bakedClusters.forEach((cluster) => {
+      if (!cluster.parent_id) {
+        roots.push(cluster)
+        return
+      }
+      const siblings = childrenByParent.get(cluster.parent_id) ?? []
+      siblings.push(cluster)
+      childrenByParent.set(cluster.parent_id, siblings)
+    })
+
+    const resolveCluster = (cluster: ClusterPreview): ClusterPreview[] => {
+      if (clusterLevel(cluster) >= activeClusterLevel) return [cluster]
+      const children = childrenByParent.get(cluster.id) ?? []
+      if (children.length === 0) return [cluster]
+      return children.flatMap(resolveCluster)
+    }
+
+    return roots.flatMap(resolveCluster)
+  }, [activeClusterLevel, bakedClusters])
   const visibleClusterPreviews = useMemo(
     () =>
-      bakedClusters.filter((cluster) => {
-        if (clusterLevel(cluster) !== activeClusterLevel) return false
-        return (
-          clusterIntersectsBounds(cluster, visibleBounds)
-        )
-      }),
-    [activeClusterLevel, bakedClusters, visibleBounds]
+      clustersAtActiveLevel.filter((cluster) =>
+        clusterIntersectsBounds(cluster, visibleBounds)
+      ),
+    [clustersAtActiveLevel, visibleBounds]
   )
   const preloadClusterPreviews = useMemo(
-    () =>
-      bakedClusters.filter((cluster) => {
-        const level = clusterLevel(cluster)
-        return (
-          level >= activeClusterLevel &&
-          level <= Math.min(maxClusterLevel, activeClusterLevel + 1) &&
+    () => {
+      const displayedIds = new Set(
+        clustersAtActiveLevel.map((cluster) => cluster.id)
+      )
+      return bakedClusters.filter(
+        (cluster) =>
+          (displayedIds.has(cluster.id) ||
+            (cluster.parent_id !== null &&
+              displayedIds.has(cluster.parent_id))) &&
           clusterIntersectsBounds(cluster, visibleBounds)
-        )
-      }),
-    [activeClusterLevel, bakedClusters, maxClusterLevel, visibleBounds]
+      )
+    },
+    [bakedClusters, clustersAtActiveLevel, visibleBounds]
   )
   const showClusterImages = displaySettings.showClusterImages !== false
   const [clusterTextures, setClusterTextures] = useState<Map<string, PIXI.Texture>>(
     () => new Map()
   )
-  const shouldCullSao = projectionSettings.type === 'sao' && !projectionSettings.saoOnlyDataset
-  const displayedTextEmbeddings =
-    shouldCullSao && visibleBounds
-      ? textEmbeddings.filter((embed: any) => {
-          const [nx, ny] = embed.point ? embed.point : [0, 0]
-          const x = nx * CANVAS_WIDTH + CANVAS_OFFSET_X
-          const y = ny * CANVAS_HEIGHT + CANVAS_OFFSET_Y
-          const margin = 300
-          return (
-            x >= visibleBounds.x - margin &&
-            x <= visibleBounds.x + visibleBounds.width + margin &&
-            y >= visibleBounds.y - margin &&
-            y <= visibleBounds.y + visibleBounds.height + margin
-          )
-        })
-      : textEmbeddings
+  const displayedTextEmbeddings = textEmbeddings
   const textRefs = useRef(new Map<string, PIXI.Text>())
   const textSizes = useRef(
     new Map<string, { current: number; target: number }>()
@@ -304,16 +346,38 @@ export const EmbeddingsLayer: React.FC<{
     let cancelled = false
     fetchClusterPreviewManifest(datasetId)
       .then((manifest) => {
-        if (!cancelled) setClusterManifest(manifest)
+        if (cancelled) return
+        setClusterManifest(manifest)
+        setDisplaySettings((previous) =>
+          previous.clusterImagesDatasetId === datasetId
+            ? previous
+            : {
+                ...previous,
+                showClusterImages: manifest.clusters.some(
+                  (cluster) => cluster.has_image
+                ),
+                clusterImagesDatasetId: datasetId,
+              }
+        )
       })
       .catch(() => {
-        if (!cancelled) setClusterManifest(null)
+        if (cancelled) return
+        setClusterManifest(null)
+        setDisplaySettings((previous) =>
+          previous.clusterImagesDatasetId === datasetId
+            ? previous
+            : {
+                ...previous,
+                showClusterImages: false,
+                clusterImagesDatasetId: datasetId,
+              }
+        )
       })
 
     return () => {
       cancelled = true
     }
-  }, [datasetId, type, usesDefaultClusterProjection])
+  }, [datasetId, setDisplaySettings, type, usesDefaultClusterProjection])
 
   useEffect(() => {
     if (
@@ -408,7 +472,10 @@ export const EmbeddingsLayer: React.FC<{
       : 0xffffff
     let alpha = 1
     const lensRecord =
-      type === 'main' && projectionSettings.type === 'umap'
+      explanationOpen &&
+      explanationTab === 'concept' &&
+      type === 'main' &&
+      projectionSettings.type === 'umap'
         ? lensImagesById.get(Number(embed.id))
         : undefined
     if (lensRecord && lensConceptIds.length > 0) {
@@ -465,6 +532,8 @@ export const EmbeddingsLayer: React.FC<{
   }, [
     conceptLensThreshold,
     displaySettings,
+    explanationOpen,
+    explanationTab,
     graphRootId,
     lensConceptIds,
     lensImagesById,
@@ -578,7 +647,7 @@ export const EmbeddingsLayer: React.FC<{
           particle.alpha = 0.95
         } else {
           data.flashUntil = null
-          particle.alpha = 1
+          particle.alpha = data.targetAlpha ?? 1
         }
         const ds = targetScale - particle.scaleX
         if (Math.abs(ds) > 0.01) {
@@ -589,7 +658,7 @@ export const EmbeddingsLayer: React.FC<{
       ref.current.update()
     })
 
-    if (projectionSettings.type !== 'sao' && projectionSettings.type !== 'tagged') {
+    if (projectionSettings.type !== 'tagged') {
       textSizes.current.forEach((state, key) => {
         const node = textRefs.current.get(key)
         if (!node) return
@@ -601,7 +670,7 @@ export const EmbeddingsLayer: React.FC<{
   })
 
   useEffect(() => {
-    if (projectionSettings.type === 'sao' || projectionSettings.type === 'tagged') return
+    if (projectionSettings.type === 'tagged') return
     displayedTextEmbeddings.forEach((embed: any, index: number) => {
       const textKey = String(embed.id ?? embed.text ?? index)
       const state = textSizes.current.get(textKey) || {
@@ -615,7 +684,7 @@ export const EmbeddingsLayer: React.FC<{
       }
       textSizes.current.set(textKey, state)
     })
-  }, [hoveredText, displayedTextEmbeddings])
+  }, [hoveredText, displayedTextEmbeddings, projectionSettings.type])
 
   useEffect(() => {
     const byId = particlesByIdRef.current
@@ -674,6 +743,7 @@ export const EmbeddingsLayer: React.FC<{
           originalX: x,
           originalY: y,
           targetScale,
+          targetAlpha: alpha,
           flashUntil: null,
         }
 
@@ -730,6 +800,7 @@ export const EmbeddingsLayer: React.FC<{
         isSteerSuggested
       )
       particle.data.targetScale = targetScale
+      particle.data.targetAlpha = alpha
       particle.tint = tint
       particle.alpha = alpha
     }
@@ -879,12 +950,7 @@ export const EmbeddingsLayer: React.FC<{
         {displayedTextEmbeddings.map((embed: any, index: number) => {
           const [nx, ny] = embed.point ? embed.point : [0, 0]
           const textKey = String(embed.id ?? embed.text ?? index)
-          const isSao = projectionSettings.type === 'sao'
           const isTaggedHeaders = projectionSettings.type === 'tagged'
-          const saoFontSize = Math.max(
-            1.5,
-            Math.min(18, 16 / Math.max(0.2, viewportScale))
-          )
           const taggedFontSize = 8
           return (
             <pixiText
@@ -894,10 +960,10 @@ export const EmbeddingsLayer: React.FC<{
               y={ny * CANVAS_HEIGHT - (isTaggedHeaders ? 0 : 12)}
               rotation={projectionSettings.type === 'year' ? -Math.PI / 4 : 0}
               anchor={isTaggedHeaders ? 0 : 0.5}
-              eventMode={isSao || isTaggedHeaders ? 'static' : 'static'}
-              cursor={isSao || isTaggedHeaders ? 'pointer' : 'pointer'}
+              eventMode="static"
+              cursor="pointer"
               onPointerDown={(e: any) => {
-                if (!isSao && !isTaggedHeaders) return
+                if (!isTaggedHeaders) return
                 if (typeof embed.text === 'string' && embed.text.trim()) {
                   const label = embed.text.trim()
                   const isShift = !!e?.data?.originalEvent?.shiftKey
@@ -913,7 +979,7 @@ export const EmbeddingsLayer: React.FC<{
                 }
               }}
               onPointerOver={() => {
-                if (isSao || isTaggedHeaders) return
+                if (isTaggedHeaders) return
                 const state = textSizes.current.get(textKey) || {
                   current: TEXT_BASE_SIZE,
                   target: TEXT_BASE_SIZE,
@@ -922,7 +988,7 @@ export const EmbeddingsLayer: React.FC<{
                 textSizes.current.set(textKey, state)
               }}
               onPointerOut={() => {
-                if (isSao || isTaggedHeaders) return
+                if (isTaggedHeaders) return
                 const state = textSizes.current.get(textKey) || {
                   current: TEXT_BASE_SIZE,
                   target: TEXT_BASE_SIZE,
@@ -939,17 +1005,10 @@ export const EmbeddingsLayer: React.FC<{
                       target: isTaggedHeaders ? taggedFontSize : TEXT_BASE_SIZE,
                     })
                   }
-                  node.style.fontSize = isSao
-                    ? saoFontSize
-                    : isTaggedHeaders
-                      ? taggedFontSize
-                      : textSizes.current.get(textKey)?.current ?? TEXT_BASE_SIZE
-                  if (isSao) {
-                    node.resolution = Math.min(
-                      6,
-                      Math.max(2, viewportScale * 2)
-                    )
-                  } else if (isTaggedHeaders) {
+                  node.style.fontSize = isTaggedHeaders
+                    ? taggedFontSize
+                    : textSizes.current.get(textKey)?.current ?? TEXT_BASE_SIZE
+                  if (isTaggedHeaders) {
                     node.resolution = 2
                   }
                 } else {
@@ -958,11 +1017,7 @@ export const EmbeddingsLayer: React.FC<{
                 }
               }}
               style={{
-                fontSize: isSao
-                  ? saoFontSize
-                  : isTaggedHeaders
-                    ? taggedFontSize
-                    : TEXT_BASE_SIZE,
+                fontSize: isTaggedHeaders ? taggedFontSize : TEXT_BASE_SIZE,
                 fill: embed.meta.matched ? 0xff5555 : 0xffffff,
                 align: 'center',
               }}

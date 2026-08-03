@@ -19,7 +19,7 @@ import {
   tagStatsRevisionAtom,
   textsAtom,
 } from '@/store'
-import { fetchTagStats } from '@/shared/lib/api'
+import { fetchTagStats, searchSaoTerms } from '@/shared/lib/api'
 import { useAtom, useAtomValue } from 'jotai'
 import { useEffect, useRef, useState } from 'react'
 import {
@@ -119,7 +119,6 @@ const ProjectionSettings = () => {
           <SelectItem value="umap">Projektion</SelectItem>
           <SelectItem value="grid">Rutnät</SelectItem>
           <SelectItem value="tagged">Taggade/otaggade</SelectItem>
-          <SelectItem value="sao">SAO-termer</SelectItem>
           <SelectItem value="graph" disabled={!hasGraph}>
             Graph network
           </SelectItem>
@@ -320,28 +319,6 @@ const AdvancedSettings = ({
         </div>
       )}
 
-      {viewMode === '2d' && settings.type === 'sao' && (
-        <div className="flex items-center space-x-2">
-          <Checkbox
-            id="saoOnlyDataset"
-            name="saoOnlyDataset"
-            onCheckedChange={(checked) =>
-              setSettings((prev) => ({
-                ...prev,
-                saoOnlyDataset: !!checked,
-              }))
-            }
-            checked={settings.saoOnlyDataset}
-          />
-          <label
-            htmlFor="saoOnlyDataset"
-            className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
-          >
-            Visa bara termer i datasetet
-          </label>
-        </div>
-      )}
-
       {viewMode === '2d' && settings.type === 'tagged' && (
         <div className="flex items-center space-x-2">
           <Checkbox
@@ -472,21 +449,54 @@ const FilterSettings = () => {
 const TextPanel = () => {
   const [texts, setTexts] = useAtom(textsAtom)
   const [, setHoveredText] = useAtom(hoveredTextAtom)
-  const [newText, setNewText] = useState('')
+  const [query, setQuery] = useState('')
+  const [suggestions, setSuggestions] = useState<
+    Array<{ id: string; label: string; scope_note?: string }>
+  >([])
+  const [loading, setLoading] = useState(false)
 
-  const addText = () => {
-    const trimmed = newText.trim()
-    if (!trimmed) return
-    if (texts.includes(trimmed)) {
-      setNewText('')
+  useEffect(() => {
+    if (!query.trim()) {
+      setSuggestions([])
       return
     }
-    setTexts((prev) => [...prev, trimmed])
-    setNewText('')
+
+    let cancelled = false
+    const handle = setTimeout(async () => {
+      setLoading(true)
+      try {
+        const results = (await searchSaoTerms(query.trim(), 12)) as Array<{
+          id: string
+          label: string
+          scope_note?: string
+        }>
+        if (!cancelled) setSuggestions(results)
+      } catch {
+        if (!cancelled) setSuggestions([])
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }, 250)
+
+    return () => {
+      cancelled = true
+      clearTimeout(handle)
+    }
+  }, [query])
+
+  const addTerm = (term: { id: string; label: string }) => {
+    if (texts.some((text) => text.id === term.id)) {
+      setQuery('')
+      setSuggestions([])
+      return
+    }
+    setTexts((previous) => [...previous, term])
+    setQuery('')
+    setSuggestions([])
   }
 
-  const removeText = (text: string) => {
-    setTexts((prev) => prev.filter((t) => t !== text))
+  const removeText = (termId: string) => {
+    setTexts((previous) => previous.filter((term) => term.id !== termId))
   }
 
   return (
@@ -497,22 +507,22 @@ const TextPanel = () => {
       <CardContent className="px-4">
         <CardHeader className="p-0 mt-2">
           <CardTitle>Ord i rummet</CardTitle>
-          <CardDescription>Lägg till eller ta bort ord</CardDescription>
+          <CardDescription>Välj SAO-termer för att visa dem i rummet.</CardDescription>
         </CardHeader>
         <div className="flex flex-wrap gap-2 mt-2">
-          {texts.map((text) => (
+          {texts.map((term) => (
             <div
-              key={text}
+              key={term.id}
               className="flex items-center gap-2 rounded-full border border-white/20 px-3 py-1 text-sm"
-              onMouseEnter={() => setHoveredText(text)}
+              onMouseEnter={() => setHoveredText(term.label)}
               onMouseLeave={() => setHoveredText(null)}
             >
-              <span>{text}</span>
+              <span>{term.label}</span>
               <button
                 type="button"
-                onClick={() => removeText(text)}
+                onClick={() => removeText(term.id)}
                 className="text-white/60 hover:text-white"
-                aria-label={`Remove ${text}`}
+                aria-label={`Ta bort ${term.label}`}
               >
                 ×
               </button>
@@ -522,17 +532,35 @@ const TextPanel = () => {
         <div className="flex gap-2 mt-4">
           <Input
             type="text"
-            placeholder="Lägg till ord..."
-            value={newText}
-            onChange={(e) => setNewText(e.target.value)}
+            placeholder="Sök SAO-term..."
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
             onKeyDown={(e) => {
-              if (e.key === 'Enter') addText()
+              if (e.key === 'Enter' && suggestions[0]) addTerm(suggestions[0])
             }}
           />
-          <Button type="button" onClick={addText}>
-            Add
-          </Button>
         </div>
+        {query.trim() && (
+          <div className="mt-2 max-h-48 space-y-1 overflow-y-auto rounded-md border border-white/10 bg-black/20 p-1">
+            {loading && <div className="px-2 py-1 text-xs text-white/50">Söker…</div>}
+            {!loading && suggestions.length === 0 && (
+              <div className="px-2 py-1 text-xs text-white/50">Inga SAO-termer hittades.</div>
+            )}
+            {suggestions.map((term) => (
+              <button
+                key={term.id}
+                type="button"
+                className="w-full rounded px-2 py-1 text-left text-sm hover:bg-white/10"
+                onClick={() => addTerm(term)}
+              >
+                <div>{term.label}</div>
+                {term.scope_note && (
+                  <div className="text-xs text-white/50">{term.scope_note}</div>
+                )}
+              </button>
+            ))}
+          </div>
+        )}
       </CardContent>
     </Card>
   )

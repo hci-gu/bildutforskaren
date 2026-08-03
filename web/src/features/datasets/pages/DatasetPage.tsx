@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useParams, Link, useNavigate } from 'react-router'
 import { useSetAtom } from 'jotai'
 import { activeDatasetIdAtom, datasetsRevisionAtom } from '@/store'
@@ -34,7 +34,12 @@ import {
   seedTagsFromMetadata,
 } from '@/shared/lib/api'
 import type { ClusteringAlgorithm } from '@/shared/lib/api'
-import type { DatasetStatus, TagStats } from '@/features/datasets/types/datasets'
+import {
+  hasSameDatasetData,
+  isDatasetActive,
+  type DatasetStatus,
+  type TagStats,
+} from '@/features/datasets/types/datasets'
 import { HomeLogoLink } from '@/shared/components/HomeLogoLink'
 import {
   Select,
@@ -44,7 +49,9 @@ import {
   SelectValue,
 } from '@/shared/ui/select'
 
-type ArtifactGroup = 'clip' | 'florence' | 'sdxl' | 'ip_adapter'
+type ArtifactGroup = 'florence' | 'sdxl' | 'ip_adapter'
+
+const STATUS_POLL_INTERVAL_MS = 5_000
 
 const artifactGroups: Array<{
   key: ArtifactGroup
@@ -52,12 +59,6 @@ const artifactGroups: Array<{
   description: string
   confirm: string
 }> = [
-  {
-    key: 'clip',
-    label: 'CLIP',
-    description: 'Sparade CLIP-embeddings från datasetets bildindex.',
-    confirm: 'Detta tar bort sparade CLIP-filer för bildmetadata.',
-  },
   {
     key: 'florence',
     label: 'Florence-2',
@@ -125,9 +126,13 @@ export default function DatasetPage() {
 
   const statusValue = dataset?.status
   const isPending =
-    statusValue === 'created' || statusValue === 'uploaded' || statusValue === 'processing'
+    statusValue === 'created' ||
+    statusValue === 'uploading' ||
+    statusValue === 'uploaded' ||
+    statusValue === 'processing'
   const isReady = statusValue === 'ready'
-  const statusLabel = isPending ? 'pending' : statusValue || '-'
+  const statusLabel =
+    statusValue === 'uploading' ? 'uploading' : isPending ? 'pending' : statusValue || '-'
   const showEmbeddingProgress =
     isPending &&
     dataset?.job?.stage === 'embeddings' &&
@@ -145,7 +150,10 @@ export default function DatasetPage() {
     jobStage === 'image-roundtrip' ||
     jobStage === 'cluster-previews'
   const canResume =
-    !!dataset && !isJobActive && (!dataset.embeddings_cached || isPending)
+    !!dataset &&
+    statusValue !== 'uploading' &&
+    !isJobActive &&
+    (!dataset.embeddings_cached || isPending)
   const roundtripStatus = dataset?.image_roundtrip
   const canGenerateRoundtrip =
     isReady &&
@@ -165,6 +173,10 @@ export default function DatasetPage() {
   const roundtripTotalWork = dataset?.job?.total_work
   const roundtripRemaining = dataset?.job?.remaining
   const roundtripCounts = roundtripStatus?.existing_groups ?? {}
+  const hasImageMetadata =
+    !!roundtripStatus &&
+    roundtripStatus.total > 0 &&
+    roundtripStatus.missing === 0
   const clusterStatus = dataset?.cluster_previews
   const showClusterProgress =
     dataset?.job?.stage === 'cluster-previews' &&
@@ -179,30 +191,36 @@ export default function DatasetPage() {
   const clusterTotalWork = dataset?.job?.total_work
   const clusterRemaining = dataset?.job?.remaining
 
-  const reloadStatus = async (isCancelled?: () => boolean) => {
-    if (!id) return
-    setLoading(true)
-    try {
-      const data = await fetchDatasetStatus(id)
-      if (isCancelled?.()) return
-      setDataset(data)
+  const reloadStatus = useCallback(
+    async (isCancelled?: () => boolean, showLoading = true) => {
+      if (!id) return
+      if (showLoading) setLoading(true)
       try {
-        const stats = await fetchTagStats(id)
+        const data = await fetchDatasetStatus(id)
         if (isCancelled?.()) return
-        setTagStats(stats)
-      } catch (statsError) {
+        setDataset((current) =>
+          hasSameDatasetData(current, data) ? current : data
+        )
+        try {
+          const stats = await fetchTagStats(id)
+          if (isCancelled?.()) return
+          setTagStats((current) =>
+            hasSameDatasetData(current, stats) ? current : stats
+          )
+        } catch {
+          if (isCancelled?.()) return
+          setTagStats(null)
+        }
+      } catch {
         if (isCancelled?.()) return
+        setDataset(null)
         setTagStats(null)
+      } finally {
+        if (!isCancelled?.() && showLoading) setLoading(false)
       }
-    } catch (err) {
-      if (isCancelled?.()) return
-      setDataset(null)
-      setTagStats(null)
-    } finally {
-      if (isCancelled?.()) return
-      setLoading(false)
-    }
-  }
+    },
+    [id]
+  )
 
   useEffect(() => {
     if (id) setActiveDatasetId(id)
@@ -211,14 +229,28 @@ export default function DatasetPage() {
   useEffect(() => {
     if (!id) return
     let cancelled = false
-    const load = async () => {
-      await reloadStatus(() => cancelled)
-    }
-    load().catch(() => {})
+    void reloadStatus(() => cancelled)
     return () => {
       cancelled = true
     }
-  }, [id])
+  }, [id, reloadStatus])
+
+  useEffect(() => {
+    if (!isDatasetActive(dataset)) return
+
+    let cancelled = false
+    let timer: ReturnType<typeof setTimeout> | null = null
+    const poll = async () => {
+      await reloadStatus(() => cancelled, false)
+      if (!cancelled) timer = setTimeout(poll, STATUS_POLL_INTERVAL_MS)
+    }
+
+    timer = setTimeout(poll, STATUS_POLL_INTERVAL_MS)
+    return () => {
+      cancelled = true
+      if (timer) clearTimeout(timer)
+    }
+  }, [dataset, reloadStatus])
 
   const canSeed =
     isReady &&
@@ -285,7 +317,7 @@ export default function DatasetPage() {
   }
 
   const handleGenerateClusters = async () => {
-    if (!id) return
+    if (!id || !hasImageMetadata || !isReady || isJobActive) return
     setClusterStarting(true)
     setClusterError(null)
     try {
@@ -303,7 +335,7 @@ export default function DatasetPage() {
   }
 
   const handleClearClusters = async () => {
-    if (!id) return
+    if (!id || !hasImageMetadata || !isReady || isJobActive) return
     setClusterClearing(true)
     setClusterError(null)
     try {
@@ -432,7 +464,11 @@ export default function DatasetPage() {
                     variant="pending"
                     useGlassPanel={false}
                     className="sm:col-span-2 border border-white/10 bg-white/5 text-white/70"
-                    description="Datasetet bearbetas. Canvas och Street View blir tillgängliga när statusen är klar."
+                    description={
+                      statusValue === 'uploading'
+                        ? 'Bilderna laddas upp. Canvas och Street View blir tillgängliga när bearbetningen är klar.'
+                        : 'Datasetet bearbetas. Canvas och Street View blir tillgängliga när statusen är klar.'
+                    }
                     showProgress={showEmbeddingProgress}
                     progressPercent={embeddingProgress}
                     textClassName="text-xs text-white/70"
@@ -655,6 +691,7 @@ export default function DatasetPage() {
                   onValueChange={(value) =>
                     setClusterAlgorithm(value as ClusteringAlgorithm)
                   }
+                  disabled={!hasImageMetadata}
                 >
                   <SelectTrigger
                     id="clusterAlgorithm"
@@ -680,7 +717,7 @@ export default function DatasetPage() {
                   max={8}
                   step={1}
                   value={clusterAlgorithm === 'hdbscan' ? 1 : clusterLevels}
-                  disabled={clusterAlgorithm === 'hdbscan'}
+                  disabled={!hasImageMetadata || clusterAlgorithm === 'hdbscan'}
                   onChange={(event) =>
                     setClusterLevels(
                       Math.max(1, Math.floor(Number(event.target.value) || 1))
@@ -692,7 +729,7 @@ export default function DatasetPage() {
               <Button
                 type="button"
                 onClick={handleGenerateClusters}
-                disabled={!isReady || isJobActive || clusterStarting}
+                disabled={!isReady || !hasImageMetadata || isJobActive || clusterStarting}
               >
                 {clusterStarting ? 'Startar…' : 'Baka kluster'}
               </Button>
@@ -701,7 +738,13 @@ export default function DatasetPage() {
                   <Button
                     type="button"
                     variant="destructive"
-                    disabled={!isReady || isJobActive || !clusterStatus?.exists || clusterClearing}
+                    disabled={
+                      !isReady ||
+                      !hasImageMetadata ||
+                      isJobActive ||
+                      !clusterStatus?.exists ||
+                      clusterClearing
+                    }
                   >
                     {clusterClearing ? 'Tar bort…' : 'Ta bort'}
                   </Button>
@@ -738,6 +781,11 @@ export default function DatasetPage() {
             {!isReady && (
               <div className="text-xs text-white/50">
                 Datasetet måste vara klart innan detta kan köras.
+              </div>
+            )}
+            {isReady && !hasImageMetadata && (
+              <div className="text-xs text-white/50">
+                Skapa bildmetadata innan du bakar klusterförhandsvisningar.
               </div>
             )}
             {clusterError && (

@@ -408,7 +408,7 @@ const fetchJsonWithTimeout = async <T>(
 }
 
 export const fetchDatasets = async () => {
-  return await fetchJson<any[]>(`${API_URL}/datasets`)
+  return await fetchJson<any[]>(`${API_URL}/datasets`, { cache: 'no-store' })
 }
 
 export const createDataset = async (name: string) => {
@@ -428,9 +428,24 @@ export const uploadDatasetZip = async (datasetId: string, file: File) => {
   })
 }
 
+export const startDatasetUpload = async (datasetId: string) => {
+  return await fetchJson<Json>(
+    `${API_URL}/datasets/${encodeURIComponent(datasetId)}/upload-attempt`,
+    { method: 'POST' }
+  )
+}
+
+export const reportDatasetUploadFailure = async (datasetId: string) => {
+  return await fetchJson<Json>(
+    `${API_URL}/datasets/${encodeURIComponent(datasetId)}/upload-failed`,
+    { method: 'POST' }
+  )
+}
+
 export const fetchDatasetStatus = async (datasetId: string) => {
   return await fetchJson<Json>(
-    `${API_URL}/datasets/${encodeURIComponent(datasetId)}/status`
+    `${API_URL}/datasets/${encodeURIComponent(datasetId)}/status`,
+    { cache: 'no-store' }
   )
 }
 
@@ -446,7 +461,9 @@ export const fetchTagStats = async (datasetId: string) => {
     total_images: number
     tagged_images: number
     tagged_percent: number
-  }>(`${API_URL}/datasets/${encodeURIComponent(datasetId)}/tag-stats`)
+  }>(`${API_URL}/datasets/${encodeURIComponent(datasetId)}/tag-stats`, {
+    cache: 'no-store',
+  })
 }
 
 export const seedTagsFromMetadata = async (datasetId: string) => {
@@ -543,10 +560,6 @@ export const fetchTagsWithImages = async (datasetId: string) => {
   return await fetchJson<Json[]>(datasetApiUrl(datasetId, '/tags/with-images'))
 }
 
-export const fetchSaoTermsUmap = async () => {
-  return await fetchJson<Json>(`${API_URL}/terms/sao/umap`)
-}
-
 export const searchSaoTerms = async (query: string, limit = 20) => {
   return await fetchJson<Json[]>(
     `${API_URL}/terms/sao?q=${encodeURIComponent(query)}&limit=${limit}`
@@ -599,7 +612,7 @@ export const fetchEmbeddings = async (datasetId: string, timeoutMs = 60000) => {
 export const fetchUmapProjection = async (
   datasetId: string,
   imageIds: number[],
-  texts: string[],
+  saoTermIds: string[],
   params: {
     n_neighbors: number
     min_dist: number
@@ -611,7 +624,7 @@ export const fetchUmapProjection = async (
   return await fetchJson<Json>(datasetApiUrl(datasetId, '/umap'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ image_ids: imageIds, texts, params }),
+    body: JSON.stringify({ image_ids: imageIds, sao_term_ids: saoTermIds, params }),
   })
 }
 
@@ -694,6 +707,7 @@ export const fetchClusterProfiles = async (
     image_ids: number[]
     projection_points: [number, number][]
     clustering: ClusteringConfig
+    levels?: number
   },
   signal?: AbortSignal
 ) => {

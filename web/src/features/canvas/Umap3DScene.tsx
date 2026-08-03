@@ -15,6 +15,8 @@ import {
   conceptLensResultAtom,
   conceptLensThresholdAtom,
   displaySettingsAtom,
+  explanationPanelOpenAtom,
+  explanationTabAtom,
   loadableProjectedEmbeddings3dAtom,
   neighborFidelityResultAtom,
   neighborFidelitySettingsAtom,
@@ -38,6 +40,12 @@ type ProjectedImage = {
   id: number
   point: [number, number, number]
   meta: Record<string, unknown> & { matched?: boolean }
+  type: 'image'
+}
+
+type ProjectedItem = Omit<ProjectedImage, 'id' | 'type'> & {
+  id: string | number
+  type?: string
 }
 
 type PointCloudUserData = {
@@ -386,6 +394,8 @@ export const Umap3DScene = () => {
   const conceptAxisEnabled = useAtomValue(conceptAxisEnabledAtom)
   const conceptLensResult = useAtomValue(conceptLensResultAtom)
   const conceptLensThreshold = useAtomValue(conceptLensThresholdAtom)
+  const explanationOpen = useAtomValue(explanationPanelOpenAtom)
+  const explanationTab = useAtomValue(explanationTabAtom)
   const xaiImageFocusRequest = useAtomValue(xaiImageFocusRequestAtom)
   const analysisResult = useAtomValue(anchorAnalysisResultAtom)
   const analysisTab = useAtomValue(anchorAnalysisTabAtom)
@@ -401,14 +411,31 @@ export const Umap3DScene = () => {
     threshold: number
   }>({ result: null, threshold: 75 })
   lensStateRef.current = {
-    result: conceptLensResult,
+    result:
+      explanationOpen && explanationTab === 'concept'
+        ? conceptLensResult
+        : null,
     threshold: conceptLensThreshold,
   }
 
   const projectedItems = useMemo(
     () =>
       projection.state === 'hasData'
-        ? (projection.data as ProjectedImage[])
+        ? (projection.data as ProjectedItem[])
+            .filter(
+              (item) =>
+                item.type === 'image' &&
+                Number.isInteger(Number(item.id)) &&
+                Number(item.id) >= 0 &&
+                Array.isArray(item.point) &&
+                item.point.length === 3 &&
+                item.point.every(Number.isFinite)
+            )
+            .map((item) => ({
+              ...item,
+              id: Number(item.id),
+              type: 'image' as const,
+            }))
         : [],
     [projection]
   )
@@ -424,11 +451,7 @@ export const Umap3DScene = () => {
     [projectedItems]
   )
   const trayEmbeddings = useMemo(
-    () =>
-      projectedItems.map((item) => ({
-        ...item,
-        type: 'image',
-      })),
+    () => projectedItems,
     [projectedItems]
   )
   const analysisPaths = useMemo(
@@ -521,6 +544,8 @@ export const Umap3DScene = () => {
     applyConceptLensToClouds,
     conceptLensResult,
     conceptLensThreshold,
+    explanationOpen,
+    explanationTab,
     projectedItems,
   ])
 
@@ -850,6 +875,8 @@ export const Umap3DScene = () => {
     const axis = conceptLensResult?.axis
     if (
       !conceptAxisEnabled ||
+      !explanationOpen ||
+      explanationTab !== 'concept' ||
       !axis?.available ||
       axis.dimension !== 3 ||
       axis.start.length !== 3 ||
@@ -865,7 +892,13 @@ export const Umap3DScene = () => {
       axis.mode === 'contrast'
     )
     return () => clearObjectGroup(group)
-  }, [conceptAxisEnabled, conceptLensResult, projectedItems])
+  }, [
+    conceptAxisEnabled,
+    conceptLensResult,
+    explanationOpen,
+    explanationTab,
+    projectedItems,
+  ])
 
   useEffect(() => {
     const group = fidelityGroupRef.current

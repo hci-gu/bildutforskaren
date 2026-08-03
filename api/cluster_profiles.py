@@ -8,7 +8,52 @@ from api.clustering import ClusteringConfig, fit_model
 
 
 EPSILON = 1e-12
-PROFILE_LIMIT = 5
+PROFILE_LIMIT = 3
+
+
+def _leaf_clusters(
+    points: np.ndarray,
+    clustering_config: ClusteringConfig,
+    max_levels: int,
+    source_indices: np.ndarray | None = None,
+    level: int = 1,
+) -> list[list[int]]:
+    indices = (
+        np.arange(len(points), dtype=int)
+        if source_indices is None
+        else source_indices
+    )
+    result = fit_model(points, clustering_config)
+    leaves: list[list[int]] = []
+    can_subcluster = (
+        clustering_config.algorithm == "kmeans"
+        and level < max_levels
+        and len(result.clusters) > 1
+    )
+
+    for cluster in result.clusters:
+        local_indices = np.asarray(cluster.point_indices, dtype=int)
+        if local_indices.size == 0:
+            continue
+        cluster_source_indices = indices[local_indices]
+        if (
+            can_subcluster
+            and local_indices.size >= 3
+            and local_indices.size < len(points)
+        ):
+            leaves.extend(
+                _leaf_clusters(
+                    points[local_indices],
+                    clustering_config,
+                    max_levels,
+                    cluster_source_indices,
+                    level + 1,
+                )
+            )
+        else:
+            leaves.append(cluster_source_indices.tolist())
+
+    return leaves
 
 
 def _normalize_rows(values: np.ndarray) -> np.ndarray:
@@ -29,8 +74,14 @@ def analyze_cluster_profiles(
     clustering_config: ClusteringConfig,
     concept_embeddings: np.ndarray,
     concepts: list[dict[str, Any]],
+    max_levels: int = 1,
 ) -> dict[str, Any]:
     clustering_result = fit_model(projection_points, clustering_config)
+    leaf_clusters = (
+        _leaf_clusters(projection_points, clustering_config, max_levels)
+        if clustering_config.algorithm == "kmeans" and max_levels > 1
+        else [cluster.point_indices for cluster in clustering_result.clusters]
+    )
     vectors = _normalize_rows(
         np.asarray(image_embeddings, dtype=np.float32)[image_ids]
     )
@@ -50,10 +101,10 @@ def analyze_cluster_profiles(
         )
 
     cluster_records = []
-    for cluster_id, cluster in enumerate(clustering_result.clusters):
+    for cluster_id, point_indices in enumerate(leaf_clusters):
         local_indices = [
             index
-            for index in cluster.point_indices
+            for index in point_indices
             if 0 <= index < len(image_ids)
         ]
         if not local_indices:
@@ -123,7 +174,9 @@ def analyze_cluster_profiles(
         cluster_records.append(
             {
                 "cluster_id": cluster_id,
-                "centroid_position": cluster.centroid_position,
+                "centroid_position": projection_points[local_indices]
+                .mean(axis=0)
+                .tolist(),
                 "image_ids": [image_ids[index] for index in local_indices],
                 "image_count": len(local_indices),
                 "relevance_threshold": relevance_threshold,

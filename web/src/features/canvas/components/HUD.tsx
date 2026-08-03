@@ -115,11 +115,13 @@ const ImageDisplayer = ({ bottomOffset = 0 }: { bottomOffset?: number }) => {
 export const HUD = ({
   canFitProjection = false,
   onFitProjection,
+  onRequestFitAfterProjection,
   candidateIds = [],
   bottomOffset = 0,
 }: {
   canFitProjection?: boolean
   onFitProjection?: () => void
+  onRequestFitAfterProjection?: () => void
   candidateIds?: number[]
   bottomOffset?: number
 } = {}) => {
@@ -360,6 +362,7 @@ export const HUD = ({
           <button
             className="glass-panel rounded-full px-3 py-2 text-xs text-white transition hover:bg-white/15"
             onClick={() => {
+              onRequestFitAfterProjection?.()
               setSelectionHistory((prev) => {
                 if (prev.length === 0) return prev
                 const next = [...prev]
@@ -570,6 +573,7 @@ export const HUD = ({
               <button
                 className="rounded-full bg-white/90 px-3 py-1 text-xs text-black hover:bg-white"
                 onClick={() => {
+                  onRequestFitAfterProjection?.()
                   setSelectionHistory((prev) => [...prev, activeEmbeddingIds])
                   setActiveEmbeddingIds(selectedEmbeddingIds)
                   setSelectedEmbeddingIds([])

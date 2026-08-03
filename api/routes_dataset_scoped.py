@@ -388,7 +388,7 @@ def _graph_integer_parameter(payload: dict, name: str, default: int, minimum: in
 
 
 def _graph_similarity_parameter(payload: dict) -> float:
-    value = payload.get("min_similarity", 0.75)
+    value = payload.get("min_similarity", 0.50)
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ValueError("'min_similarity' must be a number")
     value = float(value)
@@ -679,6 +679,13 @@ def create_cluster_profiles(dataset_id: str):
 
     try:
         clustering_config = ClusteringConfig.from_dict(payload.get("clustering"))
+        levels = payload.get("levels", 1)
+        if (
+            isinstance(levels, bool)
+            or not isinstance(levels, int)
+            or not 1 <= levels <= 6
+        ):
+            raise ValueError("'levels' must be an integer between 1 and 6")
         from api import sao_terms
 
         concept_embeddings, concepts = sao_terms.get_embeddings()
@@ -689,6 +696,7 @@ def create_cluster_profiles(dataset_id: str):
             clustering_config,
             concept_embeddings,
             concepts,
+            max_levels=levels,
         )
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
@@ -2154,6 +2162,21 @@ def get_umap(dataset_id: str):
         if not isinstance(texts, list) or any(not isinstance(t, str) for t in texts):
             return jsonify({"error": "'texts' must be a list of strings"}), 400
         texts = [t.strip() for t in texts if t.strip()]
+
+        sao_term_ids = payload.get("sao_term_ids", []) or []
+        if not isinstance(sao_term_ids, list) or any(
+            not isinstance(term_id, str) for term_id in sao_term_ids
+        ):
+            return jsonify({"error": "'sao_term_ids' must be a list of strings"}), 400
+        if sao_term_ids:
+            from api import sao_terms
+
+            terms, _ = sao_terms.get_terms()
+            terms_by_id = {term["id"]: term for term in terms}
+            missing_ids = [term_id for term_id in sao_term_ids if term_id not in terms_by_id]
+            if missing_ids:
+                return jsonify({"error": "One or more SAO term IDs are invalid"}), 400
+            texts.extend(terms_by_id[term_id]["embedding_prompt"] for term_id in sao_term_ids)
 
         image_ids = payload.get("image_ids")
         if image_ids is None:

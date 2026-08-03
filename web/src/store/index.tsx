@@ -7,7 +7,6 @@ import {
   fetchClusterPreviewManifest,
   fetchEmbeddingById,
   fetchEmbeddings,
-  fetchSaoTermsUmap,
   fetchTaggedImages,
   fetchTagsWithImages,
   fetchUmapProjection,
@@ -19,6 +18,13 @@ import { closePhotoViewer } from '@/shared/lib/photoViewer'
 export const activeDatasetIdAtom = atom<string | null>(null)
 
 export const datasetsRevisionAtom = atom(0)
+export type ActiveDatasetUpload = {
+  datasetId: string
+  datasetName: string
+  phase: 'preparing' | 'uploading'
+}
+
+export const activeDatasetUploadAtom = atom<ActiveDatasetUpload | null>(null)
 export const embeddingsRevisionAtom = atom(0)
 export const taggedImagesRevisionAtom = atom(0)
 export const tagStatsRevisionAtom = atom(0)
@@ -163,10 +169,19 @@ export const datasetsAtom = atom(async (get) => {
   }
 })
 
-export const textsAtom = atom<string[]>([])
+export type RoomTerm = {
+  id: string
+  label: string
+}
+
+export const textsAtom = atom<RoomTerm[]>([])
 export const textItemsAtom = atom((get) => {
   const texts = get(textsAtom)
-  return texts.map((text) => ({ text, type: 'text' }))
+  return texts.map((term) => ({
+    id: term.id,
+    text: term.label,
+    type: 'text',
+  }))
 })
 
 const getImages = async (datasetId: string) => {
@@ -295,67 +310,6 @@ export const tagsWithImagesEffectiveAtom = atom(async (get) => {
   }))
 })
 
-type SaoUmapData = {
-  items: { id: string; text: string; point: [number, number] }[]
-  bins: Record<string, number[]>
-}
-
-export const saoTermsUmapAtom = atom(async () => {
-  try {
-    const data = await fetchSaoTermsUmap()
-    const items = Array.isArray(data.items) ? data.items : []
-    const mapped: SaoUmapData['items'] = items.map(
-      (item: any, index: number) => ({
-        id: item.id ?? `sao_${index}`,
-        text: item.label,
-        point: item.point as [number, number],
-      })
-    )
-
-    if (mapped.length === 0) {
-      return { items: [], bins: {} } as SaoUmapData
-    }
-
-    let minX = Infinity
-    let maxX = -Infinity
-    let minY = Infinity
-    let maxY = -Infinity
-    for (const item of mapped) {
-      const [x, y] = item.point
-      if (x < minX) minX = x
-      if (x > maxX) maxX = x
-      if (y < minY) minY = y
-      if (y > maxY) maxY = y
-    }
-
-    const spanX = Math.max(1e-6, maxX - minX)
-    const spanY = Math.max(1e-6, maxY - minY)
-
-    const levels = [20, 40, 80, 120]
-    const bins: Record<string, number[]> = {}
-
-    for (const level of levels) {
-      const seen = new Set<string>()
-      const picked: number[] = []
-      mapped.forEach((item, index) => {
-        const nx = (item.point[0] - minX) / spanX
-        const ny = (item.point[1] - minY) / spanY
-        const gx = Math.min(level - 1, Math.max(0, Math.floor(nx * level)))
-        const gy = Math.min(level - 1, Math.max(0, Math.floor(ny * level)))
-        const key = `${gx}:${gy}`
-        if (seen.has(key)) return
-        seen.add(key)
-        picked.push(index)
-      })
-      bins[String(level)] = picked
-    }
-
-    return { items: mapped, bins } as SaoUmapData
-  } catch (error) {
-    console.error('Failed to fetch SAO term projection:', error)
-    return { items: [], bins: {} } as SaoUmapData
-  }
-})
 export const searchQueryAtom = atom('')
 export const searchImageAtom = atom<File | null>(null)
 export const hoveredTextAtom = atom<string | null>(null)
@@ -468,7 +422,6 @@ export const projectionSettingsAtom = atom({
   minDist: 0.1,
   spread: 1,
   seed: 1,
-  saoOnlyDataset: false,
   groupTaggedByTag: false,
 })
 
@@ -492,6 +445,11 @@ export const explanationPanelOpenAtom = atom(false)
 export const explanationTabAtom = atom<'concept' | 'cluster' | 'stability'>(
   'concept'
 )
+export const explanationRegionRevealRequestAtom = atom<{
+  tab: 'cluster' | 'stability'
+  clusterId: number
+  requestId: number
+} | null>(null)
 export const conceptLensSelectionAtom = atom<{
   a: SelectedSaoConcept | null
   b: SelectedSaoConcept | null
@@ -524,7 +482,6 @@ export const projectionStabilityStatusAtom = atom<
 >('idle')
 export const projectionStabilityProgressAtom = atom(0)
 export const projectionStabilityErrorAtom = atom<string | null>(null)
-export const projectionStabilityOverlayEnabledAtom = atom(false)
 export const selectedStabilityClusterAtom = atom<number | null>(null)
 export const stabilityClusterFocusRequestAtom = atom<{
   clusterId: number
@@ -580,7 +537,8 @@ export const anchorAnalysisTrayHeightAtom = atom(
 
 export const displaySettingsAtom = atom({
   colorPhotographer: false,
-  showClusterImages: true,
+  showClusterImages: false,
+  clusterImagesDatasetId: null as string | null,
   scale: 1,
 })
 
@@ -748,7 +706,7 @@ export const embeddingProjection = atomFamily((type: string) =>
       const data = await fetchUmapProjection(
         datasetId,
         imageIds,
-        texts,
+        texts.map((term) => term.id),
         umapParams
       )
       const imagePointsById = new Map<number, [number, number]>()
@@ -885,52 +843,6 @@ export const projectedEmbeddingsAtom = atomFamily((type: string) =>
     }
 
     const projection = await get(embeddingProjection(type))
-
-    if (projectionSettings.type === 'sao') {
-      const saoData = await get(saoTermsUmapAtom)
-      const items = saoData.items
-      const scale = get(viewportScaleAtom)
-      let level = 20
-      if (scale >= 0.8) level = 40
-      if (scale >= 1.4) level = 80
-      if (scale >= 2.2) level = 120
-
-      const indices = saoData.bins[String(level)] || []
-      if (projectionSettings.saoOnlyDataset) {
-        const tagRows = await get(datasetTagsAtom)
-        const tagSet = new Set(
-          tagRows.map((row: any) => String(row.label || '').toLowerCase())
-        )
-        const filtered = items.filter((item: any) =>
-          tagSet.has(String(item.text || '').toLowerCase())
-        )
-        return filtered.map((item: any) => ({
-          id: item.id,
-          point: item.point,
-          type: 'text',
-          text: item.text,
-          meta: {
-            matched: false,
-          },
-        }))
-      }
-      let sampled = indices.map((idx) => items[idx]).filter(Boolean)
-      const maxLabels = scale >= 2.5 ? 3500 : scale >= 1.4 ? 2500 : 1500
-      if (sampled.length > maxLabels) {
-        const step = Math.ceil(sampled.length / maxLabels)
-        sampled = sampled.filter((_, index) => index % step === 0)
-      }
-
-      return sampled.map((item: any) => ({
-        id: item.id,
-        point: item.point,
-        type: 'text',
-        text: item.text,
-        meta: {
-          matched: false,
-        },
-      }))
-    }
 
     if (
       projectionSettings.type === 'tagged' &&

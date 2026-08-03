@@ -37,9 +37,14 @@ const DatasetCanvasRoute = () => {
 
   const isPending = useMemo(() => {
     const current = status?.status
-    return current === 'created' || current === 'uploaded' || current === 'processing'
+    return (
+      current === 'created' ||
+      current === 'uploading' ||
+      current === 'uploaded' ||
+      current === 'processing'
+    )
   }, [status?.status])
-  const isError = status?.status === 'error'
+  const isError = status?.status === 'error' || status?.status === 'upload_failed'
 
   if (loading || error) {
     if (loading && !error) {
@@ -77,8 +82,16 @@ const DatasetCanvasRoute = () => {
         <div className="mx-auto w-full max-w-3xl px-6 py-12">
           <DatasetStatusPanel
             variant="pending"
-            title="Datasetet är pending"
-            description="Bilderna bearbetas just nu. Canvas blir tillgänglig när arbetet är klart."
+            title={
+              status?.status === 'uploading'
+                ? 'Bilder laddas upp'
+                : 'Datasetet bearbetas'
+            }
+            description={
+              status?.status === 'uploading'
+                ? 'Väntar på att ZIP-filen ska laddas upp. Canvas blir tillgänglig när bearbetningen är klar.'
+                : 'Bilderna bearbetas just nu. Canvas blir tillgänglig när arbetet är klart.'
+            }
             stage={job?.stage}
             showProgress={showEmbeddingProgress}
             progressPercent={progress}
