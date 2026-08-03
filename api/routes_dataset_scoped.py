@@ -388,7 +388,7 @@ def _graph_integer_parameter(payload: dict, name: str, default: int, minimum: in
 
 
 def _graph_similarity_parameter(payload: dict) -> float:
-    value = payload.get("min_similarity", 0.75)
+    value = payload.get("min_similarity", 0.50)
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ValueError("'min_similarity' must be a number")
     value = float(value)

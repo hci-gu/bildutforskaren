@@ -18,7 +18,7 @@ class GraphNetworkParameters:
     max_depth: int = 3
     neighbors_per_node: int = 4
     max_nodes: int = 60
-    min_similarity: float = 0.75
+    min_similarity: float = 0.50
 
 
 def _cosine_from_squared_l2(distance: float) -> float:

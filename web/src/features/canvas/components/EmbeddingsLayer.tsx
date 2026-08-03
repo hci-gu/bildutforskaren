@@ -595,7 +595,7 @@ export const EmbeddingsLayer: React.FC<{
           particle.alpha = 0.95
         } else {
           data.flashUntil = null
-          particle.alpha = 1
+          particle.alpha = data.targetAlpha ?? 1
         }
         const ds = targetScale - particle.scaleX
         if (Math.abs(ds) > 0.01) {
@@ -691,6 +691,7 @@ export const EmbeddingsLayer: React.FC<{
           originalX: x,
           originalY: y,
           targetScale,
+          targetAlpha: alpha,
           flashUntil: null,
         }
 
@@ -747,6 +748,7 @@ export const EmbeddingsLayer: React.FC<{
         isSteerSuggested
       )
       particle.data.targetScale = targetScale
+      particle.data.targetAlpha = alpha
       particle.tint = tint
       particle.alpha = alpha
     }

@@ -27,20 +27,25 @@ export const useConceptLens = (
 
   const payload = useMemo(() => {
     if (!active || !selection.a) return null
-    const images = items.filter(
-      (item) =>
-        (item.type === undefined || item.type === 'image') &&
+    const images = items
+      .filter(
+        (item) =>
+          item.type === 'image' &&
         Array.isArray(item.point) &&
         (item.point.length === 2 || item.point.length === 3) &&
         item.point.every(Number.isFinite)
-    )
+      )
+      .map((item) => ({ ...item, imageId: Number(item.id) }))
+      .filter(
+        (item) => Number.isInteger(item.imageId) && item.imageId >= 0
+      )
     if (images.length === 0) return null
     const conceptIds = [
       selection.a.concept_id,
       ...(selection.b ? [selection.b.concept_id] : []),
     ]
     return {
-      image_ids: images.map((item) => Number(item.id)),
+      image_ids: images.map((item) => item.imageId),
       concept_ids: conceptIds,
       projection_points: images.map((item) => [...(item.point ?? [])]),
     }

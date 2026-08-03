@@ -40,6 +40,12 @@ type ProjectedImage = {
   id: number
   point: [number, number, number]
   meta: Record<string, unknown> & { matched?: boolean }
+  type: 'image'
+}
+
+type ProjectedItem = Omit<ProjectedImage, 'id' | 'type'> & {
+  id: string | number
+  type?: string
 }
 
 type PointCloudUserData = {
@@ -415,7 +421,21 @@ export const Umap3DScene = () => {
   const projectedItems = useMemo(
     () =>
       projection.state === 'hasData'
-        ? (projection.data as ProjectedImage[])
+        ? (projection.data as ProjectedItem[])
+            .filter(
+              (item) =>
+                item.type === 'image' &&
+                Number.isInteger(Number(item.id)) &&
+                Number(item.id) >= 0 &&
+                Array.isArray(item.point) &&
+                item.point.length === 3 &&
+                item.point.every(Number.isFinite)
+            )
+            .map((item) => ({
+              ...item,
+              id: Number(item.id),
+              type: 'image' as const,
+            }))
         : [],
     [projection]
   )
@@ -431,11 +451,7 @@ export const Umap3DScene = () => {
     [projectedItems]
   )
   const trayEmbeddings = useMemo(
-    () =>
-      projectedItems.map((item) => ({
-        ...item,
-        type: 'image',
-      })),
+    () => projectedItems,
     [projectedItems]
   )
   const analysisPaths = useMemo(

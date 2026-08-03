@@ -84,7 +84,7 @@ class GraphNetworkRouteTests(unittest.TestCase):
         self.assertEqual(parameters.max_depth, 3)
         self.assertEqual(parameters.neighbors_per_node, 4)
         self.assertEqual(parameters.max_nodes, 60)
-        self.assertEqual(parameters.min_similarity, 0.75)
+        self.assertEqual(parameters.min_similarity, 0.50)
 
 
 if __name__ == "__main__":
