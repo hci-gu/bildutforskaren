@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { fetchDatasetStatus } from '@/shared/lib/api'
 import {
+  hasSameDatasetData,
   isDatasetActive,
   type DatasetStatus,
 } from '@/features/datasets/types/datasets'
@@ -25,7 +26,11 @@ export const useDatasetStatus = (datasetId?: string | null) => {
       if (!isCancelled?.()) setError(null)
       try {
         const data = await fetchDatasetStatus(datasetId)
-        if (!isCancelled?.()) setStatus(data)
+        if (!isCancelled?.()) {
+          setStatus((current) =>
+            hasSameDatasetData(current, data) ? current : data
+          )
+        }
       } catch {
         if (!isCancelled?.()) setError('Kunde inte läsa status för datasetet.')
       } finally {

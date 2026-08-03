@@ -35,6 +35,7 @@ import {
 } from '@/shared/lib/api'
 import type { ClusteringAlgorithm } from '@/shared/lib/api'
 import {
+  hasSameDatasetData,
   isDatasetActive,
   type DatasetStatus,
   type TagStats,
@@ -130,7 +131,8 @@ export default function DatasetPage() {
     statusValue === 'uploaded' ||
     statusValue === 'processing'
   const isReady = statusValue === 'ready'
-  const statusLabel = isPending ? 'pending' : statusValue || '-'
+  const statusLabel =
+    statusValue === 'uploading' ? 'uploading' : isPending ? 'pending' : statusValue || '-'
   const showEmbeddingProgress =
     isPending &&
     dataset?.job?.stage === 'embeddings' &&
@@ -196,11 +198,15 @@ export default function DatasetPage() {
       try {
         const data = await fetchDatasetStatus(id)
         if (isCancelled?.()) return
-        setDataset(data)
+        setDataset((current) =>
+          hasSameDatasetData(current, data) ? current : data
+        )
         try {
           const stats = await fetchTagStats(id)
           if (isCancelled?.()) return
-          setTagStats(stats)
+          setTagStats((current) =>
+            hasSameDatasetData(current, stats) ? current : stats
+          )
         } catch {
           if (isCancelled?.()) return
           setTagStats(null)

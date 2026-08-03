@@ -82,8 +82,16 @@ const DatasetCanvasRoute = () => {
         <div className="mx-auto w-full max-w-3xl px-6 py-12">
           <DatasetStatusPanel
             variant="pending"
-            title="Datasetet är pending"
-            description="Bilderna bearbetas just nu. Canvas blir tillgänglig när arbetet är klart."
+            title={
+              status?.status === 'uploading'
+                ? 'Bilder laddas upp'
+                : 'Datasetet bearbetas'
+            }
+            description={
+              status?.status === 'uploading'
+                ? 'Väntar på att ZIP-filen ska laddas upp. Canvas blir tillgänglig när bearbetningen är klar.'
+                : 'Bilderna bearbetas just nu. Canvas blir tillgänglig när arbetet är klart.'
+            }
             stage={job?.stage}
             showProgress={showEmbeddingProgress}
             progressPercent={progress}

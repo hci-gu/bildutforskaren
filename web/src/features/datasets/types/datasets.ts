@@ -83,6 +83,9 @@ export const isDatasetActive = (dataset?: DatasetStatus | null) =>
   dataset?.status === 'processing' ||
   (!!dataset?.job?.stage && activeJobStages.has(dataset.job.stage))
 
+export const hasSameDatasetData = (left: unknown, right: unknown) =>
+  JSON.stringify(left) === JSON.stringify(right)
+
 export type TagStats = {
   total_images: number
   tagged_images: number

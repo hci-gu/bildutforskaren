@@ -19,6 +19,7 @@ import {
 import { EmbeddingProgressBar } from '@/features/datasets/components/EmbeddingProgressBar'
 import { StatusMessage } from '@/shared/components/StatusMessage'
 import {
+  hasSameDatasetData,
   isDatasetActive,
   type DatasetStatus,
 } from '@/features/datasets/types/datasets'
@@ -41,8 +42,17 @@ function DatasetsIndexPage() {
 
   const uploading = creating || !!activeUpload
   const canCreate = newDatasetName.trim().length > 0 && !!zipFile && !uploading
-  const datasets =
+  const loadedDatasets =
     datasetsLoadable.state === 'hasData' ? (datasetsLoadable.data as DatasetStatus[]) : []
+  const [datasets, setDatasets] = useState<DatasetStatus[]>([])
+
+  useEffect(() => {
+    if (datasetsLoadable.state !== 'hasData') return
+    setDatasets((current) =>
+      hasSameDatasetData(current, loadedDatasets) ? current : loadedDatasets
+    )
+  }, [datasetsLoadable.state, loadedDatasets])
+
   const hasActiveDataset =
     !!activeUpload || datasets.some((dataset) => isDatasetActive(dataset))
 
@@ -243,7 +253,7 @@ function DatasetsIndexPage() {
             </div>
 
             <div className="mt-5 flex flex-col gap-3">
-              {datasetsLoadable.state === 'loading' && (
+              {datasetsLoadable.state === 'loading' && datasets.length === 0 && (
                 <StatusMessage>Laddar datasets…</StatusMessage>
               )}
 
@@ -274,7 +284,9 @@ function DatasetsIndexPage() {
                 const progressPct = showEmbeddingProgress
                   ? Math.round((job?.progress ?? 0) * 100)
                   : 0
-                const statusLabel = isUploadFailed
+                const statusLabel = status === 'uploading'
+                  ? 'Uploading'
+                  : isUploadFailed
                   ? 'Upload failed'
                   : isPending
                   ? 'Pending'
