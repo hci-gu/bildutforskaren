@@ -69,6 +69,28 @@ const clusterPreviewSize = (cluster: ClusterPreview) => {
 const clusterLevel = (cluster: ClusterPreview) =>
   Math.max(1, Math.floor(Number(cluster.level) || 1))
 
+const clusterLevelForZoom = (
+  viewportScale: number,
+  viewportFitScale: number,
+  maxLevel: number
+) => {
+  if (maxLevel <= 1) return 1
+  const zoomSpanRatio = Math.max(
+    1,
+    viewportScale / Math.max(1e-6, viewportFitScale)
+  )
+  return Math.min(
+    maxLevel,
+    Math.max(
+      1,
+      1 +
+        Math.floor(
+          Math.log(zoomSpanRatio) / Math.log(CLUSTER_LEVEL_ZOOM_STEP)
+        )
+    )
+  )
+}
+
 const clusterWorldBounds = (cluster: ClusterPreview) => {
   const minX = Number(cluster.bounds.min_x) * CANVAS_WIDTH
   const minY = Number(cluster.bounds.min_y) * CANVAS_HEIGHT
@@ -192,43 +214,73 @@ export const EmbeddingsLayer: React.FC<{
     () => Math.max(1, ...bakedClusters.map((cluster) => clusterLevel(cluster))),
     [bakedClusters]
   )
-  const activeClusterLevel = useMemo(() => {
-    if (maxClusterLevel <= 1 || bakedClusters.length === 0) return 1
-    const zoomSpanRatio = Math.max(
-      1,
-      viewportScale / Math.max(1e-6, viewportFitScale)
+  const [activeClusterLevel, setActiveClusterLevel] = useState(1)
+  const activeClusterLevelRef = useRef(1)
+  useEffect(() => {
+    const nextLevel = clusterLevelForZoom(
+      viewportScale,
+      viewportFitScale,
+      maxClusterLevel
     )
-    return Math.min(
-      maxClusterLevel,
-      Math.max(1, 1 + Math.floor(Math.log(zoomSpanRatio) / Math.log(CLUSTER_LEVEL_ZOOM_STEP)))
+    activeClusterLevelRef.current = nextLevel
+    setActiveClusterLevel(nextLevel)
+  }, [maxClusterLevel, viewportFitScale, viewportScale])
+  useTick(() => {
+    if (type !== 'main') return
+    const liveScale = state.viewport?.scale?.x
+    if (typeof liveScale !== 'number' || !Number.isFinite(liveScale)) return
+    const nextLevel = clusterLevelForZoom(
+      liveScale,
+      viewportFitScale,
+      maxClusterLevel
     )
-  }, [
-    bakedClusters,
-    maxClusterLevel,
-    viewportFitScale,
-    viewportScale,
-  ])
+    if (activeClusterLevelRef.current === nextLevel) return
+    activeClusterLevelRef.current = nextLevel
+    setActiveClusterLevel(nextLevel)
+  })
+  const clustersAtActiveLevel = useMemo(() => {
+    const childrenByParent = new Map<string, ClusterPreview[]>()
+    const roots: ClusterPreview[] = []
+    bakedClusters.forEach((cluster) => {
+      if (!cluster.parent_id) {
+        roots.push(cluster)
+        return
+      }
+      const siblings = childrenByParent.get(cluster.parent_id) ?? []
+      siblings.push(cluster)
+      childrenByParent.set(cluster.parent_id, siblings)
+    })
+
+    const resolveCluster = (cluster: ClusterPreview): ClusterPreview[] => {
+      if (clusterLevel(cluster) >= activeClusterLevel) return [cluster]
+      const children = childrenByParent.get(cluster.id) ?? []
+      if (children.length === 0) return [cluster]
+      return children.flatMap(resolveCluster)
+    }
+
+    return roots.flatMap(resolveCluster)
+  }, [activeClusterLevel, bakedClusters])
   const visibleClusterPreviews = useMemo(
     () =>
-      bakedClusters.filter((cluster) => {
-        if (clusterLevel(cluster) !== activeClusterLevel) return false
-        return (
-          clusterIntersectsBounds(cluster, visibleBounds)
-        )
-      }),
-    [activeClusterLevel, bakedClusters, visibleBounds]
+      clustersAtActiveLevel.filter((cluster) =>
+        clusterIntersectsBounds(cluster, visibleBounds)
+      ),
+    [clustersAtActiveLevel, visibleBounds]
   )
   const preloadClusterPreviews = useMemo(
-    () =>
-      bakedClusters.filter((cluster) => {
-        const level = clusterLevel(cluster)
-        return (
-          level >= activeClusterLevel &&
-          level <= Math.min(maxClusterLevel, activeClusterLevel + 1) &&
+    () => {
+      const displayedIds = new Set(
+        clustersAtActiveLevel.map((cluster) => cluster.id)
+      )
+      return bakedClusters.filter(
+        (cluster) =>
+          (displayedIds.has(cluster.id) ||
+            (cluster.parent_id !== null &&
+              displayedIds.has(cluster.parent_id))) &&
           clusterIntersectsBounds(cluster, visibleBounds)
-        )
-      }),
-    [activeClusterLevel, bakedClusters, maxClusterLevel, visibleBounds]
+      )
+    },
+    [bakedClusters, clustersAtActiveLevel, visibleBounds]
   )
   const showClusterImages = displaySettings.showClusterImages !== false
   const [clusterTextures, setClusterTextures] = useState<Map<string, PIXI.Texture>>(

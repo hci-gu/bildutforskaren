@@ -370,7 +370,6 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
     const updateScale = () => {
       const scale = viewport.scale?.x ?? 1
       setViewportScale(scale)
-      setViewportFitScale((prev) => Math.min(prev, scale))
     }
     const updateBounds = () => {
       if (typeof (viewport as any).getVisibleBounds === 'function') {
