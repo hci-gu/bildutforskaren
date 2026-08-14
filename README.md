@@ -1,5 +1,7 @@
 # Project: CLIP-Powered Image Search and Retrieval
 
+Bildutforskaren is an AI-assisted application for uploading, organizing, searching, and visually exploring image collections. It uses CLIP for semantic image and text search, PCA and UMAP for interactive projections, and provides tools for tagging and clustering images. Optional Florence-2, SDXL, and IP-Adapter workflows can generate detailed captions, text and image conditioning, and visual previews for images and clusters.
+
 # Setup & Installation
 
 ## Backend
@@ -19,7 +21,7 @@ uv sync --extra cpu
 ``` bash
 uv run --no-sync api.py
 ``` 
-*   **Note**: On the first run with a new set of images in the `out/` directory (or the configured `IMAGE_ROOT`), the API will need to generate CLIP embeddings for all images. This can take some time depending on the number of images. These embeddings are then cached (by default in `.cache/clip_index.npz`), so subsequent startups will be much faster.
+*   **Note**: When a new ZIP file is uploaded, the API processes it as an isolated dataset under `datasets/<dataset-id>/`. It generates thumbnails, CLIP embeddings, and atlas data, which are cached per dataset so the collection can be reopened without repeating the initial processing.
 
 ## Frontend
 
@@ -39,15 +41,6 @@ This spins up a web server on: http://localhost:5173/
 
 Starting from scratch, provide a `.zip` file of images to create a dataset. 
 
-## API Endpoints
--   Once the API is running, you can perform searches by sending GET requests to its endpoints.
--   To search for images: `curl "http://localhost:3000/search?query=your+search+term"` (Replace "your+search+term" with your actual query).
--   Other useful endpoints include:
-    -   `/images`: To get a list of all indexed images.
-    -   `/image/<id>`: To retrieve details or the original image for a specific image ID.
-    -   Refer to `api.py` for more details on available parameters and endpoints.
-
-
 - - -
 ## Future Improvements & Contributing
 
@@ -55,9 +48,6 @@ Starting from scratch, provide a `.zip` file of images to create a dataset.
 
 *   Support for other embedding models beyond CLIP.
 *   User authentication and personalized image galleries.
-*   Query optimization (len(word) == 1: "photo of " + word)
-*   Image caption prefix data exploration
-*   Generate image description (big button "Describe this!"")
 
 ### Contributing
 
