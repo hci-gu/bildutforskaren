@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { PhotoView } from 'react-photo-view'
 import { useAtomValue, useSetAtom } from 'jotai'
 import {
@@ -91,7 +91,8 @@ export const TaggerPanel = ({
   const [sdxlStatus, setSdxlStatus] = useState<any>(null)
   const [averageSdxlStatus, setAverageSdxlStatus] = useState<any>(null)
   const [generating, setGenerating] = useState(false)
-  const [generatedUrl, setGeneratedUrl] = useState<string | null>(null)
+  const generatedUrlsRef = useRef(new Map<string, string>())
+  const [, setGeneratedUrlsRevision] = useState(0)
 
   const selectedImageIds = useMemo(
     () =>
@@ -100,6 +101,18 @@ export const TaggerPanel = ({
         .filter((id) => !Number.isNaN(id)),
     [selectedEmbeddingIds]
   )
+  const generationSelectionKey = useMemo(() => {
+    if (!datasetId) return null
+    if (selectedImageIds.length > 1) {
+      const groupIds = [...new Set(selectedImageIds)].sort((a, b) => a - b)
+      return `${datasetId}:group:${groupIds.join(',')}`
+    }
+    if (imageId === null || Number.isNaN(imageId)) return null
+    return `${datasetId}:image:${imageId}`
+  }, [datasetId, imageId, selectedImageIds])
+  const generatedUrl = generationSelectionKey
+    ? generatedUrlsRef.current.get(generationSelectionKey) ?? null
+    : null
 
   const existingLabels = useMemo(
     () => new Set(tags.map((tag) => tag.label.toLowerCase())),
@@ -176,12 +189,20 @@ export const TaggerPanel = ({
     }
   }, [datasetId, selectedImageIds])
 
-  useEffect(() => {
-    if (!generatedUrl) return
-    return () => {
-      URL.revokeObjectURL(generatedUrl)
-    }
-  }, [generatedUrl])
+  useEffect(
+    () => () => {
+      generatedUrlsRef.current.forEach((url) => URL.revokeObjectURL(url))
+      generatedUrlsRef.current.clear()
+    },
+    []
+  )
+
+  const cacheGeneratedBlob = (selectionKey: string, blob: Blob) => {
+    const previousUrl = generatedUrlsRef.current.get(selectionKey)
+    if (previousUrl) URL.revokeObjectURL(previousUrl)
+    generatedUrlsRef.current.set(selectionKey, URL.createObjectURL(blob))
+    setGeneratedUrlsRevision((revision) => revision + 1)
+  }
 
   useEffect(() => {
     if (!datasetId || imageId === null || Number.isNaN(imageId)) {
@@ -286,6 +307,7 @@ export const TaggerPanel = ({
 
   const generatePreview = async (provider: 'sdxl' | 'ip_adapter') => {
     if (!datasetId || imageId === null || Number.isNaN(imageId)) return
+    const selectionKey = `${datasetId}:image:${imageId}`
     setGenerating(true)
     setError(null)
     try {
@@ -306,8 +328,7 @@ export const TaggerPanel = ({
               size: 512,
               seed,
             })
-      if (generatedUrl) URL.revokeObjectURL(generatedUrl)
-      setGeneratedUrl(URL.createObjectURL(blob))
+      cacheGeneratedBlob(selectionKey, blob)
     } catch (err) {
       setError(
         provider === 'ip_adapter'
@@ -321,6 +342,8 @@ export const TaggerPanel = ({
 
   const generateAveragePreview = async (provider: 'sdxl' | 'ip_adapter') => {
     if (!datasetId || selectedImageIds.length <= 1) return
+    const groupIds = [...new Set(selectedImageIds)].sort((a, b) => a - b)
+    const selectionKey = `${datasetId}:group:${groupIds.join(',')}`
     setGenerating(true)
     setError(null)
     try {
@@ -349,8 +372,7 @@ export const TaggerPanel = ({
                 seed,
               }
             )
-      if (generatedUrl) URL.revokeObjectURL(generatedUrl)
-      setGeneratedUrl(URL.createObjectURL(blob))
+      cacheGeneratedBlob(selectionKey, blob)
     } catch (err) {
       setError(
         provider === 'ip_adapter'

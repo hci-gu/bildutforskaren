@@ -575,6 +575,8 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
         onRequestFitAfterProjection={requestFitAfterProjection}
         candidateIds={candidateIds}
         bottomOffset={trayOffset}
+        selectedClusterPreview={selectedClusterPreview?.cluster ?? null}
+        onDeselectClusterPreview={() => setSelectedClusterPreview(null)}
       />
       <Panel />
 
