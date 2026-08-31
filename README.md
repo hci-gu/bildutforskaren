@@ -21,6 +21,11 @@ uv sync --extra cpu
 ``` bash
 uv run --no-sync api.py
 ``` 
+The API and model-worker entrypoints load environment variables from `.env` and
+`api/.env`. Existing process-environment values take precedence. Image-generation
+pipelines warm during startup by default; set
+`BILDUTFORSKAREN_SKIP_IMAGE_GEN_WARMUP=1` to load them on first use instead.
+
 *   **Note**: When a new ZIP file is uploaded, the API processes it as an isolated dataset under `datasets/<dataset-id>/`. It generates thumbnails, CLIP embeddings, and atlas data, which are cached per dataset so the collection can be reopened without repeating the initial processing.
 
 ## Frontend

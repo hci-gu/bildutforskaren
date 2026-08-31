@@ -10,8 +10,13 @@ from pathlib import Path
 from typing import Any
 
 import torch
+from dotenv import load_dotenv
 from fastapi import FastAPI
 from pydantic import BaseModel
+
+PROJECT_ROOT = Path(__file__).resolve().parent
+load_dotenv(PROJECT_ROOT / ".env", override=False)
+load_dotenv(PROJECT_ROOT / "api" / ".env", override=False)
 
 from api.model_backends import (
     CAPTION_MODEL,

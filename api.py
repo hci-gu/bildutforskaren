@@ -14,6 +14,12 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from dotenv import load_dotenv
+
+PROJECT_ROOT = Path(__file__).resolve().parent
+load_dotenv(PROJECT_ROOT / ".env", override=False)
+load_dotenv(PROJECT_ROOT / "api" / ".env", override=False)
+
 # Avoid OpenMP duplicate-runtime crashes (faiss/sklearn).
 os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
 

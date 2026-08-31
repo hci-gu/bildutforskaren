@@ -4,6 +4,8 @@ out/*
 .cache
 .agents
 .venv
+.env
+api/.env
 .micromamba/
 .uv-cache
 
