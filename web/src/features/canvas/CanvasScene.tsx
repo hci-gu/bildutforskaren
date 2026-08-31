@@ -658,8 +658,16 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
             const activeCluster = activeRegions
               ? clusterAtWorldPoint(activeRegions, world)
               : null
+            const hit = pointIntersectsParticle(
+              world.x,
+              world.y,
+              particleContainerRefs
+            )
 
-            if (activeCluster) {
+            if (hit) {
+              setSelectedEmbedding(hit.data.embedding)
+              setSelectedEmbeddingIds([String(hit.data.embedding.id)])
+            } else if (activeCluster) {
               if (explanationTab === 'stability') {
                 setSelectedStabilityClusterId(activeCluster.clusterId)
               } else {
@@ -672,18 +680,8 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
                 requestId: Date.now(),
               })
             } else {
-              const hit = pointIntersectsParticle(
-                world.x,
-                world.y,
-                particleContainerRefs
-              )
-              if (hit) {
-                setSelectedEmbedding(hit.data.embedding)
-                setSelectedEmbeddingIds([String(hit.data.embedding.id)])
-              } else {
-                setSelectedEmbedding(null)
-                setSelectedEmbeddingIds([])
-              }
+              setSelectedEmbedding(null)
+              setSelectedEmbeddingIds([])
             }
           }}
         >

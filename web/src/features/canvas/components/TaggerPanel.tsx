@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { PhotoView } from 'react-photo-view'
 import { useAtomValue, useSetAtom } from 'jotai'
 import {
   activeDatasetIdAtom,
@@ -405,7 +406,7 @@ export const TaggerPanel = ({
               }
               disabled={!canGenerateIpAdapter || generating}
             >
-              {generating ? 'Genererar…' : 'Generera'}
+              {generating ? 'Genererar…' : 'IP-Adapter'}
             </Button>
             <Button
               type="button"
@@ -438,11 +439,13 @@ export const TaggerPanel = ({
           </div>
         )}
         {generatedUrl && (
-          <img
-            src={generatedUrl}
-            alt="Genererad förhandsvisning"
-            className="aspect-square w-full rounded-md object-cover"
-          />
+          <PhotoView src={generatedUrl}>
+            <img
+              src={generatedUrl}
+              alt="Genererad förhandsvisning"
+              className="aspect-square w-full cursor-pointer rounded-md object-cover"
+            />
+          </PhotoView>
         )}
       </div>
     )

@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import base64
+from contextlib import asynccontextmanager
+import logging
+import os
 import tempfile
 import time
 from pathlib import Path
@@ -26,8 +29,19 @@ from api.model_backends import (
 )
 
 
-app = FastAPI(title="Bildutforskaren model worker")
 backend = LocalModelBackend()
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    if os.environ.get("BILDUTFORSKAREN_SKIP_IMAGE_GEN_WARMUP") != "1":
+        logging.info("Warming image-generation pipelines")
+        backend.warm_image_generation()
+        logging.info("Image-generation pipelines are ready")
+    yield
+
+
+app = FastAPI(title="Bildutforskaren model worker", lifespan=lifespan)
 
 
 class CaptionBatchItem(BaseModel):

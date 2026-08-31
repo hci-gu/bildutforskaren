@@ -7,6 +7,7 @@ from flask import Flask
 from flask_cors import CORS
 
 from api import config
+from api import model_backends
 from api.runtime import init_runtime
 from api.clustering import bp as clustering_bp
 from api.routes_datasets import bp as datasets_bp
@@ -30,6 +31,15 @@ def create_app() -> Flask:
             sao_terms.ensure_embeddings()
         except Exception as exc:
             logging.warning("Failed to warm SAO term embeddings: %s", exc)
+    if os.environ.get("BILDUTFORSKAREN_SKIP_IMAGE_GEN_WARMUP") != "1":
+        try:
+            backend = model_backends.get_model_backend()
+            if isinstance(backend, model_backends.LocalModelBackend):
+                logging.info("Warming image-generation pipelines")
+                backend.warm_image_generation()
+                logging.info("Image-generation pipelines are ready")
+        except Exception as exc:
+            logging.warning("Failed to warm image-generation pipelines: %s", exc)
 
     app = Flask(__name__)
     CORS(app)
