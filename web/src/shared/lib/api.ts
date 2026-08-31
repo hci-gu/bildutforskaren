@@ -528,7 +528,8 @@ export const clearClusterPreviews = async (datasetId: string) => {
 
 export const fetchClusterPreviewManifest = async (datasetId: string) => {
   return await fetchJson<ClusterPreviewManifest>(
-    `${API_URL}/datasets/${encodeURIComponent(datasetId)}/cluster-previews/manifest`
+    `${API_URL}/datasets/${encodeURIComponent(datasetId)}/cluster-previews/manifest`,
+    { cache: 'no-store' }
   )
 }
 

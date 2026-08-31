@@ -52,6 +52,14 @@ import { conceptLensVisual } from '../xaiVisuals'
 
 const clusterTextureCache = new Map<string, Promise<PIXI.Texture>>()
 const CLUSTER_LEVEL_ZOOM_STEP = 2
+const INCOMPLETE_CLUSTER_MANIFEST_REFRESH_MS = 2_000
+
+export type ClusterPreviewHitTarget = {
+  cluster: ClusterPreview
+  x: number
+  y: number
+  size: number
+}
 
 const textureFromUrl = async (url: string) => {
   const asset = await PIXI.Assets.load(url)
@@ -131,6 +139,10 @@ export const EmbeddingsLayer: React.FC<{
   particleContainerRefs: React.RefObject<PIXI.ParticleContainer | null>[]
   rawEmbeddings: any[]
   visibleBounds?: PIXI.Rectangle | null
+  selectedClusterPreviewId?: string | null
+  onClusterPreviewHitTargetsChange?: (
+    targets: ClusterPreviewHitTarget[]
+  ) => void
 }> = ({
   type,
   masterAtlas,
@@ -138,6 +150,8 @@ export const EmbeddingsLayer: React.FC<{
   particleContainerRefs,
   rawEmbeddings,
   visibleBounds,
+  selectedClusterPreviewId,
+  onClusterPreviewHitTargetsChange,
 }) => {
   const searchQuery = useAtomValue(searchQueryAtom)
   const datasetId = useAtomValue(activeDatasetIdAtom)
@@ -286,6 +300,40 @@ export const EmbeddingsLayer: React.FC<{
   const [clusterTextures, setClusterTextures] = useState<Map<string, PIXI.Texture>>(
     () => new Map()
   )
+  const clusterPreviewHitTargets = useMemo(
+    () =>
+      type === 'main' &&
+      usesDefaultClusterProjection &&
+      showClusterImages
+        ? visibleClusterPreviews.flatMap((cluster) => {
+            if (!clusterTextures.has(cluster.id)) return []
+            const [nx, ny] = cluster.centroid
+            return [
+              {
+                cluster,
+                x: nx * CANVAS_WIDTH,
+                y: ny * CANVAS_HEIGHT,
+                size: clusterPreviewSize(cluster) * displaySettings.scale,
+              },
+            ]
+          })
+        : [],
+    [
+      clusterTextures,
+      displaySettings.scale,
+      showClusterImages,
+      type,
+      usesDefaultClusterProjection,
+      visibleClusterPreviews,
+    ]
+  )
+  useEffect(() => {
+    onClusterPreviewHitTargetsChange?.(clusterPreviewHitTargets)
+  }, [clusterPreviewHitTargets, onClusterPreviewHitTargetsChange])
+  useEffect(
+    () => () => onClusterPreviewHitTargetsChange?.([]),
+    [onClusterPreviewHitTargetsChange]
+  )
   const displayedTextEmbeddings = textEmbeddings
   const textRefs = useRef(new Map<string, PIXI.Text>())
   const textSizes = useRef(
@@ -344,9 +392,14 @@ export const EmbeddingsLayer: React.FC<{
     }
 
     let cancelled = false
-    fetchClusterPreviewManifest(datasetId)
-      .then((manifest) => {
+    let refreshTimer: number | undefined
+    let hasLoadedManifest = false
+
+    const loadManifest = async () => {
+      try {
+        const manifest = await fetchClusterPreviewManifest(datasetId)
         if (cancelled) return
+        hasLoadedManifest = true
         setClusterManifest(manifest)
         setDisplaySettings((previous) =>
           previous.clusterImagesDatasetId === datasetId
@@ -359,9 +412,22 @@ export const EmbeddingsLayer: React.FC<{
                 clusterImagesDatasetId: datasetId,
               }
         )
-      })
-      .catch(() => {
+
+        if (manifest.clusters.some((cluster) => !cluster.has_image)) {
+          refreshTimer = window.setTimeout(
+            loadManifest,
+            INCOMPLETE_CLUSTER_MANIFEST_REFRESH_MS
+          )
+        }
+      } catch {
         if (cancelled) return
+        if (hasLoadedManifest) {
+          refreshTimer = window.setTimeout(
+            loadManifest,
+            INCOMPLETE_CLUSTER_MANIFEST_REFRESH_MS
+          )
+          return
+        }
         setClusterManifest(null)
         setDisplaySettings((previous) =>
           previous.clusterImagesDatasetId === datasetId
@@ -372,10 +438,16 @@ export const EmbeddingsLayer: React.FC<{
                 clusterImagesDatasetId: datasetId,
               }
         )
-      })
+      }
+    }
+
+    void loadManifest()
 
     return () => {
       cancelled = true
+      if (refreshTimer !== undefined) {
+        window.clearTimeout(refreshTimer)
+      }
     }
   }, [datasetId, setDisplaySettings, type, usesDefaultClusterProjection])
 
@@ -944,6 +1016,20 @@ export const EmbeddingsLayer: React.FC<{
                   height={size}
                   eventMode="none"
                 />
+                {selectedClusterPreviewId === cluster.id && (
+                  <pixiGraphics
+                    draw={(graphics) => {
+                      graphics.clear()
+                      graphics.rect(-size / 2, -size / 2, size, size)
+                      graphics.stroke({
+                        color: 0x3b82f6,
+                        width: 4,
+                        alpha: 0.95,
+                      })
+                    }}
+                    eventMode="none"
+                  />
+                )}
               </pixiContainer>
             )
           })}

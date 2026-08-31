@@ -45,6 +45,7 @@ import {
 import { buildSelectionRect, computeProjectionFit, pointIntersectsParticle } from './utils'
 import { useAtlasLoader } from './hooks/useAtlasLoader'
 import { EmbeddingsLayer } from './components/EmbeddingsLayer'
+import type { ClusterPreviewHitTarget } from './components/EmbeddingsLayer'
 import { SelectionRect } from './components/SelectionRect'
 import { Minimap } from './components/Minimap'
 import { HUD } from './components/HUD'
@@ -52,6 +53,7 @@ import { GraphNetworkLayer } from './components/GraphNetworkLayer'
 import { AnchorAnalysisOverlay } from './components/AnchorAnalysisOverlay'
 import { AnchorAnalysisTray } from './components/AnchorAnalysisTray'
 import { NeighborFidelityOverlay } from './components/NeighborFidelityOverlay'
+import { ClusterPreviewSourcesOverlay } from './components/ClusterPreviewSourcesOverlay'
 import { HomeLogoLink } from '@/shared/components/HomeLogoLink'
 import { useNeighborFidelity } from './hooks/useNeighborFidelity'
 import { useConceptLens } from './hooks/useConceptLens'
@@ -166,6 +168,12 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
     ProjectedEmbedding[]
   >([])
   const [visibleBounds, setVisibleBounds] = useState<PIXI.Rectangle | null>(null)
+  const [clusterPreviewHitTargets, setClusterPreviewHitTargets] = useState<
+    ClusterPreviewHitTarget[]
+  >([])
+  const [selectedClusterPreview, setSelectedClusterPreview] = useState<
+    ClusterPreviewHitTarget | null
+  >(null)
   const candidateIds = useMemo(
     () =>
       rawEmbeddings
@@ -208,6 +216,17 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
           graphLayout,
         ].join(':')
       : projectionSettings.type
+
+  useEffect(() => {
+    if (
+      selectedClusterPreview &&
+      !clusterPreviewHitTargets.some(
+        (target) => target.cluster.id === selectedClusterPreview.cluster.id
+      )
+    ) {
+      setSelectedClusterPreview(null)
+    }
+  }, [clusterPreviewHitTargets, selectedClusterPreview])
 
   useEffect(() => {
     if (projectionSettings.type === 'graph' && !activeGraph) {
@@ -581,6 +600,7 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
               setSelectionRect(new PIXI.Rectangle(world.x, world.y, 0, 0))
               setSelectedEmbedding(null)
               setSelectedEmbeddingIds([])
+              setSelectedClusterPreview(null)
               viewport.plugins?.pause?.('drag')
               return
             }
@@ -658,16 +678,35 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
             const activeCluster = activeRegions
               ? clusterAtWorldPoint(activeRegions, world)
               : null
+            const clusterPreviewHit = [...clusterPreviewHitTargets]
+              .reverse()
+              .find((target) => {
+                const halfSize = target.size / 2
+                const centerX = CANVAS_OFFSET_X + target.x
+                const centerY = CANVAS_OFFSET_Y + target.y
+                return (
+                  world.x >= centerX - halfSize &&
+                  world.x <= centerX + halfSize &&
+                  world.y >= centerY - halfSize &&
+                  world.y <= centerY + halfSize
+                )
+              })
             const hit = pointIntersectsParticle(
               world.x,
               world.y,
               particleContainerRefs
             )
 
-            if (hit) {
+            if (clusterPreviewHit) {
+              setSelectedClusterPreview(clusterPreviewHit)
+              setSelectedEmbedding(null)
+              setSelectedEmbeddingIds([])
+            } else if (hit) {
+              setSelectedClusterPreview(null)
               setSelectedEmbedding(hit.data.embedding)
               setSelectedEmbeddingIds([String(hit.data.embedding.id)])
             } else if (activeCluster) {
+              setSelectedClusterPreview(null)
               if (explanationTab === 'stability') {
                 setSelectedStabilityClusterId(activeCluster.clusterId)
               } else {
@@ -680,6 +719,7 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
                 requestId: Date.now(),
               })
             } else {
+              setSelectedClusterPreview(null)
               setSelectedEmbedding(null)
               setSelectedEmbeddingIds([])
             }
@@ -702,6 +742,12 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
               {projectionSettings.type === 'umap' && (
                 <NeighborFidelityOverlay rawEmbeddings={rawEmbeddings} />
               )}
+              {projectionSettings.type === 'umap' && (
+                <ClusterPreviewSourcesOverlay
+                  cluster={selectedClusterPreview?.cluster ?? null}
+                  rawEmbeddings={rawEmbeddings}
+                />
+              )}
               <EmbeddingsLayer
                 type="main"
                 masterAtlas={masterAtlas}
@@ -709,6 +755,12 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
                 particleContainerRefs={particleContainerRefs}
                 rawEmbeddings={rawEmbeddings}
                 visibleBounds={visibleBounds}
+                selectedClusterPreviewId={
+                  selectedClusterPreview?.cluster.id ?? null
+                }
+                onClusterPreviewHitTargetsChange={
+                  setClusterPreviewHitTargets
+                }
               />
               {projectionSettings.type === 'umap' && (
                 <AnchorAnalysisOverlay rawEmbeddings={rawEmbeddings} />
