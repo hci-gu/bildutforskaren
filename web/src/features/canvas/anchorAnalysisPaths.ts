@@ -1,5 +1,5 @@
 import type { AnchorAnalysisResponse } from '@/shared/lib/api'
-import type { AnchorAnalysisTab, AnchorGraphMode } from '@/store'
+import type { AnchorAnalysisTab } from '@/store'
 
 export const ANCHOR_ANALYSIS_PATH_COLORS = {
   axis: 0xf8fafc,
@@ -16,13 +16,12 @@ export type AnchorAnalysisDisplayPath = {
 export const getAnchorAnalysisDisplayPaths = (
   result: AnchorAnalysisResponse | null,
   tab: AnchorAnalysisTab,
-  graphMode: AnchorGraphMode,
   compare: boolean
 ): AnchorAnalysisDisplayPath[] => {
   if (!result) return []
   if (tab === 'semantic') return []
 
-  const graphPath = result.graph[graphMode].path_ids
+  const graphPath = result.graph.supported.path_ids
   if (compare) {
     return [
       {
@@ -61,11 +60,14 @@ export const getAnchorAnalysisDisplayPaths = (
       },
     ]
   }
-  return [
-    {
-      key: 'axis',
-      ids: result.axis.path_ids,
-      color: ANCHOR_ANALYSIS_PATH_COLORS.axis,
-    },
-  ]
+  if (tab === 'map') {
+    return [
+      {
+        key: 'axis',
+        ids: result.axis.path_ids,
+        color: ANCHOR_ANALYSIS_PATH_COLORS.axis,
+      },
+    ]
+  }
+  return []
 }

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { useAtom, useAtomValue, useSetAtom } from 'jotai'
 import {
   ChevronDown,
@@ -20,8 +20,8 @@ import {
   anchorAnalysisTrayCollapsedAtom,
   anchorAnalysisTrayHeightAtom,
   anchorAnalysisTrayOpenAtom,
-  anchorGraphModeAtom,
   anchorGroupsAtom,
+  anchorMapViewAtom,
   openImageViewerAtom,
   selectedEmbeddingAtom,
   selectedEmbeddingIdsAtom,
@@ -59,8 +59,7 @@ const SCATTER_HEIGHT = 210
 const SCATTER_MARGIN = { left: 58, right: 18, top: 14, bottom: 40 } as const
 
 const tabs: Array<[AnchorAnalysisTab, string]> = [
-  ['axis', 'Axis'],
-  ['affinity', 'Affinity'],
+  ['map', 'A–B Map'],
   ['interpolation', 'Interpolation'],
   ['graph', 'Graph'],
   ['semantic', 'Semantik'],
@@ -164,12 +163,40 @@ const ScatterPlot = ({
   onSelect: (imageId: number) => void
 }) => {
   const [hoveredId, setHoveredId] = useState<number | null>(null)
-  const width = SCATTER_WIDTH
-  const height = SCATTER_HEIGHT
+  const containerRef = useRef<HTMLDivElement>(null)
+  const [size, setSize] = useState({
+    width: SCATTER_WIDTH,
+    height: SCATTER_HEIGHT,
+  })
+  const width = size.width
+  const height = size.height
   const margin = SCATTER_MARGIN
   const anchorASet = useMemo(() => new Set(anchorA.map(Number)), [anchorA])
   const anchorBSet = useMemo(() => new Set(anchorB.map(Number)), [anchorB])
   const pathSet = useMemo(() => new Set(pathIds), [pathIds])
+
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container || typeof ResizeObserver === 'undefined') return
+
+    const updateSize = (nextWidth: number, nextHeight: number) => {
+      if (nextWidth <= 0 || nextHeight <= 0) return
+      setSize((previous) => {
+        const widthChanged = Math.abs(previous.width - nextWidth) >= 1
+        const heightChanged = Math.abs(previous.height - nextHeight) >= 1
+        return widthChanged || heightChanged
+          ? { width: nextWidth, height: nextHeight }
+          : previous
+      })
+    }
+    const observer = new ResizeObserver(([entry]) => {
+      updateSize(entry.contentRect.width, entry.contentRect.height)
+    })
+    const rect = container.getBoundingClientRect()
+    updateSize(rect.width, rect.height)
+    observer.observe(container)
+    return () => observer.disconnect()
+  }, [])
 
   const geometry = useMemo(() => {
     const xs = points.map((point) => point[xKey])
@@ -212,7 +239,7 @@ const ScatterPlot = ({
 
   const hovered = points.find((point) => point.image_id === hoveredId)
   return (
-    <div className="relative h-full min-h-0">
+    <div ref={containerRef} className="relative h-full min-h-0">
       <svg
         viewBox={`0 0 ${width} ${height}`}
         className="h-full w-full"
@@ -427,7 +454,7 @@ export const AnchorAnalysisTray: React.FC<Props> = ({
   const [collapsed, setCollapsed] = useAtom(anchorAnalysisTrayCollapsedAtom)
   const [height, setHeight] = useAtom(anchorAnalysisTrayHeightAtom)
   const [tab, setTab] = useAtom(anchorAnalysisTabAtom)
-  const [graphMode, setGraphMode] = useAtom(anchorGraphModeAtom)
+  const [mapView, setMapView] = useAtom(anchorMapViewAtom)
   const [compare, setCompare] = useAtom(anchorAnalysisCompareAtom)
   const [parameters, setParameters] = useAtom(anchorAnalysisParametersAtom)
   const groups = useAtomValue(anchorGroupsAtom)
@@ -441,6 +468,14 @@ export const AnchorAnalysisTray: React.FC<Props> = ({
   const setSelectedIds = useSetAtom(selectedEmbeddingIdsAtom)
   const setSelectedEmbedding = useSetAtom(selectedEmbeddingAtom)
   const openImageViewer = useSetAtom(openImageViewerAtom)
+
+  // Preserve live-session state created before Axis and Affinity were merged.
+  const runtimeTab = tab as string
+  useEffect(() => {
+    if (runtimeTab !== 'axis' && runtimeTab !== 'affinity') return
+    if (runtimeTab === 'affinity') setMapView('affinity')
+    setTab('map')
+  }, [runtimeTab, setMapView, setTab])
   const analyze = useAnchorAnalysis(candidateIds)
   const [dragging, setDragging] = useState(false)
   const [displayPath, setDisplayPath] = useState(false)
@@ -514,7 +549,7 @@ export const AnchorAnalysisTray: React.FC<Props> = ({
     })
   }
 
-  const graphPath = result?.graph[graphMode]
+  const graphPath = result?.graph.supported
   const pathIds =
     tab === 'semantic'
       ? []
@@ -678,55 +713,75 @@ export const AnchorAnalysisTray: React.FC<Props> = ({
               >
                 <Route size={14} /> Display path
               </button>
-              <details className="relative">
-                <summary className="flex cursor-pointer list-none items-center gap-1 rounded-full border border-white/20 px-3 py-1.5 hover:bg-white/10">
-                  <SlidersHorizontal size={14} /> Advanced
-                </summary>
-                <div className="glass-panel-strong absolute right-0 bottom-full z-30 mb-2 grid w-64 grid-cols-3 gap-2 rounded-xl p-3 shadow-xl">
-                  <label className="space-y-1">
-                    <span className="text-white/60">Steps</span>
-                    <input
-                      className="w-full rounded border border-white/20 bg-black/30 px-2 py-1"
-                      type="number"
-                      min={5}
-                      max={31}
-                      value={parameters.path_steps}
-                      onChange={(event) =>
-                        updateParameter('path_steps', Number(event.target.value))
-                      }
-                    />
-                  </label>
-                  <label className="space-y-1">
-                    <span className="text-white/60">Results</span>
-                    <input
-                      className="w-full rounded border border-white/20 bg-black/30 px-2 py-1"
-                      type="number"
-                      min={1}
-                      max={20}
-                      value={parameters.retrieval_count}
-                      onChange={(event) =>
-                        updateParameter(
-                          'retrieval_count',
-                          Number(event.target.value)
-                        )
-                      }
-                    />
-                  </label>
-                  <label className="space-y-1">
-                    <span className="text-white/60">Graph k</span>
-                    <input
-                      className="w-full rounded border border-white/20 bg-black/30 px-2 py-1"
-                      type="number"
-                      min={2}
-                      max={50}
-                      value={parameters.graph_k}
-                      onChange={(event) =>
-                        updateParameter('graph_k', Number(event.target.value))
-                      }
-                    />
-                  </label>
-                </div>
-              </details>
+              {tab !== 'semantic' && (
+                <details className="relative">
+                  <summary className="flex cursor-pointer list-none items-center gap-1 rounded-full border border-white/20 px-3 py-1.5 hover:bg-white/10">
+                    <SlidersHorizontal size={14} /> Advanced
+                  </summary>
+                  <div
+                    className={`glass-panel-strong absolute right-0 bottom-full z-30 mb-2 grid gap-2 rounded-xl p-3 shadow-xl ${
+                      tab === 'interpolation'
+                        ? 'w-48 grid-cols-2'
+                        : 'w-32 grid-cols-1'
+                    }`}
+                  >
+                    {(tab === 'map' || tab === 'interpolation') && (
+                      <label className="space-y-1">
+                        <span className="text-white/60">Steps</span>
+                        <input
+                          className="w-full rounded border border-white/20 bg-black/30 px-2 py-1"
+                          type="number"
+                          min={5}
+                          max={31}
+                          value={parameters.path_steps}
+                          onChange={(event) =>
+                            updateParameter(
+                              'path_steps',
+                              Number(event.target.value)
+                            )
+                          }
+                        />
+                      </label>
+                    )}
+                    {tab === 'interpolation' && (
+                      <label className="space-y-1">
+                        <span className="text-white/60">Results</span>
+                        <input
+                          className="w-full rounded border border-white/20 bg-black/30 px-2 py-1"
+                          type="number"
+                          min={1}
+                          max={20}
+                          value={parameters.retrieval_count}
+                          onChange={(event) =>
+                            updateParameter(
+                              'retrieval_count',
+                              Number(event.target.value)
+                            )
+                          }
+                        />
+                      </label>
+                    )}
+                    {tab === 'graph' && (
+                      <label className="space-y-1">
+                        <span className="text-white/60">Graph k</span>
+                        <input
+                          className="w-full rounded border border-white/20 bg-black/30 px-2 py-1"
+                          type="number"
+                          min={2}
+                          max={50}
+                          value={parameters.graph_k}
+                          onChange={(event) =>
+                            updateParameter(
+                              'graph_k',
+                              Number(event.target.value)
+                            )
+                          }
+                        />
+                      </label>
+                    )}
+                  </div>
+                </details>
+              )}
               {(stale || status === 'error') && (
                 <button
                   type="button"
@@ -762,40 +817,60 @@ export const AnchorAnalysisTray: React.FC<Props> = ({
               )}
               {!displayPath && tab === 'semantic' && (
                 <AnchorSemanticAnalysis
-                  datasetId={datasetId}
                   semantics={result.semantics}
-                  onSelectImage={selectImage}
                 />
               )}
-              {!displayPath && tab === 'axis' && (
-                <ScatterPlot
-                  datasetId={datasetId}
-                  atlasMeta={atlasMeta}
-                  points={result.points}
-                  pathIds={pathIds}
-                  anchorA={groups.a}
-                  anchorB={groups.b}
-                  xKey="t"
-                  yKey="segment_residual"
-                  xLabel="A–B position (t)"
-                  yLabel="Segment residual"
-                  onSelect={selectImage}
-                />
-              )}
-              {!displayPath && tab === 'affinity' && (
-                <ScatterPlot
-                  datasetId={datasetId}
-                  atlasMeta={atlasMeta}
-                  points={result.points}
-                  pathIds={pathIds}
-                  anchorA={groups.a}
-                  anchorB={groups.b}
-                  xKey="contrast"
-                  yKey="commonality"
-                  xLabel="B affinity − A affinity"
-                  yLabel="Common affinity"
-                  onSelect={selectImage}
-                />
+              {!displayPath && tab === 'map' && (
+                <div className="flex h-full min-h-0 flex-col">
+                  <div
+                    className="mb-1 flex justify-start gap-1"
+                    role="group"
+                    aria-label="A–B map view"
+                  >
+                    {(['axis', 'affinity'] as const).map((view) => (
+                      <button
+                        key={view}
+                        type="button"
+                        className={`rounded-full px-3 py-1.5 text-xs capitalize ${
+                          mapView === view
+                            ? 'bg-white text-black'
+                            : 'border border-white/20 hover:bg-white/10'
+                        }`}
+                        onClick={() => setMapView(view)}
+                        aria-pressed={mapView === view}
+                      >
+                        {view}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="min-h-0 flex-1">
+                    <ScatterPlot
+                      datasetId={datasetId}
+                      atlasMeta={atlasMeta}
+                      points={result.points}
+                      pathIds={pathIds}
+                      anchorA={groups.a}
+                      anchorB={groups.b}
+                      xKey={mapView === 'axis' ? 't' : 'contrast'}
+                      yKey={
+                        mapView === 'axis'
+                          ? 'segment_residual'
+                          : 'commonality'
+                      }
+                      xLabel={
+                        mapView === 'axis'
+                          ? 'A–B position (t)'
+                          : 'B affinity − A affinity'
+                      }
+                      yLabel={
+                        mapView === 'axis'
+                          ? 'Segment residual'
+                          : 'Common affinity'
+                      }
+                      onSelect={selectImage}
+                    />
+                  </div>
+                </div>
               )}
               {!displayPath && tab === 'interpolation' && (
                 <div className="flex h-full gap-3 overflow-x-auto pb-2">
@@ -808,29 +883,33 @@ export const AnchorAnalysisTray: React.FC<Props> = ({
                         t={step.t.toFixed(2)}
                       </div>
                       <div className="space-y-2">
-                        {step.retrievals.map((retrieval, index) => (
-                          <button
-                            key={retrieval.image_id}
-                            type="button"
-                            className={`flex w-full items-center gap-2 rounded-lg p-1 text-left hover:bg-white/10 ${
-                              index === 0 ? 'bg-violet-400/10' : ''
-                            }`}
-                            onClick={() => selectImage(retrieval.image_id)}
-                          >
-                            <AtlasThumbnail
-                              datasetId={datasetId}
-                              imageId={retrieval.image_id}
-                              atlasMeta={atlasMeta}
-                              className="h-10 w-10 shrink-0 rounded"
-                            />
-                            <span>
-                              <span className="block">#{retrieval.image_id}</span>
-                              <span className="text-white/55">
-                                {retrieval.similarity.toFixed(3)}
+                        {step.retrievals
+                          .slice(0, 3)
+                          .map((retrieval, index) => (
+                            <button
+                              key={retrieval.image_id}
+                              type="button"
+                              className={`flex w-full items-center gap-2 rounded-lg p-1 text-left hover:bg-white/10 ${
+                                index === 0 ? 'bg-violet-400/10' : ''
+                              }`}
+                              onClick={() => selectImage(retrieval.image_id)}
+                            >
+                              <AtlasThumbnail
+                                datasetId={datasetId}
+                                imageId={retrieval.image_id}
+                                atlasMeta={atlasMeta}
+                                className="h-10 w-10 shrink-0 rounded"
+                              />
+                              <span>
+                                <span className="block">
+                                  #{retrieval.image_id}
+                                </span>
+                                <span className="text-white/55">
+                                  {retrieval.similarity.toFixed(3)}
+                                </span>
                               </span>
-                            </span>
-                          </button>
-                        ))}
+                            </button>
+                          ))}
                         {!step.retrievals.length && (
                           <span className="text-white/45">No candidate</span>
                         )}
@@ -842,20 +921,9 @@ export const AnchorAnalysisTray: React.FC<Props> = ({
               {!displayPath && tab === 'graph' && (
                 <div className="flex h-full min-h-0 flex-col">
                   <div className="mb-3 flex items-center gap-2 text-xs">
-                    {(['shortest', 'supported'] as const).map((mode) => (
-                      <button
-                        key={mode}
-                        type="button"
-                        className={`rounded-full px-3 py-1.5 capitalize ${
-                          graphMode === mode
-                            ? 'bg-emerald-300 text-black'
-                            : 'border border-white/20 hover:bg-white/10'
-                        }`}
-                        onClick={() => setGraphMode(mode)}
-                      >
-                        {mode}
-                      </button>
-                    ))}
+                    <span className="rounded-full bg-emerald-300 px-3 py-1.5 text-black">
+                      Supported
+                    </span>
                     {graphPath?.connected && (
                       <span className="text-white/55">
                         {graphPath.path_ids.length} images · total{' '}

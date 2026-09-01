@@ -222,7 +222,6 @@ class AnchorSemanticsTests(unittest.TestCase):
         trajectory = semantics["trajectories"][0]
         self.assertIsNone(trajectory["interpolation"][3]["image_id"])
         self.assertIsNone(trajectory["interpolation"][3]["score"])
-        self.assertEqual(trajectory["graph_shortest"], [])
         self.assertEqual(trajectory["graph_supported"], [])
 
 

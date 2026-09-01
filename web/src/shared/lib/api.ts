@@ -294,7 +294,6 @@ export type AnchorSemanticTrajectory = {
   ideal: AnchorSemanticIdealPoint[]
   interpolation: AnchorSemanticObservedPoint[]
   axis: AnchorSemanticObservedPoint[]
-  graph_shortest: AnchorSemanticObservedPoint[]
   graph_supported: AnchorSemanticObservedPoint[]
 }
 
@@ -352,7 +351,6 @@ export type AnchorAnalysisResponse = {
   }
   graph: {
     k: number
-    shortest: AnchorAnalysisPath
     supported: AnchorAnalysisPath
   }
   semantics: AnchorSemantics
