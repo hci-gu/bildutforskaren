@@ -10,7 +10,6 @@ import {
   anchorAnalysisTrayCollapsedAtom,
   anchorAnalysisTrayHeightAtom,
   anchorAnalysisTrayOpenAtom,
-  anchorGraphModeAtom,
   conceptAxisEnabledAtom,
   conceptLensResultAtom,
   conceptLensThresholdAtom,
@@ -399,7 +398,6 @@ export const Umap3DScene = () => {
   const xaiImageFocusRequest = useAtomValue(xaiImageFocusRequestAtom)
   const analysisResult = useAtomValue(anchorAnalysisResultAtom)
   const analysisTab = useAtomValue(anchorAnalysisTabAtom)
-  const graphMode = useAtomValue(anchorGraphModeAtom)
   const comparePaths = useAtomValue(anchorAnalysisCompareAtom)
   const trayOpen = useAtomValue(anchorAnalysisTrayOpenAtom)
   const trayCollapsed = useAtomValue(anchorAnalysisTrayCollapsedAtom)
@@ -459,10 +457,9 @@ export const Umap3DScene = () => {
       getAnchorAnalysisDisplayPaths(
         analysisResult,
         analysisTab,
-        graphMode,
         comparePaths
       ),
-    [analysisResult, analysisTab, comparePaths, graphMode]
+    [analysisResult, analysisTab, comparePaths]
   )
   const trayOffset = trayOpen ? (trayCollapsed ? 52 : trayHeight) : 0
 

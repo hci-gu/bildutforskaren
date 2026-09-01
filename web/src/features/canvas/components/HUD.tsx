@@ -35,8 +35,10 @@ import {
   selectedTagsAtom,
 } from '@/store'
 import {
+  clusterPreviewImageUrl,
   createGraphNetwork,
   datasetApiUrl,
+  type ClusterPreview,
   type GraphLayout,
 } from '@/shared/lib/api'
 import { TaggerPanel } from './TaggerPanel'
@@ -118,12 +120,16 @@ export const HUD = ({
   onRequestFitAfterProjection,
   candidateIds = [],
   bottomOffset = 0,
+  selectedClusterPreview = null,
+  onDeselectClusterPreview,
 }: {
   canFitProjection?: boolean
   onFitProjection?: () => void
   onRequestFitAfterProjection?: () => void
   candidateIds?: number[]
   bottomOffset?: number
+  selectedClusterPreview?: ClusterPreview | null
+  onDeselectClusterPreview?: () => void
 } = {}) => {
   const [selectionHistory, setSelectionHistory] = useAtom(selectionHistoryAtom)
   const setActiveEmbeddingIds = useSetAtom(activeEmbeddingIdsAtom)
@@ -345,7 +351,7 @@ export const HUD = ({
       </button>}
       {(selectedTags.length === 0 || selectedEmbedding) && (
         <TaggerPanel
-          position={selectedTags.length > 0 ? 'left' : 'right'}
+          position="left"
           offsetBottom={
             (selectedEmbedding && hasMeta ? 220 : 24) + bottomOffset
           }
@@ -380,7 +386,8 @@ export const HUD = ({
         </div>
       )}
 
-      {(selectedEmbeddingIds.length > 0 ||
+      {(selectedClusterPreview ||
+        selectedEmbeddingIds.length > 0 ||
         anchorGroups.a.length > 0 ||
         anchorGroups.b.length > 0) && (
         <div
@@ -388,6 +395,31 @@ export const HUD = ({
           style={{ bottom: 24 + bottomOffset }}
           data-canvas-ui="true"
         >
+          {selectedClusterPreview && datasetId && (
+            <>
+              <span>Generated image selected</span>
+              <PhotoView
+                src={clusterPreviewImageUrl(
+                  datasetId,
+                  selectedClusterPreview.id
+                )}
+              >
+                <button
+                  type="button"
+                  className="rounded-full border border-white/30 px-3 py-1 text-xs hover:bg-white/10"
+                >
+                  Open image
+                </button>
+              </PhotoView>
+              <button
+                type="button"
+                className="rounded-full border border-white/30 px-3 py-1 text-xs hover:bg-white/10"
+                onClick={onDeselectClusterPreview}
+              >
+                Deselect
+              </button>
+            </>
+          )}
           {showGraphForm && selectedEmbeddingIds.length === 1 && (
             <div className="glass-panel-strong absolute bottom-full left-1/2 mb-3 w-80 -translate-x-1/2 rounded-xl p-4 text-xs text-white shadow-xl">
               <div className="mb-3 text-sm font-medium">Create graph network</div>

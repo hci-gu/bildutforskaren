@@ -4,7 +4,6 @@ import {
   anchorAnalysisCompareAtom,
   anchorAnalysisResultAtom,
   anchorAnalysisTabAtom,
-  anchorGraphModeAtom,
   anchorGroupsAtom,
 } from '@/store'
 import {
@@ -27,7 +26,6 @@ export const AnchorAnalysisOverlay: React.FC<Props> = ({ rawEmbeddings }) => {
   const groups = useAtomValue(anchorGroupsAtom)
   const result = useAtomValue(anchorAnalysisResultAtom)
   const tab = useAtomValue(anchorAnalysisTabAtom)
-  const graphMode = useAtomValue(anchorGraphModeAtom)
   const compare = useAtomValue(anchorAnalysisCompareAtom)
 
   const pointsById = useMemo(
@@ -41,8 +39,8 @@ export const AnchorAnalysisOverlay: React.FC<Props> = ({ rawEmbeddings }) => {
   )
 
   const paths = useMemo(() => {
-    return getAnchorAnalysisDisplayPaths(result, tab, graphMode, compare)
-  }, [compare, graphMode, result, tab])
+    return getAnchorAnalysisDisplayPaths(result, tab, compare)
+  }, [compare, result, tab])
 
   if (!groups.a.length && !groups.b.length && !result) return null
 

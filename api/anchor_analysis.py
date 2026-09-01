@@ -334,7 +334,6 @@ def _find_graph_path(
     adjacency: dict[int, list[tuple[int, float, float]]],
     source_ids: Iterable[int],
     target_ids: set[int],
-    mode: str,
 ) -> list[int] | None:
     costs: dict[int, tuple[float, float, int]] = {}
     parent: dict[int, int | None] = {}
@@ -354,14 +353,11 @@ def _find_graph_path(
             return _reconstruct_path(parent, node_id)
 
         for neighbor_id, edge_distance, _ in adjacency.get(node_id, []):
-            if mode == "shortest":
-                next_cost = (first + edge_distance, 0.0, hops + 1)
-            else:
-                next_cost = (
-                    max(first, edge_distance),
-                    second + edge_distance,
-                    hops + 1,
-                )
+            next_cost = (
+                max(first, edge_distance),
+                second + edge_distance,
+                hops + 1,
+            )
             previous = costs.get(neighbor_id)
             if previous is None or next_cost < previous:
                 costs[neighbor_id] = next_cost
@@ -417,11 +413,9 @@ def _graph_paths(
 ) -> dict[str, Any]:
     candidate_vectors = vectors[candidate_ids]
     adjacency = _mutual_graph(candidate_vectors, candidate_ids, graph_k)
-    shortest = _find_graph_path(adjacency, anchor_a_ids, anchor_b_ids, "shortest")
-    supported = _find_graph_path(adjacency, anchor_a_ids, anchor_b_ids, "supported")
+    supported = _find_graph_path(adjacency, anchor_a_ids, anchor_b_ids)
     return {
         "k": min(graph_k, max(0, len(candidate_ids) - 1)),
-        "shortest": _path_result(shortest, adjacency),
         "supported": _path_result(supported, adjacency),
     }
 

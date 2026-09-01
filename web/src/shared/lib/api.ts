@@ -294,7 +294,6 @@ export type AnchorSemanticTrajectory = {
   ideal: AnchorSemanticIdealPoint[]
   interpolation: AnchorSemanticObservedPoint[]
   axis: AnchorSemanticObservedPoint[]
-  graph_shortest: AnchorSemanticObservedPoint[]
   graph_supported: AnchorSemanticObservedPoint[]
 }
 
@@ -352,7 +351,6 @@ export type AnchorAnalysisResponse = {
   }
   graph: {
     k: number
-    shortest: AnchorAnalysisPath
     supported: AnchorAnalysisPath
   }
   semantics: AnchorSemantics
@@ -528,7 +526,8 @@ export const clearClusterPreviews = async (datasetId: string) => {
 
 export const fetchClusterPreviewManifest = async (datasetId: string) => {
   return await fetchJson<ClusterPreviewManifest>(
-    `${API_URL}/datasets/${encodeURIComponent(datasetId)}/cluster-previews/manifest`
+    `${API_URL}/datasets/${encodeURIComponent(datasetId)}/cluster-previews/manifest`,
+    { cache: 'no-store' }
   )
 }
 

@@ -5,6 +5,7 @@ import io
 import os
 import time
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -128,6 +129,11 @@ class LocalModelBackend:
         self._sd = None
         self._ip_adapter_pipe = None
         self._ip_adapter_device = None
+
+    def warm_image_generation(self) -> None:
+        """Load and retain the interactive image-generation pipelines."""
+        self._load_sd()
+        self._load_ip_adapter_pipe()
 
     def _load_caption_model(self):
         if self._caption_processor is not None and self._caption_model is not None:
@@ -557,6 +563,7 @@ class RemoteHttpModelBackend:
         )
 
 
+@lru_cache(maxsize=1)
 def get_model_backend() -> LocalModelBackend | RemoteHttpModelBackend:
     backend = os.environ.get("MODEL_BACKEND", "local").strip().lower()
     if backend == "remote":

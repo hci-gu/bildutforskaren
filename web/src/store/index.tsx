@@ -499,12 +499,11 @@ export const graphLayoutAtom = atom<import('@/shared/lib/api').GraphLayout>(
 )
 
 export type AnchorAnalysisTab =
-  | 'axis'
-  | 'affinity'
+  | 'map'
   | 'interpolation'
   | 'graph'
   | 'semantic'
-export type AnchorGraphMode = 'shortest' | 'supported'
+export type AnchorMapView = 'axis' | 'affinity'
 
 export const anchorGroupsAtom = atom<{
   a: string[]
@@ -518,8 +517,8 @@ export const anchorAnalysisStatusAtom = atom<'idle' | 'loading' | 'ready' | 'err
 export const anchorAnalysisErrorAtom = atom<string | null>(null)
 export const anchorAnalysisStaleAtom = atom(false)
 export const anchorAnalysisCandidateIdsAtom = atom<number[]>([])
-export const anchorAnalysisTabAtom = atom<AnchorAnalysisTab>('axis')
-export const anchorGraphModeAtom = atom<AnchorGraphMode>('supported')
+export const anchorAnalysisTabAtom = atom<AnchorAnalysisTab>('map')
+export const anchorMapViewAtom = atom<AnchorMapView>('axis')
 export const anchorAnalysisCompareAtom = atom(false)
 export const anchorAnalysisParametersAtom =
   atom<import('@/shared/lib/api').AnchorAnalysisParameters>({

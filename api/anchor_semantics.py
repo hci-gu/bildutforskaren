@@ -198,9 +198,6 @@ def analyze_anchor_semantics(
         if int(image_id) in point_by_id
     ]
     graph_positions = {
-        "graph_shortest": _graph_progress(
-            anchor_result["graph"]["shortest"]
-        ),
         "graph_supported": _graph_progress(
             anchor_result["graph"]["supported"]
         ),

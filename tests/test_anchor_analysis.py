@@ -109,24 +109,18 @@ class AnchorAnalysisTests(unittest.TestCase):
         self.assertEqual(result["interpolation"]["path_ids"][0], 0)
         self.assertEqual(result["interpolation"]["path_ids"][-1], 6)
 
-    def test_graph_returns_shortest_and_supported_paths(self):
+    def test_graph_returns_supported_path(self):
         vectors = _unit_vectors([0, 15, 30, 45, 60, 75, 90])
         result = self.analyze(vectors, [0], [6], graph_k=2)
         graph = result["graph"]
-        self.assertTrue(graph["shortest"]["connected"])
         self.assertTrue(graph["supported"]["connected"])
-        self.assertEqual(graph["shortest"]["path_ids"][0], 0)
-        self.assertEqual(graph["shortest"]["path_ids"][-1], 6)
+        self.assertEqual(graph["supported"]["path_ids"][0], 0)
+        self.assertEqual(graph["supported"]["path_ids"][-1], 6)
         self.assertGreater(len(graph["supported"]["path_ids"]), 2)
-        self.assertLessEqual(
-            graph["supported"]["maximum_jump"],
-            graph["shortest"]["maximum_jump"],
-        )
 
     def test_graph_reports_disconnected_without_relaxing_k(self):
         vectors = _unit_vectors([0, 1, 2, 100, 101, 102])
         result = self.analyze(vectors, [0], [5], graph_k=2)
-        self.assertFalse(result["graph"]["shortest"]["connected"])
         self.assertFalse(result["graph"]["supported"]["connected"])
         self.assertEqual(result["graph"]["k"], 2)
 
