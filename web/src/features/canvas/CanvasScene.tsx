@@ -30,8 +30,6 @@ import {
   viewportScaleAtom,
   xaiImageFocusRequestAtom,
 } from '@/store'
-import { Link } from 'react-router'
-import datasetIcon from '@/assets/settings-button.png'
 import { state } from './canvasState'
 import { Viewport } from './ViewPort'
 import Panel from './Panel'
@@ -54,7 +52,7 @@ import { AnchorAnalysisOverlay } from './components/AnchorAnalysisOverlay'
 import { AnchorAnalysisTray } from './components/AnchorAnalysisTray'
 import { NeighborFidelityOverlay } from './components/NeighborFidelityOverlay'
 import { ClusterPreviewSourcesOverlay } from './components/ClusterPreviewSourcesOverlay'
-import { HomeLogoLink } from '@/shared/components/HomeLogoLink'
+import { CanvasBreadcrumbs } from './components/CanvasBreadcrumbs'
 import { useNeighborFidelity } from './hooks/useNeighborFidelity'
 import { useConceptLens } from './hooks/useConceptLens'
 import { ClusterProfileOverlay } from './components/ClusterProfileOverlay'
@@ -519,23 +517,7 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
 
   return (
     <>
-      <HomeLogoLink />
-      {datasetId && (
-        <Link
-          to={`/dataset/${datasetId}`}
-          aria-label="Tillbaka till aktuellt dataset"
-          title="Tillbaka till aktuellt dataset"
-          data-canvas-ui="true"
-          className="absolute top-4 left-18 z-20 block h-12 w-12 overflow-hidden rounded-xl shadow-lg transition-transform hover:scale-105 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
-        >
-          <img
-            src={datasetIcon}
-            alt=""
-            className="h-full w-full object-cover"
-            draggable={false}
-          />
-        </Link>
-      )}
+      <CanvasBreadcrumbs datasetId={datasetId} />
 
       {(!allLoaded || rawEmbeddings.length === 0) && (
         <h1

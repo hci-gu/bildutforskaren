@@ -3,8 +3,10 @@ import * as PIXI from 'pixi.js'
 import type { Viewport } from '../ViewPort'
 import { computeProjectionBounds } from '../utils'
 import {
+  CANVAS_CONTROL_GAP,
+  CANVAS_CONTROL_MARGIN,
+  FIT_PROJECTION_BUTTON_HEIGHT,
   MINIMAP_DEAD_ZONE,
-  MINIMAP_MARGIN,
   MINIMAP_PADDING,
   MINIMAP_SIZE,
 } from '../constants'
@@ -133,8 +135,14 @@ export const Minimap: React.FC<{
   return (
     <pixiContainer
       position={{
-        x: windowSize.width - minimapOuterSize - MINIMAP_MARGIN,
-        y: windowSize.height - minimapOuterSize - MINIMAP_MARGIN,
+        x: windowSize.width - minimapOuterSize - CANVAS_CONTROL_MARGIN + MINIMAP_DEAD_ZONE,
+        y:
+          windowSize.height -
+          minimapOuterSize -
+          CANVAS_CONTROL_MARGIN -
+          FIT_PROJECTION_BUTTON_HEIGHT -
+          CANVAS_CONTROL_GAP +
+          MINIMAP_DEAD_ZONE,
       }}
       width={minimapOuterSize}
       height={minimapOuterSize}

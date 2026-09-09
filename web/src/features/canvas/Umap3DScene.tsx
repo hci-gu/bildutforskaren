@@ -29,7 +29,7 @@ import Panel from './Panel'
 import { getAnchorAnalysisDisplayPaths } from './anchorAnalysisPaths'
 import { AnchorAnalysisTray } from './components/AnchorAnalysisTray'
 import { HUD } from './components/HUD'
-import { HomeLogoLink } from '@/shared/components/HomeLogoLink'
+import { CanvasBreadcrumbs } from './components/CanvasBreadcrumbs'
 import { useNeighborFidelity } from './hooks/useNeighborFidelity'
 import { useConceptLens } from './hooks/useConceptLens'
 import { conceptLensVisual } from './xaiVisuals'
@@ -967,7 +967,7 @@ export const Umap3DScene = () => {
         className="absolute top-0 right-0 left-0"
         style={{ bottom: trayOffset }}
       />
-      <HomeLogoLink />
+      <CanvasBreadcrumbs datasetId={datasetId} />
       <HUD
         canFitProjection={projectedItems.length > 0}
         onFitProjection={() => resetCameraRef.current()}

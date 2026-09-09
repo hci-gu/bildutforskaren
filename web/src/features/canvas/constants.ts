@@ -7,9 +7,12 @@ export const BASE_SCALE = 0.075
 export const NUM_ATLASES = 8
 export const CLICK_EPS = 8
 
+export const CANVAS_CONTROL_MARGIN = 16
+export const FIT_PROJECTION_BUTTON_HEIGHT = 36
+export const CANVAS_CONTROL_GAP = 12
+
 export const MINIMAP_SIZE = 250
 export const MINIMAP_PADDING = 16
-export const MINIMAP_MARGIN = 32
 export const MINIMAP_DEAD_ZONE = 2
 
 export const TEXT_BASE_SIZE = 40

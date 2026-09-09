@@ -44,9 +44,8 @@ import {
 import { TaggerPanel } from './TaggerPanel'
 import { TagResultsPanel } from './TagResultsPanel'
 import {
-  MINIMAP_DEAD_ZONE,
-  MINIMAP_MARGIN,
-  MINIMAP_SIZE,
+  CANVAS_CONTROL_MARGIN,
+  FIT_PROJECTION_BUTTON_HEIGHT,
 } from '../constants'
 import { useAnchorAnalysis } from '../hooks/useAnchorAnalysis'
 
@@ -332,13 +331,9 @@ export const HUD = ({
         type="button"
         className="glass-panel fixed z-10000 flex items-center gap-2 rounded-full px-3 py-2 text-xs text-white shadow-lg transition hover:bg-white/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 disabled:cursor-not-allowed disabled:opacity-40"
         style={{
-          right: MINIMAP_MARGIN + MINIMAP_DEAD_ZONE,
-          bottom:
-            MINIMAP_MARGIN +
-            MINIMAP_SIZE +
-            MINIMAP_DEAD_ZONE * 2 +
-            12 +
-            bottomOffset,
+          right: CANVAS_CONTROL_MARGIN,
+          bottom: CANVAS_CONTROL_MARGIN + bottomOffset,
+          height: FIT_PROJECTION_BUTTON_HEIGHT,
         }}
         onClick={onFitProjection}
         disabled={!canFitProjection}
