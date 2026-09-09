@@ -1,6 +1,12 @@
 import { Link } from 'react-router'
 
-export function CanvasBreadcrumbs({ datasetId }: { datasetId: string | null }) {
+export function DatasetBreadcrumbs({
+  datasetId,
+  currentPage = 'dataset',
+}: {
+  datasetId: string | null
+  currentPage?: 'dataset' | 'canvas'
+}) {
   const linkClassName =
     'underline underline-offset-4 transition-colors hover:text-white focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white'
 
@@ -14,7 +20,7 @@ export function CanvasBreadcrumbs({ datasetId }: { datasetId: string | null }) {
         <li>
           <Link to="/" className={linkClassName}>Start</Link>
         </li>
-        {datasetId && (
+        {currentPage === 'canvas' && datasetId && (
           <>
             <li aria-hidden="true">/</li>
             <li>
@@ -25,7 +31,9 @@ export function CanvasBreadcrumbs({ datasetId }: { datasetId: string | null }) {
           </>
         )}
         <li aria-hidden="true">/</li>
-        <li aria-current="page" className="text-white/50">Canvas</li>
+        <li aria-current="page" className="text-white/50">
+          {currentPage === 'canvas' ? 'Canvas' : 'Dataset'}
+        </li>
       </ol>
     </nav>
   )

@@ -52,7 +52,7 @@ import { AnchorAnalysisOverlay } from './components/AnchorAnalysisOverlay'
 import { AnchorAnalysisTray } from './components/AnchorAnalysisTray'
 import { NeighborFidelityOverlay } from './components/NeighborFidelityOverlay'
 import { ClusterPreviewSourcesOverlay } from './components/ClusterPreviewSourcesOverlay'
-import { CanvasBreadcrumbs } from './components/CanvasBreadcrumbs'
+import { DatasetBreadcrumbs } from '@/shared/components/DatasetBreadcrumbs'
 import { useNeighborFidelity } from './hooks/useNeighborFidelity'
 import { useConceptLens } from './hooks/useConceptLens'
 import { ClusterProfileOverlay } from './components/ClusterProfileOverlay'
@@ -517,7 +517,7 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
 
   return (
     <>
-      <CanvasBreadcrumbs datasetId={datasetId} />
+      <DatasetBreadcrumbs datasetId={datasetId} currentPage="canvas" />
 
       {(!allLoaded || rawEmbeddings.length === 0) && (
         <h1

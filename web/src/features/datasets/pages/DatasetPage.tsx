@@ -40,7 +40,7 @@ import {
   type DatasetStatus,
   type TagStats,
 } from '@/features/datasets/types/datasets'
-import { HomeLogoLink } from '@/shared/components/HomeLogoLink'
+import { DatasetBreadcrumbs } from '@/shared/components/DatasetBreadcrumbs'
 import {
   Select,
   SelectContent,
@@ -365,7 +365,7 @@ export default function DatasetPage() {
 
   return (
     <div className="relative min-h-screen text-white">
-      <HomeLogoLink />
+      <DatasetBreadcrumbs datasetId={id ?? null} />
       <div className="mx-auto w-full max-w-4xl px-6 pt-20 pb-10">
         <div className="mb-6 flex items-center justify-between">
           <div>

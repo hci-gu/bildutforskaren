@@ -29,11 +29,17 @@ import Panel from './Panel'
 import { getAnchorAnalysisDisplayPaths } from './anchorAnalysisPaths'
 import { AnchorAnalysisTray } from './components/AnchorAnalysisTray'
 import { HUD } from './components/HUD'
-import { CanvasBreadcrumbs } from './components/CanvasBreadcrumbs'
+import { DatasetBreadcrumbs } from '@/shared/components/DatasetBreadcrumbs'
 import { useNeighborFidelity } from './hooks/useNeighborFidelity'
 import { useConceptLens } from './hooks/useConceptLens'
 import { conceptLensVisual } from './xaiVisuals'
 import type { ConceptLensResponse } from '@/shared/lib/api'
+import {
+  IMAGE_POINT_DEPTH_SCALE,
+  MAX_IMAGE_POINT_SIZE,
+  MIN_IMAGE_POINT_SIZE,
+  pointCloudImageAtPoint,
+} from './pointCloudHitTest'
 
 type ProjectedImage = {
   id: number
@@ -91,7 +97,7 @@ const vertexShader = `
     vLensActive = lensActive;
     vec4 viewPosition = modelViewMatrix * vec4(position, 1.0);
     gl_Position = projectionMatrix * viewPosition;
-    gl_PointSize = clamp(pointSize * (10.0 / max(1.0, -viewPosition.z)), 5.0, 96.0);
+    gl_PointSize = clamp(pointSize * (${IMAGE_POINT_DEPTH_SCALE.toFixed(1)} / max(1.0, -viewPosition.z)), ${MIN_IMAGE_POINT_SIZE.toFixed(1)}, ${MAX_IMAGE_POINT_SIZE.toFixed(1)});
   }
 `
 
@@ -752,28 +758,20 @@ export const Umap3DScene = () => {
       pointerStart = null
       if (distance > 6) return
 
-      const bounds = renderer.domElement.getBoundingClientRect()
-      let best: { id: number; distance: number; depth: number } | null = null
-      for (const [id, point] of normalizedPoints) {
-        const projected = point.clone().project(camera)
-        if (projected.z < -1 || projected.z > 1) continue
-        const x = bounds.left + ((projected.x + 1) / 2) * bounds.width
-        const y = bounds.top + ((1 - projected.y) / 2) * bounds.height
-        const screenDistance = Math.hypot(event.clientX - x, event.clientY - y)
-        if (
-          screenDistance <= 22 &&
-          (!best || screenDistance < best.distance - 2 ||
-            (Math.abs(screenDistance - best.distance) <= 2 && projected.z < best.depth))
-        ) {
-          best = { id, distance: screenDistance, depth: projected.z }
-        }
-      }
+      const imageId = pointCloudImageAtPoint(
+        event.clientX,
+        event.clientY,
+        pointCloudsRef.current,
+        camera,
+        renderer.domElement.getBoundingClientRect(),
+        renderer.domElement
+      )
 
-      if (!best) {
+      if (imageId === null) {
         clearSelection()
         return
       }
-      const item = itemsByIdRef.current.get(best.id)
+      const item = itemsByIdRef.current.get(imageId)
       if (item) {
         setSelectedEmbedding({ id: item.id, meta: item.meta })
         setSelectedEmbeddingIds([String(item.id)])
@@ -967,7 +965,7 @@ export const Umap3DScene = () => {
         className="absolute top-0 right-0 left-0"
         style={{ bottom: trayOffset }}
       />
-      <CanvasBreadcrumbs datasetId={datasetId} />
+      <DatasetBreadcrumbs datasetId={datasetId} currentPage="canvas" />
       <HUD
         canFitProjection={projectedItems.length > 0}
         onFitProjection={() => resetCameraRef.current()}

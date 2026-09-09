@@ -100,12 +100,36 @@ export const pointIntersectsParticle = (
   y: number,
   containerRefs: React.RefObject<PIXI.ParticleContainer | null>[]
 ): CustomParticle | null => {
-  for (const ref of containerRefs) {
-    if (!ref.current) continue
-    for (const particle of ref.current.particleChildren as CustomParticle[]) {
-      const dx = x - particle.x
-      const dy = y - particle.y
-      if (dx * dx + dy * dy < 50) return particle
+  const point = { x, y }
+  const local = new PIXI.Point()
+
+  // Later atlas layers and particles are drawn on top of earlier ones.
+  for (let i = containerRefs.length - 1; i >= 0; i--) {
+    const container = containerRefs[i].current
+    if (!container?.visible || !container.renderable || container.alpha <= 0) continue
+    // The caller supplies viewport coordinates; each atlas layer has its own transform.
+    container.updateLocalTransform()
+    container.localTransform.applyInverse(point, local)
+    const particles = container.particleChildren as CustomParticle[]
+    for (let j = particles.length - 1; j >= 0; j--) {
+      const particle = particles[j]
+      if (particle.alpha <= 0 || particle.scaleX === 0 || particle.scaleY === 0) continue
+
+      const dx = local.x - particle.x
+      const dy = local.y - particle.y
+      const cos = Math.cos(particle.rotation)
+      const sin = Math.sin(particle.rotation)
+      const px = (dx * cos + dy * sin) / particle.scaleX
+      const py = (-dx * sin + dy * cos) / particle.scaleY
+      const { orig, trim } = particle.texture
+      // Use the same texture rectangle and anchor as Pixi's particle renderer.
+      const left = (trim?.x ?? 0) - particle.anchorX * orig.width
+      const top = (trim?.y ?? 0) - particle.anchorY * orig.height
+      const width = trim?.width ?? orig.width
+      const height = trim?.height ?? orig.height
+      if (px >= left && px <= left + width && py >= top && py <= top + height) {
+        return particle
+      }
     }
   }
   return null
