@@ -58,6 +58,11 @@ supported CUDA GPUs and float32 otherwise, never FP16. Models download on first
 use. The inference service retains one embedding model at a time to limit memory
 use; alternating queries between datasets using different models reloads weights.
 
+`GET /datasets/<dataset-id>/status` returns lifecycle and job state without
+loading model weights or scanning per-image artifacts. The separate
+`/image-roundtrip/status` and `/cluster-previews/status` routes return artifact
+details when needed.
+
 A model switch prepares the target index and SAO vectors in the background,
 then activates it after successful preparation. The previous model remains
 active if preparation fails. Conflicting background jobs are rejected during a

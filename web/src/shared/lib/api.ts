@@ -461,6 +461,18 @@ export const fetchDatasetStatus = async (datasetId: string) => {
   )
 }
 
+export const fetchImageRoundtripStatus = async (datasetId: string) => {
+  return await fetchJson<Json>(
+    `${API_URL}/datasets/${encodeURIComponent(datasetId)}/image-roundtrip/status`
+  )
+}
+
+export const fetchClusterPreviewStatus = async (datasetId: string) => {
+  return await fetchJson<Json>(
+    `${API_URL}/datasets/${encodeURIComponent(datasetId)}/cluster-previews/status`
+  )
+}
+
 export const deleteDataset = async (datasetId: string) => {
   return await fetchJson<Json>(
     `${API_URL}/datasets/${encodeURIComponent(datasetId)}`,

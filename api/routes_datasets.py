@@ -145,14 +145,11 @@ def dataset_status(dataset_id: str):
         )
     except Exception:
         meta["embeddings_cached"] = False
-    try:
-        meta["image_roundtrip"] = image_roundtrip.artifact_status(dataset_id) if meta.get("status") == "ready" else None
-    except Exception:
-        meta["image_roundtrip"] = None
-    try:
-        meta["cluster_previews"] = cluster_previews.status(dataset_id) if meta.get("status") == "ready" else None
-    except Exception:
-        meta["cluster_previews"] = None
+    # Artifact summaries scan every image and may build model context. Keep
+    # lifecycle polling independent of that expensive work; callers can use
+    # the dedicated status endpoints when they need artifact details.
+    meta["image_roundtrip"] = None
+    meta["cluster_previews"] = None
 
     job = runtime.get_job_manager().get_state(dataset_id)
     if job:

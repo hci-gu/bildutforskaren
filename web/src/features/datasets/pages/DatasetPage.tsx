@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useParams, Link, useNavigate } from 'react-router'
 import { useSetAtom } from 'jotai'
 import { activeDatasetIdAtom, datasetsRevisionAtom, observeEmbeddingModelAtom } from '@/store'
@@ -27,6 +27,8 @@ import {
   clearImageRoundtripArtifacts,
   deleteDataset,
   fetchDatasetStatus,
+  fetchImageRoundtripStatus,
+  fetchClusterPreviewStatus,
   fetchTagStats,
   generateClusterPreviews,
   generateImageRoundtrip,
@@ -113,6 +115,11 @@ export default function DatasetPage() {
 
   const [dataset, setDataset] = useState<DatasetStatus | null>(null)
   const [tagStats, setTagStats] = useState<TagStats | null>(null)
+  const [roundtripStatus, setRoundtripStatus] = useState<DatasetStatus['image_roundtrip']>(null)
+  const [clusterStatus, setClusterStatus] = useState<DatasetStatus['cluster_previews']>(null)
+  const [artifactStatusLoading, setArtifactStatusLoading] = useState(false)
+  const [artifactStatusError, setArtifactStatusError] = useState<string | null>(null)
+  const artifactRequestSequence = useRef(0)
   const [loading, setLoading] = useState(false)
   const [seedResult, setSeedResult] = useState<string | null>(null)
   const [seedError, setSeedError] = useState<string | null>(null)
@@ -166,7 +173,6 @@ export default function DatasetPage() {
     statusValue !== 'uploading' &&
     !isJobActive &&
     (!dataset.embeddings_cached || isPending)
-  const roundtripStatus = dataset?.image_roundtrip
   const canGenerateRoundtrip =
     isReady &&
     !isJobActive &&
@@ -189,7 +195,6 @@ export default function DatasetPage() {
     !!roundtripStatus &&
     roundtripStatus.total > 0 &&
     roundtripStatus.missing === 0
-  const clusterStatus = dataset?.cluster_previews
   const showClusterProgress =
     dataset?.job?.stage === 'cluster-previews' &&
     typeof dataset?.job?.progress === 'number'
@@ -234,9 +239,41 @@ export default function DatasetPage() {
     [id]
   )
 
+  const reloadArtifactStatus = useCallback(async (datasetId: string) => {
+    const requestId = ++artifactRequestSequence.current
+    setArtifactStatusLoading(true)
+    setArtifactStatusError(null)
+    try {
+      const [roundtrip, clusters] = await Promise.allSettled([
+        fetchImageRoundtripStatus(datasetId),
+        fetchClusterPreviewStatus(datasetId),
+      ])
+      if (requestId !== artifactRequestSequence.current) return
+      setRoundtripStatus(roundtrip.status === 'fulfilled'
+        ? roundtrip.value as NonNullable<DatasetStatus['image_roundtrip']>
+        : null)
+      setClusterStatus(clusters.status === 'fulfilled'
+        ? clusters.value as NonNullable<DatasetStatus['cluster_previews']>
+        : null)
+      if (roundtrip.status === 'rejected' || clusters.status === 'rejected') {
+        setArtifactStatusError('Kunde inte läsa all filstatus. Försök igen.')
+      }
+    } finally {
+      if (requestId === artifactRequestSequence.current) setArtifactStatusLoading(false)
+    }
+  }, [])
+
   useEffect(() => {
     if (id) setActiveDatasetId(id)
   }, [id, setActiveDatasetId])
+
+  useEffect(() => {
+    artifactRequestSequence.current += 1
+    setRoundtripStatus(null)
+    setClusterStatus(null)
+    setArtifactStatusLoading(false)
+    setArtifactStatusError(null)
+  }, [id])
 
   useEffect(() => {
     const model = dataset?.embedding_model
@@ -343,6 +380,7 @@ export default function DatasetPage() {
     try {
       await clearImageRoundtripArtifacts(id, artifactGroup)
       await reloadStatus()
+      await reloadArtifactStatus(id)
     } catch (err) {
       setRoundtripError(String(err))
     } finally {
@@ -375,6 +413,7 @@ export default function DatasetPage() {
     try {
       await clearClusterPreviews(id)
       await reloadStatus()
+      await reloadArtifactStatus(id)
     } catch {
       setClusterError('Kunde inte ta bort klusterförhandsvisningar.')
     } finally {
@@ -611,6 +650,15 @@ export default function DatasetPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => { if (id) void reloadArtifactStatus(id) }}
+              disabled={!isReady || artifactStatusLoading}
+            >
+              {artifactStatusLoading ? 'Läser filstatus…' : 'Läs filstatus'}
+            </Button>
+            {artifactStatusError && <div className="text-xs text-red-300">{artifactStatusError}</div>}
             <div className="grid gap-3 text-sm sm:grid-cols-3">
               <div>
                 <div className="text-white/50">Totalt</div>
@@ -719,10 +767,18 @@ export default function DatasetPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => { if (id) void reloadArtifactStatus(id) }}
+              disabled={!isReady || artifactStatusLoading}
+            >
+              {artifactStatusLoading ? 'Läser filstatus…' : 'Läs filstatus'}
+            </Button>
             <div className="grid gap-3 text-sm sm:grid-cols-4">
               <div>
                 <div className="text-white/50">Finns</div>
-                <div>{clusterStatus?.exists ? 'Ja' : 'Nej'}</div>
+                <div>{clusterStatus ? (clusterStatus.exists ? 'Ja' : 'Nej') : '-'}</div>
               </div>
               <div>
                 <div className="text-white/50">Nivåer</div>
