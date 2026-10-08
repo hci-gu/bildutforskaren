@@ -21,6 +21,21 @@ uv sync --extra cpu
 ``` bash
 uv run --no-sync api.py
 ``` 
+The API listens on `0.0.0.0:3000`. Set `BILDUTFORSKAREN_API_KEY` in the
+process environment or an ignored `.env` file before starting it. The server
+refuses to start without a key. Every API request must include
+`X-API-Key: <your-key>`; an absent or incorrect key returns HTTP 401. Browser
+CORS preflight (`OPTIONS`) requests are allowed without a key because they do
+not access route data. For example:
+
+```bash
+curl -H "X-API-Key: $BILDUTFORSKAREN_API_KEY" http://localhost:3000/datasets
+```
+
+Keep the key out of source control and use HTTPS when accessing the API over a
+network. For the OpenShift deployment, create a Secret named
+`bildutforskaren-api` with an `api-key` entry before applying `deploy/api.yaml`.
+
 The API and model-worker entrypoints load environment variables from `.env` and
 `api/.env`. Existing process-environment values take precedence. Image-generation
 pipelines warm during startup by default; set
@@ -88,6 +103,20 @@ Install required dependencies:
 pnpm install
 ``` 
 Frontend dependencies are listed in `web/package.json`.
+
+For a local frontend talking to an API that requires a key, create an ignored
+`web/.env` file:
+
+```dotenv
+VITE_API_URL=/api
+BILDUTFORSKAREN_API_TARGET=http://<api-host>:3000
+BILDUTFORSKAREN_API_KEY=<your-key>
+```
+
+The Vite development server proxies `/api` requests to the backend and adds
+the key on the server side. This also covers images and atlas sheets, which
+browser image elements cannot load with custom headers. Keep the Vite dev
+server bound to localhost while using this proxy.
 
 Run frontend dev server:
 ``` bash

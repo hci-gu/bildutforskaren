@@ -6,6 +6,7 @@ import os
 from flask import Flask
 from flask_cors import CORS
 
+from api.auth import install_api_key_auth
 from api import config
 from api import model_backends
 from api.runtime import init_runtime
@@ -22,6 +23,10 @@ def create_app() -> Flask:
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(message)s",
     )
+
+    app = Flask(__name__)
+    install_api_key_auth(app)
+    CORS(app)
 
     config.ensure_runtime_dirs()
     init_runtime()
@@ -40,9 +45,6 @@ def create_app() -> Flask:
                 logging.info("Image-generation pipelines are ready")
         except Exception as exc:
             logging.warning("Failed to warm image-generation pipelines: %s", exc)
-
-    app = Flask(__name__)
-    CORS(app)
 
     app.register_blueprint(datasets_bp)
     app.register_blueprint(dataset_scoped_bp)
