@@ -1,5 +1,6 @@
 import csv
 import time
+from pathlib import Path
 import requests
 from urllib.parse import urljoin
 
@@ -14,6 +15,7 @@ START_URL = (
 )
 
 SLEEP = 0.25
+OUTPUT_PATH = Path(__file__).resolve().parent.parent / "sao_terms.csv"
 
 
 def fetch(url: str):
@@ -106,7 +108,7 @@ def main():
         print("[ERROR] Inga termer hämtades")
         return
 
-    with open("sao_terms.csv", "w", encoding="utf-8", newline="") as f:
+    with OUTPUT_PATH.open("w", encoding="utf-8", newline="") as f:
         writer = csv.writer(f)
         writer.writerow([
             "controlNumber",
@@ -115,7 +117,7 @@ def main():
         ])
         writer.writerows(all_terms)
 
-    print("Sparade sao_terms.csv")
+    print(f"Sparade {OUTPUT_PATH}")
 
 
 if __name__ == "__main__":

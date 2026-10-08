@@ -4,7 +4,7 @@ The Swedish preferred label remains the canonical display value.  The generated
 English label and prompt are intended for CLIP text embedding.
 
 Example:
-    uv run --extra cuda python translate_sao_terms.py --batch-size 16
+    uv run --extra cuda python scripts/translate_sao_terms.py --batch-size 16
 """
 
 from __future__ import annotations
@@ -18,8 +18,9 @@ from tqdm.auto import tqdm
 
 
 DEFAULT_MODEL = "Qwen/Qwen2.5-14B-Instruct"
-DEFAULT_INPUT = Path(__file__).with_name("sao_terms.csv")
-DEFAULT_OUTPUT = Path(__file__).with_name("sao_terms_english.csv")
+REPO_ROOT = Path(__file__).resolve().parent.parent
+DEFAULT_INPUT = REPO_ROOT / "sao_terms.csv"
+DEFAULT_OUTPUT = REPO_ROOT / "sao_terms_english.csv"
 ENGLISH_LABEL_COLUMN = "prefLabelEnglish"
 EMBEDDING_PROMPT_COLUMN = "embeddingPromptEnglish"
 TRANSLATION_MODEL_COLUMN = "translationModel"

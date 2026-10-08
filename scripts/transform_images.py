@@ -1,10 +1,11 @@
 import argparse
 import os
+from pathlib import Path
 from PIL import Image
 
-# Configuration
-input_root = '/Volumes/T7/Riksarkivet'
-output_root = 'out'
+REPO_ROOT = Path(__file__).resolve().parent.parent
+DEFAULT_INPUT_ROOT = Path('/Volumes/T7/Riksarkivet')
+DEFAULT_OUTPUT_ROOT = REPO_ROOT / 'out'
 max_size = (336, 336)  # Resize to fit within this (width, height)
 
 def resize_image(input_path, output_path, max_size):
@@ -32,8 +33,8 @@ def process_folder(input_root, output_root, max_size):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Resize images into a mirrored output folder.')
-    parser.add_argument('input_root', nargs='?', default=input_root, help='Root folder containing source images.')
-    parser.add_argument('output_root', nargs='?', default=output_root, help='Root folder for resized images.')
+    parser.add_argument('input_root', nargs='?', type=Path, default=DEFAULT_INPUT_ROOT, help='Root folder containing source images.')
+    parser.add_argument('output_root', nargs='?', type=Path, default=DEFAULT_OUTPUT_ROOT, help='Root folder for resized images.')
     args = parser.parse_args()
 
     process_folder(args.input_root, args.output_root, max_size)

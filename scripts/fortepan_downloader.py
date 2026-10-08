@@ -3,7 +3,8 @@ import asyncio
 from pathlib import Path
 
 BASE_URL = "https://fortepan.download/file/fortepan-eu/download/fortepan_{image_id}.jpg"
-IMAGE_OUTPUT_DIR = Path("datasets/fortepan/images")
+REPO_ROOT = Path(__file__).resolve().parent.parent
+IMAGE_OUTPUT_DIR = REPO_ROOT / "datasets" / "fortepan" / "images"
 STEP = 111 # keep between 100 or 1000, lower -> more images
 IMAGE_IDS = range(200_000, 400_000, STEP)
 MAX_PARALLEL_REQUESTS = 10

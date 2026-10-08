@@ -1,12 +1,12 @@
-import os
 import uuid
+from pathlib import Path
 import requests
 from PIL import Image
 from io import BytesIO
 
 def download_random_images(image_count=250, image_size=(400, 300)):
-    folder_name = "images"
-    os.makedirs(folder_name, exist_ok=True)
+    folder_name = Path(__file__).resolve().parent.parent / "images"
+    folder_name.mkdir(parents=True, exist_ok=True)
 
     print(f"Saving images to folder: {folder_name}")
 
@@ -32,7 +32,7 @@ def download_random_images(image_count=250, image_size=(400, 300)):
                 seen_hashes.add(image_hash)
 
                 filename = f"{uuid.uuid4()}.jpg"
-                path = os.path.join(folder_name, filename)
+                path = folder_name / filename
                 image.save(path)
                 downloaded += 1
                 print(f"Downloaded image {downloaded} → {filename}")
