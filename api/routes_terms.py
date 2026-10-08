@@ -3,6 +3,7 @@ from __future__ import annotations
 from flask import Blueprint, jsonify, request
 
 from api import sao_terms
+from api.embedding_config import CLIP_MODEL_ID, validate_model
 
 bp = Blueprint("terms", __name__)
 
@@ -52,9 +53,12 @@ def sao_terms_umap():
         return jsonify({"error": "'seed' must be an integer"}), 400
 
     try:
+        model_id = validate_model(request.args.get("embedding_model", CLIP_MODEL_ID))
         points = sao_terms.get_umap_points(
-            n_neighbors=n_neighbors, min_dist=min_dist, seed=seed
+            n_neighbors=n_neighbors, min_dist=min_dist, seed=seed, model_id=model_id
         )
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
     except RuntimeError as exc:
         return jsonify({"error": str(exc)}), 500
 

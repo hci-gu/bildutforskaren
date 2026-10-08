@@ -21,26 +21,27 @@ class ContextCache:
                 self._build_locks[dataset_id] = lock
             return lock
 
-    def get(self, dataset_id: str, builder):
+    def get(self, dataset_id: str, builder, fingerprint: str = ""):
+        key = f"{dataset_id}:{fingerprint}"
         with self._cache_lock:
-            ctx = self._cache.get(dataset_id)
+            ctx = self._cache.get(key)
             if ctx is not None:
-                self._cache.move_to_end(dataset_id)
+                self._cache.move_to_end(key)
                 return ctx
 
-        build_lock = self._get_build_lock(dataset_id)
+        build_lock = self._get_build_lock(key)
         with build_lock:
             with self._cache_lock:
-                ctx = self._cache.get(dataset_id)
+                ctx = self._cache.get(key)
                 if ctx is not None:
-                    self._cache.move_to_end(dataset_id)
+                    self._cache.move_to_end(key)
                     return ctx
 
             ctx = builder(dataset_id)
 
             with self._cache_lock:
-                self._cache[dataset_id] = ctx
-                self._cache.move_to_end(dataset_id)
+                self._cache[key] = ctx
+                self._cache.move_to_end(key)
                 while len(self._cache) > self._max_size:
                     self._cache.popitem(last=False)
 
@@ -48,4 +49,6 @@ class ContextCache:
 
     def invalidate(self, dataset_id: str) -> None:
         with self._cache_lock:
-            self._cache.pop(dataset_id, None)
+            for key in list(self._cache):
+                if key.startswith(f"{dataset_id}:"):
+                    self._cache.pop(key, None)

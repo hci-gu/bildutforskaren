@@ -5,18 +5,21 @@ import difflib
 import hashlib
 import logging
 import time
+import threading
 import unicodedata
+from collections.abc import Callable
 from pathlib import Path
 
 import numpy as np
 
-from api import clip_service
+from api import embedding_service
+from api.embedding_config import CLIP_MODEL_ID, fingerprint
 from api import config
 
 _TERMS: list[dict] | None = None
 _LABELS_NORM: list[str] | None = None
-_EMBEDDINGS: np.ndarray | None = None
-_EMBEDDINGS_HASH: str | None = None
+_EMBEDDINGS: dict[str, np.ndarray] = {}
+_EMBEDDING_LOCK = threading.RLock()
 
 _TERMS_FILENAME = "sao_terms_english.csv"
 _EMBEDDING_VERSION = "sao_english_embeddings_v1"
@@ -105,7 +108,7 @@ def get_terms() -> tuple[list[dict], list[str]]:
     return _TERMS, _LABELS_NORM
 
 
-def _labels_hash(terms: list[dict]) -> str:
+def _labels_hash(terms: list[dict], model_id: str = CLIP_MODEL_ID) -> str:
     rows = "\n".join(
         "\t".join(
             (
@@ -119,22 +122,24 @@ def _labels_hash(terms: list[dict]) -> str:
     )
     payload = (
         f"{_EMBEDDING_VERSION}\n"
-        f"{clip_service.CLIP_MODEL_ID}\n"
+        f"{fingerprint(model_id)}\n"
         f"{rows}"
     )
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
-def _cache_path() -> Path:
+def _cache_path(model_id: str = CLIP_MODEL_ID) -> Path:
     return (
         config.REPO_ROOT
         / ".cache"
+        / "embeddings"
+        / fingerprint(model_id)
         / "sao_terms_english_embeddings.npz"
     )
 
 
-def _umap_cache_path() -> Path:
-    return config.REPO_ROOT / ".cache" / "sao_terms_english_umap.npz"
+def _umap_cache_path(model_id: str = CLIP_MODEL_ID) -> Path:
+    return _cache_path(model_id).parent / "sao_terms_english_umap.npz"
 
 
 def _load_embeddings_from_cache(path: Path, expected_hash: str) -> np.ndarray | None:
@@ -157,48 +162,44 @@ def _save_embeddings_cache(path: Path, embeddings: np.ndarray, labels_hash: str)
     np.savez_compressed(path, embeddings=embeddings, labels_hash=np.array(labels_hash))
 
 
-def ensure_embeddings() -> np.ndarray:
-    global _EMBEDDINGS, _EMBEDDINGS_HASH
-    if _EMBEDDINGS is not None:
-        return _EMBEDDINGS
-
+def ensure_embeddings(
+    model_id: str = CLIP_MODEL_ID, *,
+    progress_cb: Callable[[int, int], None] | None = None,
+) -> np.ndarray:
     terms, _ = get_terms()
-    labels_hash = _labels_hash(terms)
-    cache_path = _cache_path()
-
-    cached = _load_embeddings_from_cache(cache_path, labels_hash)
-    if cached is not None:
-        _EMBEDDINGS = cached
-        _EMBEDDINGS_HASH = labels_hash
-        logging.info("Loaded SAO term embeddings from cache (%s)", cache_path)
-        return _EMBEDDINGS
-
-    prompts = [term["embedding_prompt"] for term in terms]
-    if not prompts:
-        _EMBEDDINGS = np.empty((0, 0), dtype="float32")
-        _EMBEDDINGS_HASH = labels_hash
-        return _EMBEDDINGS
-
-    logging.info(
-        "Computing English SAO term embeddings (%s terms)…",
-        len(prompts),
-    )
-    batch_size = 256
-    chunks: list[np.ndarray] = []
-    for i in range(0, len(prompts), batch_size):
-        batch = prompts[i : i + batch_size]
-        chunks.append(clip_service.embed_text(batch))
-    embeddings = np.vstack(chunks).astype("float32")
-    _save_embeddings_cache(cache_path, embeddings, labels_hash)
-    logging.info("Saved SAO term embeddings → %s", cache_path)
-
-    _EMBEDDINGS = embeddings
-    _EMBEDDINGS_HASH = labels_hash
-    return _EMBEDDINGS
+    labels_hash = _labels_hash(terms, model_id)
+    # Reads of a completed matrix remain available while another model prepares.
+    ready = _EMBEDDINGS.get(labels_hash)
+    if ready is not None:
+        if progress_cb:
+            progress_cb(len(terms), len(terms))
+        return ready
+    with _EMBEDDING_LOCK:
+        if labels_hash in _EMBEDDINGS:
+            if progress_cb:
+                progress_cb(len(terms), len(terms))
+            return _EMBEDDINGS[labels_hash]
+        cache_path = _cache_path(model_id)
+        cached = _load_embeddings_from_cache(cache_path, labels_hash)
+        if cached is not None:
+            try:
+                cached = embedding_service.normalized_vectors(cached, len(terms))
+            except ValueError:
+                cached = None
+        if cached is None:
+            prompts = [term["embedding_prompt"] for term in terms]
+            logging.info("Computing SAO embeddings with %s (%s terms)", model_id, len(prompts))
+            kwargs = {"progress_cb": progress_cb} if progress_cb else {}
+            cached = embedding_service.embed_text(prompts, model_id, **kwargs)
+            _save_embeddings_cache(cache_path, cached, labels_hash)
+        _EMBEDDINGS[labels_hash] = cached
+        if progress_cb:
+            progress_cb(len(terms), len(terms))
+        return cached
 
 
-def get_embeddings() -> tuple[np.ndarray, list[dict]]:
-    embeddings = ensure_embeddings()
+def get_embeddings(model_id: str = CLIP_MODEL_ID) -> tuple[np.ndarray, list[dict]]:
+    embeddings = ensure_embeddings(model_id)
     terms, _ = get_terms()
     return embeddings, terms
 
@@ -208,13 +209,14 @@ def get_umap_points(
     n_neighbors: int = 15,
     min_dist: float = 0.1,
     seed: int = 42,
+    model_id: str = CLIP_MODEL_ID,
 ) -> np.ndarray:
-    embeddings, terms = get_embeddings()
+    embeddings, terms = get_embeddings(model_id)
     if embeddings.size == 0:
         return np.empty((0, 2), dtype="float32")
 
-    labels_hash = _labels_hash(terms)
-    cache_path = _umap_cache_path()
+    labels_hash = _labels_hash(terms, model_id)
+    cache_path = _umap_cache_path(model_id)
     if cache_path.exists():
         try:
             data = np.load(cache_path, allow_pickle=False)

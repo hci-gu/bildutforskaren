@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import re
 
-from flask import Blueprint, jsonify, request, send_file
+from flask import Blueprint, g, jsonify, request, send_file
 
 from api import config
 from api import cluster_previews
@@ -12,10 +12,34 @@ from api import image_roundtrip
 from api import jobs
 from api import model_backends
 from api import runtime
+from api import dataset_activity
+from api.embedding_config import CLIP_MODEL_ID, validate_model
 from api.clustering import ClusteringConfig
 
 
 bp = Blueprint("datasets", __name__)
+
+
+@bp.errorhandler(dataset_activity.ActiveDatasetJobError)
+def busy_dataset(exc):
+    return jsonify({"error": str(exc)}), 409
+
+
+@bp.before_request
+def protect_model_switch():
+    dataset_id = (request.view_args or {}).get("dataset_id")
+    if dataset_id and request.method != "GET":
+        dataset_activity.LOCK.acquire()
+        g.dataset_activity_locked = True
+        if request.endpoint != "datasets.set_embedding_model" and dataset_activity.switching(dataset_id):
+            return jsonify({"error": "Embedding model switch is running"}), 409
+
+
+@bp.teardown_request
+def release_dataset_lock(_exc):
+    if getattr(g, "dataset_activity_locked", False):
+        g.dataset_activity_locked = False
+        dataset_activity.LOCK.release()
 
 
 def _json_no_store(data: object, status: int = 200):
@@ -76,8 +100,32 @@ def datasets_route():
     # Frontent makes initial POST request when creating new dataset
     payload = request.get_json(silent=True) or {}
     name = payload.get("name")
-    data = datasets.create_dataset(name)
+    try:
+        data = datasets.create_dataset(name, payload.get("embedding_model", CLIP_MODEL_ID))
+    except (ValueError, TypeError):
+        return jsonify({"error": "Unsupported embedding model"}), 400
     return jsonify(data), 201
+
+
+@bp.route("/datasets/<dataset_id>/embedding-model", methods=["POST"])
+def set_embedding_model(dataset_id: str):
+    if not datasets.is_safe_dataset_id(dataset_id):
+        return jsonify({"error": "Invalid dataset_id"}), 400
+    try:
+        meta = datasets.read_dataset_json(dataset_id)
+    except FileNotFoundError:
+        return jsonify({"error": "Dataset not found"}), 404
+    payload = request.get_json(silent=True) or {}
+    try:
+        model_id = validate_model(payload.get("embedding_model"))
+    except (ValueError, TypeError):
+        return jsonify({"error": "Unsupported embedding model"}), 400
+    if meta["embedding_model"] == model_id:
+        return jsonify(meta)
+    if meta.get("status") != "ready":
+        return jsonify({"error": "Dataset must be ready to switch models"}), 409
+    jobs.submit_model_switch(dataset_id, model_id)
+    return jsonify({"status": "queued", "target": model_id}), 202
 
 
 @bp.route("/datasets/<dataset_id>/status", methods=["GET"])
@@ -92,15 +140,17 @@ def dataset_status(dataset_id: str):
     meta["has_metadata_xlsx"] = (config.DATASETS_ROOT / dataset_id / "metadata.xlsx").exists()
     try:
         cfg = datasets.get_dataset_config(dataset_id)
-        meta["embeddings_cached"] = cfg.cache_file.exists()
+        meta["embeddings_cached"] = cfg.cache_file.exists() or (
+            cfg.embedding_model == CLIP_MODEL_ID and (cfg.cache_dir / "clip_index.npz").exists()
+        )
     except Exception:
         meta["embeddings_cached"] = False
     try:
-        meta["image_roundtrip"] = image_roundtrip.artifact_status(dataset_id)
+        meta["image_roundtrip"] = image_roundtrip.artifact_status(dataset_id) if meta.get("status") == "ready" else None
     except Exception:
         meta["image_roundtrip"] = None
     try:
-        meta["cluster_previews"] = cluster_previews.status(dataset_id)
+        meta["cluster_previews"] = cluster_previews.status(dataset_id) if meta.get("status") == "ready" else None
     except Exception:
         meta["cluster_previews"] = None
 

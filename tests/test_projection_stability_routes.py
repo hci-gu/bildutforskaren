@@ -35,7 +35,7 @@ class _FakeManager:
             "progress": 0.5,
         }
 
-    def start(self, _dataset_id, _worker):
+    def start(self, _dataset_id, _worker, **_kwargs):
         if self.start_error:
             raise self.start_error
         return "job-1"
@@ -54,7 +54,7 @@ class ProjectionStabilityRouteTests(unittest.TestCase):
         app = Flask(__name__)
         app.register_blueprint(bp)
         self.client = app.test_client()
-        self.context = SimpleNamespace(embeddings=_FakeEmbeddings())
+        self.context = SimpleNamespace(embeddings=_FakeEmbeddings(), cfg=SimpleNamespace(embedding_model="openai/clip-vit-large-patch14"))
         self.manager = _FakeManager()
         self.concepts = [
             {"id": "a", "label": "hästar", "scope_note": "Djur."},

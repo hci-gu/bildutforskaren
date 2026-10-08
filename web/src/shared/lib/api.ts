@@ -358,7 +358,7 @@ export type AnchorAnalysisResponse = {
 }
 
 export const API_URL =
-  import.meta.env.VITE_API_URL || 'http://localhost:3000'
+  import.meta.env?.VITE_API_URL || 'http://localhost:3000'
 // export const API_URL = 'https://bildutforskaren-api.prod.appadem.in'
 // export const API_URL = 'https://leviathan.itit.gu.se'
 
@@ -409,12 +409,26 @@ export const fetchDatasets = async () => {
   return await fetchJson<any[]>(`${API_URL}/datasets`, { cache: 'no-store' })
 }
 
-export const createDataset = async (name: string) => {
+export const createDataset = async (
+  name: string,
+  embeddingModel = 'openai/clip-vit-large-patch14'
+) => {
   return await fetchJson<{ dataset_id: string }>(`${API_URL}/datasets`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name }),
+    body: JSON.stringify({ name, embedding_model: embeddingModel }),
   })
+}
+
+export const switchEmbeddingModel = async (datasetId: string, embeddingModel: string) => {
+  return await fetchJson<Json>(
+    `${API_URL}/datasets/${encodeURIComponent(datasetId)}/embedding-model`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ embedding_model: embeddingModel }),
+    }
+  )
 }
 
 export const uploadDatasetZip = async (datasetId: string, file: File) => {
@@ -491,7 +505,7 @@ export const generateImageRoundtrip = async (datasetId: string) => {
 
 export const clearImageRoundtripArtifacts = async (
   datasetId: string,
-  artifactGroup: 'clip' | 'florence' | 'sdxl' | 'ip_adapter'
+  artifactGroup: 'embedding' | 'clip' | 'florence' | 'sdxl' | 'ip_adapter'
 ) => {
   return await fetchJson<Json>(
     `${API_URL}/datasets/${encodeURIComponent(datasetId)}/image-roundtrip/${artifactGroup}`,

@@ -7,6 +7,7 @@ import re
 import pickle
 from pathlib import Path
 from typing import List
+from zipfile import BadZipFile
 
 import numpy as np
 import torch
@@ -18,7 +19,8 @@ except Exception:  # pragma: no cover
     faiss = None
 
 from api import config
-from api import clip_service
+from api import embedding_service
+from api.embedding_config import CLIP_MODEL_ID
 from api.models import DatasetConfig
 
 
@@ -32,24 +34,39 @@ def extract_metadata(cfg: DatasetConfig, path: Path) -> dict:
     }
 
 
-def save_cache(cache_file: Path, emb: torch.Tensor, paths: List[Path]) -> None:
+def save_cache(cache_file: Path, emb: torch.Tensor, paths: List[Path], fingerprint: str = "") -> None:
     cache_file.parent.mkdir(parents=True, exist_ok=True)
     np.savez_compressed(
         cache_file,
         embeddings=emb.numpy().astype("float32"),
         paths=np.array([str(p) for p in paths]),
+        fingerprint=np.array(fingerprint),
+        signatures=np.array([f"{p.stat().st_size}:{p.stat().st_mtime_ns}" for p in paths]),
     )
     logging.info("Saved %s embeddings → %s", len(paths), cache_file)
 
 
-def load_cache(cache_file: Path):
+def load_cache(cache_file: Path, fingerprint: str | None = None):
     if not cache_file.exists():
         return None, None
 
-    data = np.load(cache_file, allow_pickle=True)
-    cached_paths = list(data["paths"].tolist())
-    embeddings = torch.from_numpy(data["embeddings"])
-    return cached_paths, embeddings
+    try:
+        with cache_file.open("rb") as source, np.load(source, allow_pickle=False) as data:
+            if fingerprint is not None and data.get("fingerprint", np.array("")).item() != fingerprint:
+                return None, None
+            cached_paths = list(data["paths"].tolist())
+            if fingerprint is not None:
+                signatures = [f"{Path(p).stat().st_size}:{Path(p).stat().st_mtime_ns}" for p in cached_paths]
+                if signatures != data["signatures"].tolist():
+                    return None, None
+            vectors = data["embeddings"].astype("float32")
+            if vectors.shape != (len(cached_paths), 768) or not np.isfinite(vectors).all():
+                return None, None
+            if not np.allclose(np.linalg.norm(vectors, axis=1), 1, atol=1e-4):
+                return None, None
+            return cached_paths, torch.from_numpy(vectors)
+    except (OSError, ValueError, KeyError, EOFError, BadZipFile):
+        return None, None
 
 
 class NumpyIndex:
@@ -80,25 +97,36 @@ def build_index(emb: torch.Tensor):
     return index
 
 
-def save_pca_cache(pca_cache_file: Path, pca_embeddings: np.ndarray, paths: List[Path]) -> None:
+def save_pca_cache(pca_cache_file: Path, pca_embeddings: np.ndarray, paths: List[Path], fingerprint: str = "", source_digest: str = "") -> None:
     pca_cache_file.parent.mkdir(parents=True, exist_ok=True)
     np.savez_compressed(
         pca_cache_file,
         embeddings=pca_embeddings.astype("float32"),
         paths=np.array([str(p) for p in paths]),
         dim=np.array([pca_embeddings.shape[1]], dtype=np.int32),
+        fingerprint=np.array(fingerprint),
+        source_digest=np.array(source_digest),
     )
     logging.info("Saved PCA(%s) embeddings → %s", pca_embeddings.shape[1], pca_cache_file)
 
 
-def load_pca_cache(pca_cache_file: Path):
+def load_pca_cache(pca_cache_file: Path, fingerprint: str | None = None, source_digest: str | None = None):
     if not pca_cache_file.exists():
         return None, None
 
-    data = np.load(pca_cache_file, allow_pickle=True)
-    cached_paths = list(data["paths"].tolist())
-    pca_emb = data["embeddings"].astype("float32")
-    return cached_paths, pca_emb
+    try:
+        with pca_cache_file.open("rb") as source, np.load(source, allow_pickle=False) as data:
+            if fingerprint is not None and data.get("fingerprint", np.array("")).item() != fingerprint:
+                return None, None
+            if source_digest is not None and data.get("source_digest", np.array("")).item() != source_digest:
+                return None, None
+            cached_paths = list(data["paths"].tolist())
+            pca_emb = data["embeddings"].astype("float32")
+            if pca_emb.ndim != 2 or len(pca_emb) != len(cached_paths) or not np.isfinite(pca_emb).all():
+                return None, None
+            return cached_paths, pca_emb
+    except (OSError, ValueError, KeyError, EOFError, BadZipFile):
+        return None, None
 
 
 def compute_and_cache_pca(cfg: DatasetConfig, embeddings: torch.Tensor, paths: List[Path]) -> np.ndarray:
@@ -111,21 +139,35 @@ def compute_and_cache_pca(cfg: DatasetConfig, embeddings: torch.Tensor, paths: L
 
     pca = PCA(n_components=k, svd_solver="randomized", random_state=1)
     X_pca = pca.fit_transform(X).astype("float32")
+    pca.embedding_fingerprint_ = cfg.embedding_fingerprint
+    pca.embedding_digest_ = hashlib.sha256(X.tobytes()).hexdigest()
 
     cfg.pca_model_file.parent.mkdir(parents=True, exist_ok=True)
     with cfg.pca_model_file.open("wb") as fh:
         pickle.dump(pca, fh)
     logging.info("Saved PCA model → %s", cfg.pca_model_file)
 
-    save_pca_cache(cfg.pca_cache_file, X_pca, paths)
+    save_pca_cache(cfg.pca_cache_file, X_pca, paths, cfg.embedding_fingerprint, pca.embedding_digest_)
     return X_pca
 
 
 def get_or_build_pca_embeddings(cfg: DatasetConfig, embeddings: torch.Tensor, paths: List[Path]) -> np.ndarray:
-    cached_paths, pca_emb = load_pca_cache(cfg.pca_cache_file)
-    if cached_paths == [str(p) for p in paths] and pca_emb is not None and pca_emb.shape[1] <= cfg.pca_dim:
-        logging.info("Using cached PCA(%s) embeddings (cold-start avoided)", pca_emb.shape[1])
-        return pca_emb
+    digest = hashlib.sha256(embeddings.numpy().astype("float32").tobytes()).hexdigest()
+    cached_paths, pca_emb = load_pca_cache(cfg.pca_cache_file, cfg.embedding_fingerprint, digest)
+    if cached_paths == [str(p) for p in paths] and pca_emb is not None and pca_emb.shape[1] <= cfg.pca_dim and cfg.pca_model_file.exists():
+        try:
+            with cfg.pca_model_file.open("rb") as fh:
+                model = pickle.load(fh)
+            if (
+                getattr(model, "embedding_fingerprint_", None) == cfg.embedding_fingerprint
+                and getattr(model, "embedding_digest_", None) == digest
+                and model.components_.shape == (pca_emb.shape[1], embeddings.shape[1])
+                and np.isfinite(model.components_).all()
+            ):
+                logging.info("Using cached PCA(%s) embeddings (cold-start avoided)", pca_emb.shape[1])
+                return pca_emb
+        except Exception:
+            logging.warning("PCA transform missing or stale for %s; rebuilding", cfg.dataset_id)
 
     logging.info("PCA cache missing/stale — computing PCA(up to %s) …", cfg.pca_dim)
     return compute_and_cache_pca(cfg, embeddings, paths)
@@ -137,12 +179,13 @@ def l2_normalize_rows(arr: np.ndarray) -> np.ndarray:
     return arr / norms
 
 
-def umap_cache_key(image_ids: list[int], texts: list[str], params: dict, version: int) -> str:
+def umap_cache_key(image_ids: list[int], texts: list[str], params: dict, version: int, fingerprint: str = "") -> str:
     payload = {
         "image_ids": image_ids,
         "texts": texts,
         "params": params,
         "v": version,
+        "fingerprint": fingerprint,
     }
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
     return f"post:{hashlib.sha256(encoded.encode('utf-8')).hexdigest()}"
@@ -216,6 +259,7 @@ def infer_missing_keywords(
     sim_threshold: float = 0.25,
     blend_text_prior: bool = False,
     text_prior_weight: float = 0.30,
+    embedding_model: str = CLIP_MODEL_ID,
 ) -> None:
     kw_to_indices: dict[str, list[int]] = {}
     for idx, meta in enumerate(metadata):
@@ -250,7 +294,7 @@ def infer_missing_keywords(
         return
 
     if blend_text_prior and text_prompts:
-        txt_emb = clip_service.embed_text(text_prompts)
+        txt_emb = embedding_service.embed_text(text_prompts, embedding_model)
         for i in range(len(proto_vecs)):
             v = (1.0 - text_prior_weight) * proto_vecs[i] + text_prior_weight * txt_emb[i]
             v /= np.linalg.norm(v)

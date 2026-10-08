@@ -18,6 +18,7 @@ from transformers import AutoTokenizer
 
 from api import datasets
 from api import runtime
+from api.embedding_config import CLIP_MODEL_ID
 from api.models import DatasetContext
 from api import context as context_builder
 from api.model_backends import (
@@ -53,6 +54,7 @@ REQUIRED_ARTIFACTS = (
     "metadata",
 )
 ARTIFACT_GROUPS = {
+    "embedding": ("clip_embedding",),
     "clip": ("clip_embedding",),
     "florence": ("description", "sdxl_prompt", "sdxl_embedding", "metadata"),
     "sdxl": ("sdxl_prompt", "sdxl_embedding", "metadata"),
@@ -73,8 +75,18 @@ def _artifact_dir(ctx: DatasetContext, image_id: int) -> Path:
 
 def _artifact_paths(ctx: DatasetContext, image_id: int) -> dict[str, Path]:
     base = _artifact_dir(ctx, image_id)
+    embedding_path = ctx.cfg.embedding_cache_dir / "image_roundtrip" / ctx.index_fingerprint / str(image_id) / "image_embedding.npy"
+    legacy = base / "clip_image_embedding.npy"
+    if ctx.cfg.embedding_model == CLIP_MODEL_ID and legacy.exists() and not embedding_path.exists():
+        try:
+            vector = np.load(legacy, allow_pickle=False)
+            if vector.shape == (768,) and np.allclose(vector, ctx.embeddings[image_id].numpy(), atol=1e-5):
+                embedding_path = legacy
+        except (OSError, ValueError):
+            pass
     return {
-        "clip_embedding": base / "clip_image_embedding.npy",
+        "clip_embedding": embedding_path,
+        "embedding": embedding_path,
         "description": base / "description.txt",
         "sdxl_prompt": base / "sdxl_prompt.txt",
         "sdxl_embedding": base / "sdxl_text_embedding.pt",
@@ -90,12 +102,12 @@ def _original_path(ctx: DatasetContext, image_id: int) -> Path:
 
 def _get_context(dataset_id: str) -> DatasetContext:
     cache = runtime.get_context_cache()
+    cfg = datasets.get_dataset_config(dataset_id)
 
     def _builder(ds_id: str):
-        cfg = datasets.get_dataset_config(ds_id)
         return context_builder.build_context(cfg)
 
-    return cache.get(dataset_id, _builder)
+    return cache.get(dataset_id, _builder, cfg.embedding_fingerprint)
 
 
 def _load_sdxl_tokenizer():
@@ -240,13 +252,18 @@ def artifact_status(dataset_id: str) -> dict:
                 existing_by_kind[key] += 1
 
     existing_groups = {
+        "embedding": existing_by_kind["clip_embedding"],
         "clip": existing_by_kind["clip_embedding"],
         "florence": existing_by_kind["description"],
         "sdxl": min(existing_by_kind["sdxl_prompt"], existing_by_kind["sdxl_embedding"]),
         "ip_adapter": existing_by_kind["ip_adapter_embedding"],
     }
 
+    missing_by_kind["embedding"] = missing_by_kind["clip_embedding"]
+    existing_by_kind["embedding"] = existing_by_kind["clip_embedding"]
     return {
+        "embedding_model": ctx.cfg.embedding_model,
+        "embedding_fingerprint": ctx.cfg.embedding_fingerprint,
         "total": total,
         "complete": complete,
         "missing": max(0, total - complete),
@@ -565,7 +582,9 @@ def _write_metadata(ctx: DatasetContext, image_id: int, max_new_tokens: int) -> 
         "sdxl_prompt": sdxl_prompt,
         "sdxl_prompt_tokens": _token_count(_load_sdxl_tokenizer(), sdxl_prompt),
         "sdxl_prompt_token_limit": SDXL_MAX_TOKENS,
-        "clip_model": "dataset clip index",
+        "clip_model": ctx.cfg.embedding_model,
+        "embedding_model": ctx.cfg.embedding_model,
+        "embedding_fingerprint": ctx.cfg.embedding_fingerprint,
         "caption_model": CAPTION_MODEL,
         "caption_task": CAPTION_TASK,
         "caption_tokens": max_new_tokens,
@@ -636,6 +655,7 @@ def process_dataset(dataset_id: str, *, max_new_tokens: int = 160) -> None:
             paths = _artifact_paths(ctx, image_id)
             paths["metadata"].parent.mkdir(parents=True, exist_ok=True)
             if not paths["clip_embedding"].exists():
+                paths["clip_embedding"].parent.mkdir(parents=True, exist_ok=True)
                 embedding = ctx.embeddings[image_id].cpu().numpy().astype("float32")
                 norm = max(1e-12, float(np.linalg.norm(embedding)))
                 np.save(paths["clip_embedding"], embedding / norm)

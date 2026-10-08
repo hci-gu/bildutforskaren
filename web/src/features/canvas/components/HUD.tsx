@@ -582,7 +582,7 @@ export const HUD = ({
                           </span>{' '}
                           ·{' '}
                           <span className="text-sky-300">
-                            {fidelityResult.neighbors.clip_only.length} CLIP-only
+                            {fidelityResult.neighbors.clip_only.length} endast semantiska grannar
                           </span>
                         </span>
                       ) : null)}

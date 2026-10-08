@@ -14,7 +14,7 @@ from flask import Blueprint, abort, jsonify, request, send_file
 from PIL import Image
 
 from api import atlas
-from api import clip_service
+from api import embedding_service
 from api import dataset_db
 from api import datasets
 from api import image_roundtrip
@@ -69,7 +69,7 @@ _CLUSTER_DESCRIPTION_CANDIDATES = [
     "close-up details",
     "wide scenes",
 ]
-_CLUSTER_DESCRIPTION_EMBEDDINGS: np.ndarray | None = None
+_CLUSTER_DESCRIPTION_EMBEDDINGS: dict[str, np.ndarray] = {}
 
 
 def _get_context(dataset_id: str):
@@ -84,11 +84,12 @@ def _get_context(dataset_id: str):
 
     context_cache = runtime.get_context_cache()
 
+    cfg = datasets.get_dataset_config(dataset_id)
+
     def _builder(ds_id: str):
-        cfg = datasets.get_dataset_config(ds_id)
         return context_builder.build_context(cfg)
 
-    return context_cache.get(dataset_id, _builder)
+    return context_cache.get(dataset_id, _builder, cfg.embedding_fingerprint)
 
 
 def _parse_image_ids(raw_ids):
@@ -161,19 +162,20 @@ def _get_dataset_db(dataset_id: str):
     return dataset_db.connect_dataset_db(db_path), cfg, db_path
 
 
-def _get_cluster_description_embeddings() -> np.ndarray:
+def _get_cluster_description_embeddings(ctx) -> np.ndarray:
     global _CLUSTER_DESCRIPTION_EMBEDDINGS
-    if _CLUSTER_DESCRIPTION_EMBEDDINGS is None:
+    key = ctx.cfg.embedding_fingerprint
+    if key not in _CLUSTER_DESCRIPTION_EMBEDDINGS:
         prompts = [
             f"a photo of {description}"
             for description in _CLUSTER_DESCRIPTION_CANDIDATES
         ]
-        _CLUSTER_DESCRIPTION_EMBEDDINGS = clip_service.embed_text(prompts)
-    return _CLUSTER_DESCRIPTION_EMBEDDINGS
+        _CLUSTER_DESCRIPTION_EMBEDDINGS[key] = embedding_service.embed_text(prompts, ctx.cfg.embedding_model)
+    return _CLUSTER_DESCRIPTION_EMBEDDINGS[key]
 
 
-def _label_for_embedding(embedding: np.ndarray) -> dict:
-    description_embeddings = _get_cluster_description_embeddings()
+def _label_for_embedding(embedding: np.ndarray, ctx) -> dict:
+    description_embeddings = _get_cluster_description_embeddings(ctx)
     query = embedding.astype("float32", copy=False)
     norm = max(1e-12, float(np.linalg.norm(query)))
     query = query / norm
@@ -334,7 +336,7 @@ def create_anchor_analysis(dataset_id: str):
     try:
         from api import sao_terms
 
-        concept_embeddings, concepts = sao_terms.get_embeddings()
+        concept_embeddings, concepts = sao_terms.get_embeddings(ctx.cfg.embedding_model)
         result["semantics"] = analyze_anchor_semantics(
             ctx.embeddings.cpu().numpy().astype("float32"),
             anchor_a_ids,
@@ -604,7 +606,7 @@ def create_concept_lens(dataset_id: str):
     try:
         from api import sao_terms
 
-        concept_embeddings, concepts = sao_terms.get_embeddings()
+        concept_embeddings, concepts = sao_terms.get_embeddings(ctx.cfg.embedding_model)
         result = analyze_concept_lens(
             ctx.embeddings.cpu().numpy().astype("float32"),
             image_ids,
@@ -688,7 +690,7 @@ def create_cluster_profiles(dataset_id: str):
             raise ValueError("'levels' must be an integer between 1 and 6")
         from api import sao_terms
 
-        concept_embeddings, concepts = sao_terms.get_embeddings()
+        concept_embeddings, concepts = sao_terms.get_embeddings(ctx.cfg.embedding_model)
         result = analyze_cluster_profiles(
             ctx.embeddings.cpu().numpy().astype("float32"),
             image_ids,
@@ -833,7 +835,7 @@ def start_projection_stability_job(dataset_id: str):
     try:
         from api import sao_terms
 
-        concept_embeddings, concepts = sao_terms.get_embeddings()
+        concept_embeddings, concepts = sao_terms.get_embeddings(ctx.cfg.embedding_model)
     except Exception:
         logging.exception(
             "Failed to load SAO concepts for projection stability in %s",
@@ -862,8 +864,13 @@ def start_projection_stability_job(dataset_id: str):
             ),
         }
 
+    def validate_active_model():
+        current = datasets.get_dataset_config(dataset_id)
+        if current.embedding_model != ctx.cfg.embedding_model:
+            raise ActiveStabilityJobError("Embedding model changed; retry the analysis")
+
     try:
-        job_id = manager.start(dataset_id, worker)
+        job_id = manager.start(dataset_id, worker, before_enqueue=validate_active_model)
     except ActiveStabilityJobError as exc:
         return jsonify(
             {
@@ -922,7 +929,7 @@ def get_embedding_for_text(dataset_id: str):
         return jsonify({"error": "Missing 'query'"}), 400
 
     full = request.args.get("full", "0") == "1"
-    txt_np = clip_service.embed_text([query]).astype("float32")
+    txt_np = embedding_service.embed_text([query], ctx.cfg.embedding_model).astype("float32")
 
     if full:
         return jsonify(txt_np.reshape(-1).tolist())
@@ -946,7 +953,7 @@ def search(dataset_id: str):
         if not query:
             return jsonify({"error": "Missing 'query'"}), 400
 
-        q = clip_service.embed_text([query]).reshape(1, -1)
+        q = embedding_service.embed_text([query], ctx.cfg.embedding_model).reshape(1, -1)
         results = _search_with_ids(ctx, q, k, None)
         return jsonify(results)
 
@@ -961,7 +968,7 @@ def search(dataset_id: str):
         return jsonify({"error": "Missing 'query'"}), 400
 
     image_ids = _parse_image_ids(data.get("image_ids"))
-    q = clip_service.embed_text([query]).reshape(1, -1)
+    q = embedding_service.embed_text([query], ctx.cfg.embedding_model).reshape(1, -1)
     results = _search_with_ids(ctx, q, k, image_ids)
     return jsonify(results)
 
@@ -981,12 +988,7 @@ def search_by_image(dataset_id: str):
     except Exception:
         return jsonify({"error": "Could not read image"}), 400
 
-    # Reuse CLIP processor directly
-    model, processor, device = clip_service._load_clip()  # type: ignore[attr-defined]
-    with torch.no_grad():
-        inputs = processor(images=[img], return_tensors="pt").to(device)
-        img_feat = model.get_image_features(**inputs)
-        img_feat = img_feat / img_feat.norm(dim=-1, keepdim=True)
+    img_feat = embedding_service.embed_image_objects([img], ctx.cfg.embedding_model)
 
     if request.is_json:
         data = request.get_json(silent=True) or {}
@@ -1001,7 +1003,7 @@ def search_by_image(dataset_id: str):
     except (TypeError, ValueError):
         return jsonify({"error": "'top_k' must be an integer"}), 400
 
-    q = img_feat.cpu().numpy().astype("float32")
+    q = img_feat
     results = _search_with_ids(ctx, q, k, image_ids)
     return jsonify(results)
 
@@ -1291,7 +1293,7 @@ def tag_suggestions(dataset_id: str, image_id: int):
         # dataset-adaptive threshold suppresses terms that are not meaningfully
         # above the image's baseline similarity to the vocabulary.
         semantic_candidates: list[dict] = []
-        embeddings, terms = sao_terms.get_embeddings()
+        embeddings, terms = sao_terms.get_embeddings(ctx.cfg.embedding_model)
         if embeddings.size:
             query = ctx.embeddings[image_id].cpu().numpy().astype("float32")
             query /= max(1e-12, float((query * query).sum()) ** 0.5)
@@ -1334,7 +1336,7 @@ def tag_suggestions(dataset_id: str, image_id: int):
                         )
 
         # Rank calibration makes the two score families comparable without
-        # assuming that neighbor confidence and CLIP cosine have the same scale.
+        # assuming that neighbor confidence and embedding cosine have the same scale.
         candidates: dict[str, dict] = {}
         neighbor_pool_size = min(
             max(limit * TAG_SUGGESTION_POOL_MULTIPLIER, 25),
@@ -2143,7 +2145,7 @@ def cluster_dataset_projection(dataset_id: str):
         if not cluster_image_ids:
             continue
         avg_embedding = embeddings[cluster_image_ids].mean(axis=0)
-        label = _label_for_embedding(avg_embedding)
+        label = _label_for_embedding(avg_embedding, ctx)
         cluster.label = label["label"]
         cluster.label_score = label["score"]
 
@@ -2189,7 +2191,7 @@ def get_umap(dataset_id: str):
         if not image_ids and not texts:
             return jsonify({"error": "No image_ids or texts provided"}), 400
 
-        key = indexing.umap_cache_key(image_ids, texts, params, UMAP_CACHE_VERSION)
+        key = indexing.umap_cache_key(image_ids, texts, params, UMAP_CACHE_VERSION, ctx.index_fingerprint)
         if key in ctx.umap_cache:
             return jsonify(ctx.umap_cache[key])
 
@@ -2215,7 +2217,7 @@ def get_umap(dataset_id: str):
 
         text_points = []
         if texts:
-            text_vectors_full = clip_service.embed_text(texts)
+            text_vectors_full = embedding_service.embed_text(texts, ctx.cfg.embedding_model)
             image_points_np = np.array(image_points, dtype="float32")
             id_to_point = {img_id: image_points_np[i] for i, img_id in enumerate(image_ids)}
             allowed_ids = set(image_ids)

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useParams, Link, useNavigate } from 'react-router'
 import { useSetAtom } from 'jotai'
-import { activeDatasetIdAtom, datasetsRevisionAtom } from '@/store'
+import { activeDatasetIdAtom, datasetsRevisionAtom, observeEmbeddingModelAtom } from '@/store'
 import { Button } from '@/shared/ui/button'
 import {
   Card,
@@ -32,11 +32,14 @@ import {
   generateImageRoundtrip,
   resumeProcessing,
   seedTagsFromMetadata,
+  switchEmbeddingModel,
 } from '@/shared/lib/api'
 import type { ClusteringAlgorithm } from '@/shared/lib/api'
 import {
   hasSameDatasetData,
   isDatasetActive,
+  embeddingModels,
+  type EmbeddingModel,
   type DatasetStatus,
   type TagStats,
 } from '@/features/datasets/types/datasets'
@@ -103,6 +106,10 @@ export default function DatasetPage() {
   const navigate = useNavigate()
   const setActiveDatasetId = useSetAtom(activeDatasetIdAtom)
   const bumpDatasetsRevision = useSetAtom(datasetsRevisionAtom)
+  const observeEmbeddingModel = useSetAtom(observeEmbeddingModelAtom)
+  const [selectedModel, setSelectedModel] = useState<EmbeddingModel>('openai/clip-vit-large-patch14')
+  const [modelStarting, setModelStarting] = useState(false)
+  const [modelError, setModelError] = useState<string | null>(null)
 
   const [dataset, setDataset] = useState<DatasetStatus | null>(null)
   const [tagStats, setTagStats] = useState<TagStats | null>(null)
@@ -141,6 +148,10 @@ export default function DatasetPage() {
     ? Math.round((dataset?.job?.progress ?? 0) * 100)
     : 0
   const jobStage = dataset?.job?.stage
+  const isModelSwitchActive =
+    dataset?.embedding_switch?.status === 'queued' ||
+    dataset?.embedding_switch?.status === 'running' ||
+    jobStage === 'embedding-model'
   const isJobActive =
     jobStage === 'queued' ||
     jobStage === 'thumbnails' ||
@@ -148,7 +159,8 @@ export default function DatasetPage() {
     jobStage === 'embeddings' ||
     jobStage === 'atlas' ||
     jobStage === 'image-roundtrip' ||
-    jobStage === 'cluster-previews'
+    jobStage === 'cluster-previews' ||
+    isModelSwitchActive
   const canResume =
     !!dataset &&
     statusValue !== 'uploading' &&
@@ -227,6 +239,28 @@ export default function DatasetPage() {
   }, [id, setActiveDatasetId])
 
   useEffect(() => {
+    const model = dataset?.embedding_model
+    if (!model || !id) return
+    observeEmbeddingModel({ datasetId: id, fingerprint: dataset.embedding_fingerprint ?? model })
+    setSelectedModel(model)
+  }, [dataset?.embedding_model, dataset?.embedding_fingerprint, id, observeEmbeddingModel])
+
+  const handleSwitchModel = async () => {
+    if (!id || isJobActive || modelStarting) return
+    setModelStarting(true)
+    setModelError(null)
+    try {
+      await switchEmbeddingModel(id, selectedModel)
+      await reloadStatus(undefined, false)
+      bumpDatasetsRevision((revision) => revision + 1)
+    } catch (error) {
+      setModelError(String(error))
+    } finally {
+      setModelStarting(false)
+    }
+  }
+
+  useEffect(() => {
     if (!id) return
     let cancelled = false
     void reloadStatus(() => cancelled)
@@ -267,7 +301,7 @@ export default function DatasetPage() {
       setSeedResult(
         `Infogade ${data.inserted ?? 0} taggar (skippade ${data.skipped_manual ?? 0} bilder med manuella taggar).`
       )
-    } catch (err) {
+    } catch {
       setSeedError('Kunde inte skapa taggar från metadata.')
     } finally {
       setSeeding(false)
@@ -341,7 +375,7 @@ export default function DatasetPage() {
     try {
       await clearClusterPreviews(id)
       await reloadStatus()
-    } catch (err) {
+    } catch {
       setClusterError('Kunde inte ta bort klusterförhandsvisningar.')
     } finally {
       setClusterClearing(false)
@@ -481,7 +515,7 @@ export default function DatasetPage() {
                     useGlassPanel={false}
                     className="sm:col-span-2 border border-white/10 bg-white/5 text-white/70"
                     description={[
-                      'Bildbeskrivningar, CLIP-embeddings och SDXL-textembeddings skapas.',
+                      'Bildbeskrivningar, bildembeddings och SDXL-textembeddings skapas.',
                       typeof roundtripTotalWork === 'number'
                         ? `${roundtripProcessed}/${roundtripTotalWork} klara`
                         : null,
@@ -526,9 +560,53 @@ export default function DatasetPage() {
 
         <Card className="glass-panel mt-6 text-white">
           <CardHeader>
+            <CardTitle>Embeddingmodell</CardTitle>
+            <CardDescription className="text-white/60">
+              Aktiv modell: {embeddingModels.find((model) => model.id === dataset?.embedding_model)?.label ?? 'CLIP ViT-L/14'}.
+              Sparade index återanvänds när du byter tillbaka.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <label htmlFor="dataset-embedding-model" className="block text-sm text-white/70">Välj modell</label>
+            <select
+              id="dataset-embedding-model"
+              value={selectedModel}
+              onChange={(event) => setSelectedModel(event.target.value as EmbeddingModel)}
+              disabled={!isReady || isJobActive || modelStarting}
+              className="w-full rounded-md border border-white/20 bg-zinc-900 px-3 py-2 text-white"
+            >
+              {embeddingModels.map((model) => <option key={model.id} value={model.id}>{model.label}</option>)}
+            </select>
+            <Button
+              onClick={() => void handleSwitchModel()}
+              disabled={!isReady || isJobActive || modelStarting || selectedModel === dataset?.embedding_model}
+            >
+              {modelStarting ? 'Startar…' : 'Byt modell'}
+            </Button>
+            {isModelSwitchActive && (
+              <DatasetStatusPanel
+                variant="pending"
+                title={`Förbereder ${embeddingModels.find((model) => model.id === dataset?.embedding_switch?.target)?.label ?? 'modellen'}`}
+                description="Den aktiva modellen används tills det nya indexet är klart."
+                stage="embedding-model"
+                showProgress
+                progressPercent={Math.round((dataset?.job?.progress ?? 0) * 100)}
+                progressLabel="Embeddings"
+              />
+            )}
+            {(modelError || dataset?.embedding_switch?.status === 'error') && (
+              <div role="alert" className="text-sm text-red-300">
+                {modelError ?? dataset?.embedding_switch?.error} Den tidigare modellen är fortfarande aktiv.
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card className="glass-panel mt-6 text-white">
+          <CardHeader>
             <CardTitle>Bildmetadata</CardTitle>
             <CardDescription className="text-white/60">
-              Skapa Florence-2-beskrivning, CLIP-embedding och SDXL-textembedding
+              Skapa Florence-2-beskrivning, bildembedding och SDXL-textembedding
               för varje bild som saknar filer.
             </CardDescription>
           </CardHeader>

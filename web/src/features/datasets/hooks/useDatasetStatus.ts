@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
+import { useSetAtom } from 'jotai'
+import { observeEmbeddingModelAtom } from '@/store'
 import { fetchDatasetStatus } from '@/shared/lib/api'
 import {
   hasSameDatasetData,
@@ -9,6 +11,7 @@ import {
 const STATUS_POLL_INTERVAL_MS = 5_000
 
 export const useDatasetStatus = (datasetId?: string | null) => {
+  const observeEmbeddingModel = useSetAtom(observeEmbeddingModelAtom)
   const [status, setStatus] = useState<DatasetStatus | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -27,6 +30,9 @@ export const useDatasetStatus = (datasetId?: string | null) => {
       try {
         const data = await fetchDatasetStatus(datasetId)
         if (!isCancelled?.()) {
+          if (data.embedding_fingerprint) {
+            observeEmbeddingModel({ datasetId, fingerprint: data.embedding_fingerprint })
+          }
           setStatus((current) =>
             hasSameDatasetData(current, data) ? current : data
           )
@@ -37,7 +43,7 @@ export const useDatasetStatus = (datasetId?: string | null) => {
         if (!isCancelled?.() && showLoading) setLoading(false)
       }
     },
-    [datasetId]
+    [datasetId, observeEmbeddingModel]
   )
 
   useEffect(() => {

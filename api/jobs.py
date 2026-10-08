@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import replace
 
 from PIL import Image
 
@@ -11,6 +12,8 @@ from api import indexing
 from api import atlas
 from api import context
 from api import runtime
+from api import dataset_activity, embedding_service, sao_terms
+from api.embedding_config import validate_model
 
 
 def _set_job_state(dataset_id: str, **updates) -> None:
@@ -129,12 +132,70 @@ def process_uploaded_dataset(dataset_id: str) -> None:
 
 
 def submit_processing(dataset_id: str) -> None:
-    meta = datasets.read_dataset_json(dataset_id)
-    meta["status"] = "processing"
-    meta["error"] = None
-    datasets.write_dataset_json(dataset_id, meta)
+    def prepare():
+        meta = datasets.read_dataset_json(dataset_id)
+        meta["status"] = "processing"
+        meta["error"] = None
+        datasets.write_dataset_json(dataset_id, meta)
 
-    runtime.get_job_manager().submit(process_uploaded_dataset, dataset_id)
+    runtime.get_job_manager().submit(process_uploaded_dataset, dataset_id, before_enqueue=prepare)
+
+
+def submit_model_switch(dataset_id: str, model_id: str) -> None:
+    validate_model(model_id)
+
+    def prepare():
+        meta = datasets.read_dataset_json(dataset_id)
+        if meta.get("status") != "ready":
+            raise ValueError("Dataset must be ready to switch models")
+        meta["embedding_switch"] = {"target": model_id, "status": "queued", "error": None}
+        datasets.write_dataset_json(dataset_id, meta)
+
+    def worker(ds_id: str):
+        previous = datasets.get_dataset_config(ds_id)
+        target = replace(previous, embedding_model=model_id)
+        try:
+            meta = datasets.read_dataset_json(ds_id)
+            meta["embedding_switch"] = {"target": model_id, "status": "running", "error": None}
+            datasets.write_dataset_json(ds_id, meta)
+
+            def progress(done: int, total: int):
+                _set_job_state(ds_id, stage="embedding-model", target=model_id,
+                               processed=done, progress=0.7 * done / max(1, total))
+
+            context.build_context(target, progress_cb=progress, prepare_only=True)
+            _set_job_state(ds_id, stage="embedding-model", target=model_id, progress=0.8)
+
+            def sao_progress(done: int, total: int):
+                _set_job_state(ds_id, progress=0.8 + 0.19 * done / max(1, total))
+
+            sao_terms.ensure_embeddings(model_id, progress_cb=sao_progress)
+            with dataset_activity.LOCK:
+                meta = datasets.read_dataset_json(ds_id)
+                if meta.get("status") != "ready" or meta["embedding_model"] != previous.embedding_model:
+                    raise RuntimeError("Dataset configuration changed during model preparation")
+                runtime.get_context_cache().invalidate(ds_id)
+                meta["embedding_model"] = model_id
+                meta["embedding_switch"] = {"target": model_id, "status": "complete", "error": None}
+                datasets.write_dataset_json(ds_id, meta)
+        except Exception as exc:
+            logging.exception("Embedding model switch failed for %s", ds_id)
+            meta = datasets.read_dataset_json(ds_id)
+            meta["embedding_switch"] = {"target": model_id, "status": "error", "error": str(exc)}
+            datasets.write_dataset_json(ds_id, meta)
+            _set_job_state(ds_id, stage="error", error=str(exc))
+            active_model = previous.embedding_model
+        else:
+            _set_job_state(ds_id, stage="ready", progress=1, error=None)
+            active_model = model_id
+
+        # Unloading is best effort and must not change an already published result.
+        try:
+            embedding_service.unload_inactive(active_model)
+        except Exception:
+            logging.exception("Failed to unload inactive embedding model for %s", ds_id)
+
+    runtime.get_job_manager().submit(worker, dataset_id, kind="embedding-model", before_enqueue=prepare)
 
 
 def resume_pending_jobs() -> None:
@@ -143,6 +204,10 @@ def resume_pending_jobs() -> None:
     for data in datasets.list_datasets():
         dataset_id = data.get("dataset_id")
         status = data.get("status")
+        switch = data.get("embedding_switch") or {}
+        if dataset_id and status == "ready" and switch.get("status") in {"queued", "running"}:
+            submit_model_switch(dataset_id, switch["target"])
+            continue
         if not dataset_id or status not in pending_statuses:
             continue
         state = job_manager.get_state(dataset_id)
