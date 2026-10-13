@@ -60,7 +60,7 @@ dependencies = [
     "regex==2024.11.6",
     "requests==2.32.3",
     "scikit-learn==1.6.1",
-    "scipy==1.15.3",
+    "scipy==1.17.1",
     "six==1.17.0",
     "starlette==0.46.2",
     "sympy==1.13.3",

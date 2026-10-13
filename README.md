@@ -12,6 +12,8 @@ Step by step guide to prepare the backend
 ``` bash
 uv sync --extra cpu
 ```
+The SciPy pin includes the macOS binary compatibility fix needed for recent
+macOS versions. After pulling dependency updates, rerun the sync command above.
 
 2. Acquire an image dataset. There are helper scripts to help download different image datasets
     - `get_images.py` downloads 250 random images from `picsum.photos`
@@ -27,6 +29,27 @@ pipelines warm during startup by default; set
 `BILDUTFORSKAREN_SKIP_IMAGE_GEN_WARMUP=1` to load them on first use instead.
 
 *   **Note**: When a new ZIP file is uploaded, the API processes it as an isolated dataset under `datasets/<dataset-id>/`. It generates thumbnails, CLIP embeddings, and atlas data, which are cached per dataset so the collection can be reopened without repeating the initial processing.
+
+## Desktop launcher (macOS)
+
+After completing backend and frontend installation, double-click
+**Bildutforskaren.app** on the Desktop. This opens directly without Terminal
+or shell startup prompts. To rebuild the app after moving the repository, run
+`.venv/bin/python scripts/build_desktop_app.py` and copy the resulting
+`.cache/desktop-launcher/Bildutforskaren.app` to the Desktop.
+`Start Bildutforskaren.command` is also available for launching from Terminal.
+
+The launcher starts the API and web server if needed, waits for both to be
+ready, and opens http://localhost:5173 in your default browser. Clicking it
+again reopens the UI and reuses running servers. Initial model warmup can take
+a few minutes. Servers keep
+running until the computer restarts or their processes are stopped. Startup
+logs are saved under `.cache/desktop-launcher/`. The launcher uses the existing
+installed dependencies; it does not install or update them.
+If Node.js is installed through NVM, the shortcut loads NVM's default version
+when Node is absent from its PATH, without loading shell startup files.
+Set that version with `nvm alias default <version>` if needed. Changes to the
+shortcut or launcher scripts take effect without rebuilding the Desktop app.
 
 ## Frontend
 
