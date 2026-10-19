@@ -2,6 +2,7 @@ import { useEffect, useMemo } from 'react'
 import { useAtomValue, useSetAtom } from 'jotai'
 import {
   activeDatasetIdAtom,
+  embeddingsRevisionAtom,
   conceptLensErrorAtom,
   conceptLensResultAtom,
   conceptLensSelectionAtom,
@@ -20,6 +21,7 @@ export const useConceptLens = (
   active: boolean
 ) => {
   const datasetId = useAtomValue(activeDatasetIdAtom)
+  const modelRevision = useAtomValue(embeddingsRevisionAtom)
   const selection = useAtomValue(conceptLensSelectionAtom)
   const setResult = useSetAtom(conceptLensResultAtom)
   const setStatus = useSetAtom(conceptLensStatusAtom)
@@ -81,5 +83,5 @@ export const useConceptLens = (
       })
 
     return () => controller.abort()
-  }, [datasetId, payload, setError, setResult, setStatus])
+  }, [datasetId, modelRevision, payload, setError, setResult, setStatus])
 }

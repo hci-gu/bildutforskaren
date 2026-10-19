@@ -14,6 +14,7 @@ from api import config
 from api import dataset_db
 from api import runtime
 from api.models import DatasetConfig
+from api.embedding_config import CLIP_MODEL_ID, fingerprint, validate_model
 
 
 def _now_iso() -> str:
@@ -36,14 +37,20 @@ def read_dataset_json(dataset_id: str) -> dict:
     path = _dataset_json_path(dataset_id)
     if not path.exists():
         raise FileNotFoundError(f"Dataset {dataset_id!r} not found")
-    return json.loads(path.read_text(encoding="utf-8"))
+    data = json.loads(path.read_text(encoding="utf-8"))
+    data.setdefault("embedding_model", CLIP_MODEL_ID)
+    data["embedding_fingerprint"] = fingerprint(data["embedding_model"])
+    return data
 
 
 def write_dataset_json(dataset_id: str, data: dict) -> None:
+    data = {**data, "embedding_fingerprint": fingerprint(data.get("embedding_model", CLIP_MODEL_ID))}
     ddir = _dataset_dir(dataset_id)
     ddir.mkdir(parents=True, exist_ok=True)
     path = _dataset_json_path(dataset_id)
-    path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    temporary = path.with_suffix(f".{uuid.uuid4().hex}.tmp")
+    temporary.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    temporary.replace(path)
 
 
 def list_datasets() -> list[dict]:
@@ -70,6 +77,8 @@ def list_datasets() -> list[dict]:
             if data.get("status") == "deleted":
                 continue
             data.setdefault("metadata_source", "none")
+            data.setdefault("embedding_model", CLIP_MODEL_ID)
+            data["embedding_fingerprint"] = fingerprint(data["embedding_model"])
             data["has_metadata_xlsx"] = (entry / "metadata.xlsx").exists()
             job = runtime.get_job_manager().get_state(dataset_id)
             if job:
@@ -90,7 +99,7 @@ def mark_dataset_deleted(dataset_id: str) -> dict:
     return data
 
 
-def create_dataset(name: str | None) -> dict:
+def create_dataset(name: str | None, embedding_model: str = CLIP_MODEL_ID) -> dict:
     """Creates a new dataset in the backend in directory: bildutforskaren/datasets/
 
     Args:
@@ -99,6 +108,7 @@ def create_dataset(name: str | None) -> dict:
     Returns:
         data: dictionary containing dataset ID, metadata and status
     """
+    validate_model(embedding_model)
     dataset_id = uuid.uuid4().hex
     data = {
         "dataset_id": dataset_id,
@@ -108,6 +118,7 @@ def create_dataset(name: str | None) -> dict:
         "created_at": _now_iso(),
         "error": None,
         "metadata_source": "none",
+        "embedding_model": embedding_model,
     }
 
     # Create directories
@@ -165,6 +176,7 @@ def get_dataset_config(dataset_id: str) -> DatasetConfig:
         metadata_source=str(meta.get("metadata_source") or "none"),
         immutable=True,
         pca_dim=config.PCA_DEFAULT_DIM,
+        embedding_model=validate_model(meta.get("embedding_model", CLIP_MODEL_ID)),
     )
 
     cfg.thumb_root.mkdir(parents=True, exist_ok=True)

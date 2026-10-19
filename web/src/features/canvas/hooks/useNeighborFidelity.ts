@@ -2,6 +2,7 @@ import { useEffect, useMemo } from 'react'
 import { useAtomValue, useSetAtom } from 'jotai'
 import {
   activeDatasetIdAtom,
+  embeddingsRevisionAtom,
   neighborFidelityErrorAtom,
   neighborFidelityResultAtom,
   neighborFidelitySettingsAtom,
@@ -21,6 +22,7 @@ export const useNeighborFidelity = (
   active: boolean
 ) => {
   const datasetId = useAtomValue(activeDatasetIdAtom)
+  const modelRevision = useAtomValue(embeddingsRevisionAtom)
   const selectedIds = useAtomValue(selectedEmbeddingIdsAtom)
   const settings = useAtomValue(neighborFidelitySettingsAtom)
   const setResult = useSetAtom(neighborFidelityResultAtom)
@@ -94,5 +96,5 @@ export const useNeighborFidelity = (
       })
 
     return () => controller.abort()
-  }, [datasetId, payload, setError, setResult, setStatus])
+  }, [datasetId, modelRevision, payload, setError, setResult, setStatus])
 }

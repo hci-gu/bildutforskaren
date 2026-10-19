@@ -8,6 +8,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from api.projection_stability import StabilityAnalysisCancelled
+from api import dataset_activity
 
 
 class ActiveStabilityJobError(Exception):
@@ -32,13 +33,27 @@ class ProjectionStabilityJobManager:
             [Callable[[int, int], None], Callable[[], bool]],
             dict[str, Any],
         ],
+        *,
+        before_enqueue: Callable[[], None] | None = None,
     ) -> str:
-        with self._lock:
+        with dataset_activity.LOCK, self._lock:
             active_id = self._active_by_dataset.get(dataset_id)
             if active_id is not None:
                 active = self._jobs.get(active_id, {})
                 if active.get("status") in {"queued", "running"}:
                     raise ActiveStabilityJobError(active_id)
+
+            try:
+                dataset_activity.reserve(dataset_id, "analysis")
+            except dataset_activity.ActiveDatasetJobError as exc:
+                raise ActiveStabilityJobError(str(exc)) from exc
+
+            try:
+                if before_enqueue:
+                    before_enqueue()
+            except Exception:
+                dataset_activity.release(dataset_id)
+                raise
 
             stale_ids = [
                 job_id
@@ -63,7 +78,15 @@ class ProjectionStabilityJobManager:
             self._cancel_events[job_id] = threading.Event()
             self._active_by_dataset[dataset_id] = job_id
 
-        self._executor.submit(self._run, job_id, dataset_id, worker)
+        try:
+            self._executor.submit(self._run, job_id, dataset_id, worker)
+        except Exception:
+            dataset_activity.release(dataset_id)
+            with self._lock:
+                self._active_by_dataset.pop(dataset_id, None)
+                self._jobs.pop(job_id, None)
+                self._cancel_events.pop(job_id, None)
+            raise
         return job_id
 
     def _run(
@@ -109,6 +132,7 @@ class ProjectionStabilityJobManager:
                     result=result,
                 )
         finally:
+            dataset_activity.release(dataset_id)
             with self._lock:
                 if self._active_by_dataset.get(dataset_id) == job_id:
                     self._active_by_dataset.pop(dataset_id, None)

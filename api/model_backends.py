@@ -18,12 +18,14 @@ import httpx
 import torch
 from diffusers import AutoPipelineForText2Image
 from PIL import Image
-from transformers import AutoModelForCausalLM, AutoProcessor
+from transformers import Florence2ForConditionalGeneration, Florence2Processor
 
 from sd import SD
 
 
-CAPTION_MODEL = "microsoft/Florence-2-large"
+# Official conversion of the Microsoft weights for native Transformers support.
+CAPTION_MODEL = "florence-community/Florence-2-large"
+CAPTION_REVISION = "4271c66b88cdbc05735372ec13b2360108de5317"
 CAPTION_TASK = "<MORE_DETAILED_CAPTION>"
 SDXL_MODEL = "stabilityai/sdxl-turbo"
 IP_ADAPTER_REPO = os.environ.get("IP_ADAPTER_REPO", "h94/IP-Adapter")
@@ -141,15 +143,14 @@ class LocalModelBackend:
 
         device = _torch_device()
         torch_dtype = _model_dtype(device)
-        self._caption_processor = AutoProcessor.from_pretrained(
-            CAPTION_MODEL,
-            trust_remote_code=True,
+        self._caption_processor = Florence2Processor.from_pretrained(
+            CAPTION_MODEL, revision=CAPTION_REVISION,
         )
-        self._caption_model = AutoModelForCausalLM.from_pretrained(
+        self._caption_model = Florence2ForConditionalGeneration.from_pretrained(
             CAPTION_MODEL,
+            revision=CAPTION_REVISION,
             torch_dtype=torch_dtype,
-            trust_remote_code=True,
-        ).to(device)
+        ).to(device).eval()
         self._caption_device = device
         return self._caption_processor, self._caption_model, self._caption_device
 

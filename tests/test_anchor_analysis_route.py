@@ -29,7 +29,7 @@ class AnchorAnalysisRouteTests(unittest.TestCase):
         app = Flask(__name__)
         app.register_blueprint(bp)
         self.client = app.test_client()
-        self.context = SimpleNamespace(embeddings=FakeEmbeddings())
+        self.context = SimpleNamespace(embeddings=FakeEmbeddings(), cfg=SimpleNamespace(embedding_model="openai/clip-vit-large-patch14"))
 
     def post(self, payload):
         concepts = [

@@ -40,16 +40,16 @@ UMAP_PARAMS = {
 
 def _get_context(dataset_id: str) -> DatasetContext:
     cache = runtime.get_context_cache()
+    cfg = datasets.get_dataset_config(dataset_id)
 
     def _builder(ds_id: str):
-        cfg = datasets.get_dataset_config(ds_id)
         return context_builder.build_context(cfg)
 
-    return cache.get(dataset_id, _builder)
+    return cache.get(dataset_id, _builder, cfg.embedding_fingerprint)
 
 
 def _root(ctx: DatasetContext) -> Path:
-    return ctx.cfg.cache_dir / "cluster_previews"
+    return ctx.cfg.embedding_cache_dir / "cluster_previews" / ctx.index_fingerprint
 
 
 def _manifest_path(ctx: DatasetContext) -> Path:
@@ -340,6 +340,9 @@ def bake(
         }
         manifest = {
             "dataset_id": dataset_id,
+            "embedding_model": ctx.cfg.embedding_model,
+            "embedding_fingerprint": ctx.cfg.embedding_fingerprint,
+            "index_fingerprint": ctx.index_fingerprint,
             "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             "requested_levels": levels,
             "effective_levels": effective_levels,

@@ -18,8 +18,7 @@ CSV_HEADER = (
 
 class SaoTermsEnglishTests(unittest.TestCase):
     def tearDown(self) -> None:
-        sao_terms._EMBEDDINGS = None
-        sao_terms._EMBEDDINGS_HASH = None
+        sao_terms._EMBEDDINGS.clear()
 
     def test_loader_keeps_swedish_display_fields_and_english_analysis_fields(self):
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -85,7 +84,7 @@ class SaoTermsEnglishTests(unittest.TestCase):
                 "embedding_label_norm": "carriage",
             },
         ]
-        expected = np.asarray([[1.0, 0.0], [0.0, 1.0]], dtype=np.float32)
+        expected = np.eye(2, 768, dtype=np.float32)
 
         with tempfile.TemporaryDirectory() as temporary_directory:
             cache_path = Path(temporary_directory) / "embeddings.npz"
@@ -93,21 +92,21 @@ class SaoTermsEnglishTests(unittest.TestCase):
                 patch.object(sao_terms, "get_terms", return_value=(terms, [])),
                 patch.object(sao_terms, "_cache_path", return_value=cache_path),
                 patch.object(
-                    sao_terms.clip_service,
+                    sao_terms.embedding_service,
                     "embed_text",
                     return_value=expected,
                 ) as embed_text,
             ):
                 first = sao_terms.ensure_embeddings()
-                sao_terms._EMBEDDINGS = None
-                sao_terms._EMBEDDINGS_HASH = None
+                sao_terms._EMBEDDINGS.clear()
                 second = sao_terms.ensure_embeddings()
 
         embed_text.assert_called_once_with(
             [
                 "A photograph depicting a horse.",
                 "A photograph depicting a carriage.",
-            ]
+            ],
+            sao_terms.CLIP_MODEL_ID,
         )
         np.testing.assert_array_equal(first, expected)
         np.testing.assert_array_equal(second, expected)

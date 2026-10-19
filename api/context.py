@@ -7,7 +7,8 @@ import re
 from typing import Callable
 from api.models import DatasetConfig, DatasetContext
 from api import indexing
-from api import clip_service
+from api import embedding_service
+from api.embedding_config import CLIP_MODEL_ID
 from api import legacy_metadata_xlsx
 from api import dataset_db
 from api import sao_terms
@@ -142,6 +143,7 @@ def build_context(
     cfg: DatasetConfig,
     *,
     progress_cb: Callable[[int, int], None] | None = None,
+    prepare_only: bool = False,
 ) -> DatasetContext:
     logging.info("Loading dataset %s", cfg.dataset_id)
 
@@ -160,7 +162,7 @@ def build_context(
         metadata.append(meta)
 
     db_path = dataset_db.dataset_db_path(cfg.dataset_dir)
-    if db_path.exists():
+    if db_path.exists() and not prepare_only:
         conn = dataset_db.connect_dataset_db(db_path)
         try:
             dataset_db.ensure_images(conn, cfg.dataset_dir, image_paths)
@@ -169,10 +171,16 @@ def build_context(
             conn.close()
         seed_metadata_keywords(cfg, metadata, image_paths)
 
-    cached_paths, embeddings = indexing.load_cache(cfg.cache_file)
+    cached_paths, embeddings = indexing.load_cache(cfg.cache_file, cfg.embedding_fingerprint)
+    legacy = False
+    if cached_paths is None and not cfg.cache_file.exists() and cfg.embedding_model == CLIP_MODEL_ID:
+        cached_paths, embeddings = indexing.load_cache(cfg.cache_dir / "clip_index.npz")
+        legacy = True
 
     if cached_paths == [str(p) for p in image_paths] and embeddings is not None:
         logging.info("Using cached embeddings for dataset %s", cfg.dataset_id)
+        if legacy:
+            indexing.save_cache(cfg.cache_file, embeddings, image_paths, cfg.embedding_fingerprint)
         if progress_cb is not None:
             progress_cb(len(image_paths), len(image_paths))
     else:
@@ -181,8 +189,11 @@ def build_context(
         else:
             logging.info("Image set changed — re-embedding dataset %s …", cfg.dataset_id)
 
-        embeddings = clip_service.embed_images(image_paths, progress_cb=progress_cb)
-        indexing.save_cache(cfg.cache_file, embeddings, image_paths)
+        embeddings = embedding_service.embed_images(image_paths, cfg.embedding_model, progress_cb=progress_cb)
+        indexing.save_cache(cfg.cache_file, embeddings, image_paths, cfg.embedding_fingerprint)
+        # Derived projections must be rebuilt if the source image index changed.
+        for derived in (cfg.pca_cache_file, cfg.pca_model_file, cfg.umap_cache_file):
+            derived.unlink(missing_ok=True)
 
     pca_embeddings_np = indexing.get_or_build_pca_embeddings(cfg, embeddings, image_paths)
     with cfg.pca_model_file.open("rb") as fh:

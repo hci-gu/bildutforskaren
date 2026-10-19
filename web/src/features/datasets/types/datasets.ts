@@ -8,6 +8,13 @@ export type DatasetLifecycleStatus =
   | 'error'
   | 'deleted'
 
+export type EmbeddingModel = 'openai/clip-vit-large-patch14' | 'google/embeddinggemma-2'
+
+export const embeddingModels: { id: EmbeddingModel; label: string }[] = [
+  { id: 'openai/clip-vit-large-patch14', label: 'CLIP ViT-L/14' },
+  { id: 'google/embeddinggemma-2', label: 'EmbeddingGemma 2' },
+]
+
 export type DatasetJob = {
   stage?: string
   progress?: number
@@ -19,6 +26,7 @@ export type DatasetJob = {
   seconds_per_item?: number | null
   eta_window?: number
   error?: string
+  target?: EmbeddingModel
 }
 
 export type DatasetStatus = {
@@ -28,6 +36,13 @@ export type DatasetStatus = {
   metadata_source?: string
   has_metadata_xlsx?: boolean
   embeddings_cached?: boolean
+  embedding_model?: EmbeddingModel
+  embedding_fingerprint?: string
+  embedding_switch?: {
+    target: EmbeddingModel
+    status: 'queued' | 'running' | 'complete' | 'error'
+    error: string | null
+  }
   image_roundtrip?: {
     total: number
     complete: number
@@ -75,12 +90,15 @@ const activeJobStages = new Set([
   'atlas',
   'image-roundtrip',
   'cluster-previews',
+  'embedding-model',
 ])
 
 export const isDatasetActive = (dataset?: DatasetStatus | null) =>
   dataset?.status === 'uploading' ||
   dataset?.status === 'uploaded' ||
   dataset?.status === 'processing' ||
+  dataset?.embedding_switch?.status === 'queued' ||
+  dataset?.embedding_switch?.status === 'running' ||
   (!!dataset?.job?.stage && activeJobStages.has(dataset.job.stage))
 
 export const hasSameDatasetData = (left: unknown, right: unknown) =>

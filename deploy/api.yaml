@@ -21,6 +21,11 @@ spec:
               protocol: TCP
           imagePullPolicy: Always
           env:
+            - name: BILDUTFORSKAREN_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: bildutforskaren-api
+                  key: api-key
             - name: NUMBA_DISABLE_JIT
               value: "1"
             - name: XDG_CACHE_HOME

@@ -319,6 +319,7 @@ export const searchSettingsAtom = atom({
 })
 
 export const searchImagesAtom = atom(async (get) => {
+  get(embeddingsRevisionAtom)
   const datasetId = get(activeDatasetIdAtom)
   const query = get(searchQueryAtom)
   const image = get(searchImageAtom)
@@ -1174,6 +1175,7 @@ export const steerBlendAlphaAtom = atom(0.7)
 
 export const embeddingAtom = atomFamily((id: string) =>
   atom(async (get) => {
+    get(embeddingsRevisionAtom)
     const datasetId = get(activeDatasetIdAtom)
     if (!datasetId) return null
 
@@ -1187,3 +1189,46 @@ export const embeddingAtom = atomFamily((id: string) =>
 )
 
 export const loadableDatasetsAtom = loadable(datasetsAtom)
+
+export const refreshEmbeddingModelAtom = atom(null, (_get, set) => {
+  taggedProjectionCache.clear()
+  set(embeddingsRevisionAtom, (value) => value + 1)
+  set(projectionRevisionAtom, (value) => value + 1)
+  set(datasetsRevisionAtom, (value) => value + 1)
+  set(conceptLensResultAtom, null)
+  set(conceptLensStatusAtom, 'idle')
+  set(conceptLensErrorAtom, null)
+  set(clusterProfilesResultAtom, null)
+  set(clusterProfilesStatusAtom, 'idle')
+  set(clusterProfilesErrorAtom, null)
+  set(selectedExplainedClusterAtom, null)
+  set(clusterFocusRequestAtom, null)
+  set(projectionStabilityResultAtom, null)
+  set(projectionStabilityStatusAtom, 'idle')
+  set(projectionStabilityErrorAtom, null)
+  set(projectionStabilityProgressAtom, 0)
+  set(selectedStabilityClusterAtom, null)
+  set(stabilityClusterFocusRequestAtom, null)
+  set(neighborFidelityResultAtom, null)
+  set(neighborFidelityStatusAtom, 'idle')
+  set(neighborFidelityErrorAtom, null)
+  set(anchorAnalysisResultAtom, null)
+  set(anchorAnalysisStatusAtom, 'idle')
+  set(anchorAnalysisErrorAtom, null)
+  set(anchorAnalysisStaleAtom, true)
+  set(graphNetworksAtom, {})
+  set(steerSuggestedResultsAtom, null)
+  set(steerSuggestedIdsAtom, [])
+  set(selectedEmbeddingAtom, null)
+})
+
+const observedEmbeddingModelsAtom = atom<Record<string, string>>({})
+export const observeEmbeddingModelAtom = atom(
+  null,
+  (get, set, model: { datasetId: string; fingerprint: string }) => {
+    const observed = get(observedEmbeddingModelsAtom)
+    if (observed[model.datasetId] === model.fingerprint) return
+    if (observed[model.datasetId]) set(refreshEmbeddingModelAtom)
+    set(observedEmbeddingModelsAtom, { ...observed, [model.datasetId]: model.fingerprint })
+  }
+)

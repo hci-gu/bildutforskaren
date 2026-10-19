@@ -1,7 +1,8 @@
-import { useCallback } from 'react'
+import { useCallback, useEffect } from 'react'
 import { useAtomValue, useSetAtom } from 'jotai'
 import {
   activeDatasetIdAtom,
+  embeddingsRevisionAtom,
   anchorAnalysisCandidateIdsAtom,
   anchorAnalysisErrorAtom,
   anchorAnalysisParametersAtom,
@@ -21,6 +22,11 @@ let activeController: AbortController | null = null
 
 export const useAnchorAnalysis = (candidateIds: number[]) => {
   const datasetId = useAtomValue(activeDatasetIdAtom)
+  const modelRevision = useAtomValue(embeddingsRevisionAtom)
+  useEffect(() => {
+    activeController?.abort()
+    return () => activeController?.abort()
+  }, [datasetId, modelRevision])
   const groups = useAtomValue(anchorGroupsAtom)
   const parameters = useAtomValue(anchorAnalysisParametersAtom)
   const setResult = useSetAtom(anchorAnalysisResultAtom)

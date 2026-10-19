@@ -29,7 +29,7 @@ class XaiRouteTests(unittest.TestCase):
         app = Flask(__name__)
         app.register_blueprint(bp)
         self.client = app.test_client()
-        self.context = SimpleNamespace(embeddings=FakeEmbeddings())
+        self.context = SimpleNamespace(embeddings=FakeEmbeddings(), cfg=SimpleNamespace(embedding_model="openai/clip-vit-large-patch14"))
         self.concept_embeddings = np.eye(2, 6, dtype=np.float32)
         self.concepts = [
             {"id": "a", "label": "hästar", "scope_note": "Djur."},

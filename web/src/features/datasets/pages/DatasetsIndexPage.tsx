@@ -21,6 +21,8 @@ import { StatusMessage } from '@/shared/components/StatusMessage'
 import {
   hasSameDatasetData,
   isDatasetActive,
+  embeddingModels,
+  type EmbeddingModel,
   type DatasetStatus,
 } from '@/features/datasets/types/datasets'
 
@@ -35,6 +37,7 @@ function DatasetsIndexPage() {
   const retryFileInputRef = useRef<HTMLInputElement>(null)
 
   const [newDatasetName, setNewDatasetName] = useState('')
+  const [embeddingModel, setEmbeddingModel] = useState<EmbeddingModel>('openai/clip-vit-large-patch14')
   const [zipFile, setZipFile] = useState<File | null>(null)
   const [uploadStatus, setUploadStatus] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
@@ -109,7 +112,7 @@ function DatasetsIndexPage() {
     setCreating(true)
     setUploadStatus(null)
     try {
-      const created = await createDataset(name)
+      const created = await createDataset(name, embeddingModel)
       const newId = created.dataset_id as string
       setDatasetId(newId)
       bumpDatasetsRevision((revision) => revision + 1)
@@ -217,6 +220,19 @@ function DatasetsIndexPage() {
                   disabled={uploading}
                 />
               </div>
+            </div>
+
+            <div className="mt-4">
+              <Label htmlFor="embedding-model" className="text-slate-200">Embeddingmodell</Label>
+              <select
+                id="embedding-model"
+                value={embeddingModel}
+                onChange={(event) => setEmbeddingModel(event.target.value as EmbeddingModel)}
+                disabled={uploading}
+                className="mt-1 w-full rounded-md border border-white/20 bg-zinc-900 px-3 py-2 text-white"
+              >
+                {embeddingModels.map((model) => <option key={model.id} value={model.id}>{model.label}</option>)}
+              </select>
             </div>
 
             <div className="mt-5">

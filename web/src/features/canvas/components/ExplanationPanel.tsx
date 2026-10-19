@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useAtom, useAtomValue, useSetAtom } from 'jotai'
 import {
   activeDatasetIdAtom,
+  embeddingsRevisionAtom,
   clusterFocusRequestAtom,
   clusterProfilesAlgorithmAtom,
   clusterProfilesErrorAtom,
@@ -315,6 +316,7 @@ const ProfileList = ({
 
 export const ExplanationPanel = () => {
   const datasetId = useAtomValue(activeDatasetIdAtom)
+  const modelRevision = useAtomValue(embeddingsRevisionAtom)
   const projectionSettings = useAtomValue(projectionSettingsAtom)
   const viewMode = useAtomValue(projectionViewModeAtom)
   const projection = useAtomValue(loadableProjectedEmbeddingsAtom('main'))
@@ -380,6 +382,7 @@ export const ExplanationPanel = () => {
     () =>
       [
         datasetId,
+        modelRevision,
         projectionSettings.type,
         viewMode,
         projectionSettings.nNeighbors,
@@ -394,6 +397,7 @@ export const ExplanationPanel = () => {
       algorithm,
       clusterParameters,
       datasetId,
+      modelRevision,
       projectedItems,
       projectionSettings,
       viewMode,
@@ -642,7 +646,7 @@ export const ExplanationPanel = () => {
                         : 'border-white/15 bg-black/20 text-white/70 hover:bg-white/10'
                     }`}
                     aria-pressed={axisEnabled}
-                    title="En linjär riktning anpassad i den aktuella UMAP-projektionen, inte en huvudkomponent i CLIP-rummet."
+                    title="En linjär riktning anpassad i den aktuella UMAP-projektionen, inte en huvudkomponent i inbäddningsrummet."
                     onClick={() => setAxisEnabled((enabled) => !enabled)}
                   >
                     <span>Visa konceptaxel</span>
@@ -695,7 +699,7 @@ export const ExplanationPanel = () => {
               <>
                 <p className="text-[11px] text-white/55">
                   Medlemskap bestäms i 2D-UMAP. Profilerna beräknas från
-                  bildernas fullständiga CLIP-inbäddningar.
+                  bildernas fullständiga semantiska inbäddningar.
                 </p>
                 <Select
                   value={algorithm}
