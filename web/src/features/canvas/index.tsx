@@ -1,3 +1,4 @@
+import { t, useLanguage } from '@/shared/i18n'
 import { lazy, Suspense } from 'react'
 import { useAtomValue } from 'jotai'
 import { loadableEmbeddingsAtom, projectionViewModeAtom } from '@/store'
@@ -8,6 +9,7 @@ const Umap3DScene = lazy(() =>
 )
 
 const EmbeddingsFetchWrapper = () => {
+  useLanguage()
   const embeddings = useAtomValue(loadableEmbeddingsAtom)
   const viewMode = useAtomValue(projectionViewModeAtom)
 
@@ -24,8 +26,7 @@ const EmbeddingsFetchWrapper = () => {
           zIndex: 1000,
         }}
       >
-        Laddar in embeddings<br /> ( det kan ta upp till en minut )
-      </h1>
+        {t('Laddar in embeddings')}<br />  {t('( det kan ta upp till en minut )')} </h1>
     )
   }
 
@@ -33,8 +34,7 @@ const EmbeddingsFetchWrapper = () => {
     <Suspense
       fallback={
         <div className="fixed inset-0 flex items-center justify-center bg-[#07090e] text-white">
-          Laddar 3D-visning…
-        </div>
+          {t('Laddar 3D-visning…')} </div>
       }
     >
       <Umap3DScene />

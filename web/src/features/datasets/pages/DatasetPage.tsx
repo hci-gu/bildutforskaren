@@ -1,3 +1,5 @@
+import { message, renderMessage, type Message, formatDate, formatNumber, translate, displayLabel, t, useLanguage } from '@/shared/i18n'
+import { LocalizedError } from '@/shared/components/LocalizedError'
 import { useCallback, useEffect, useState } from 'react'
 import { useParams, Link, useNavigate } from 'react-router'
 import { useSetAtom } from 'jotai'
@@ -90,15 +92,16 @@ const formatEta = (seconds?: number | null) => {
   const secs = rounded % 60
 
   if (hours > 0) {
-    return `${hours}h ${minutes}m`
+    return t('ETA hours', [hours, minutes])
   }
   if (minutes > 0) {
-    return `${minutes}m ${secs}s`
+    return t('ETA minutes', [minutes, secs])
   }
-  return `${secs}s`
+  return t('ETA seconds', [secs])
 }
 
 export default function DatasetPage() {
+  useLanguage()
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const setActiveDatasetId = useSetAtom(activeDatasetIdAtom)
@@ -107,7 +110,7 @@ export default function DatasetPage() {
   const [dataset, setDataset] = useState<DatasetStatus | null>(null)
   const [tagStats, setTagStats] = useState<TagStats | null>(null)
   const [loading, setLoading] = useState(false)
-  const [seedResult, setSeedResult] = useState<string | null>(null)
+  const [seedResult, setSeedResult] = useState<Message | null>(null)
   const [seedError, setSeedError] = useState<string | null>(null)
   const [seeding, setSeeding] = useState(false)
   const [resumeError, setResumeError] = useState<string | null>(null)
@@ -132,7 +135,7 @@ export default function DatasetPage() {
     statusValue === 'processing'
   const isReady = statusValue === 'ready'
   const statusLabel =
-    statusValue === 'uploading' ? 'uploading' : isPending ? 'pending' : statusValue || '-'
+    statusValue === 'uploading' ? t('uploading') : isPending ? t('pending') : statusValue || '-'
   const showEmbeddingProgress =
     isPending &&
     dataset?.job?.stage === 'embeddings' &&
@@ -265,7 +268,7 @@ export default function DatasetPage() {
     try {
       const data = await seedTagsFromMetadata(id)
       setSeedResult(
-        `Infogade ${data.inserted ?? 0} taggar (skippade ${data.skipped_manual ?? 0} bilder med manuella taggar).`
+        message('Infogade {0} taggar (skippade {1} bilder med manuella taggar).', [data.inserted ?? 0, data.skipped_manual ?? 0])
       )
     } catch (err) {
       setSeedError('Kunde inte skapa taggar från metadata.')
@@ -369,7 +372,7 @@ export default function DatasetPage() {
       <div className="mx-auto w-full max-w-4xl px-6 pt-20 pb-10">
         <div className="mb-6 flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-semibold">Dataset</h1>
+            <h1 className="text-2xl font-semibold">{t('Dataset')}</h1>
             <p className="text-sm text-white/60">{id}</p>
           </div>
           <div className="flex gap-2">
@@ -379,23 +382,19 @@ export default function DatasetPage() {
                   <>
                     <Link to={`/dataset/${id}/canvas`}>
                       <Button variant="secondary" size="sm">
-                        Canvas
-                      </Button>
+                        {t('Canvas')} </Button>
                     </Link>
                     <Link to={`/dataset/${id}/street-view`}>
                       <Button variant="secondary" size="sm">
-                        Street View
-                      </Button>
+                        {t('Street View')} </Button>
                     </Link>
                   </>
                 ) : (
                   <>
                     <Button variant="secondary" size="sm" disabled>
-                      Canvas
-                    </Button>
+                      {t('Canvas')} </Button>
                     <Button variant="secondary" size="sm" disabled>
-                      Street View
-                    </Button>
+                      {t('Street View')} </Button>
                   </>
                 )}
               </>
@@ -405,58 +404,56 @@ export default function DatasetPage() {
 
         <Card className="glass-panel text-white">
           <CardHeader>
-            <CardTitle>Översikt</CardTitle>
+            <CardTitle>{t('Översikt')}</CardTitle>
             <CardDescription className="text-white/60">
-              Status och metadata för datasetet.
-            </CardDescription>
+              {t('Status och metadata för datasetet.')} </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             {loading && (
-              <StatusMessage textClassName="text-white/60">Laddar…</StatusMessage>
+              <StatusMessage textClassName="text-white/60">{t('Laddar…')}</StatusMessage>
             )}
             {!loading && !dataset && (
               <StatusMessage variant="error" textClassName="text-red-300">
-                Kunde inte läsa dataset.
-              </StatusMessage>
+                {t('Kunde inte läsa dataset.')} </StatusMessage>
             )}
             {dataset && (
               <div className="grid gap-3 text-sm sm:grid-cols-2">
                 <div>
-                  <div className="text-white/50">Namn</div>
-                  <div>{dataset.name || 'Untitled dataset'}</div>
+                  <div className="text-white/50">{t('Namn')}</div>
+                  <div>{dataset.name || t('Untitled dataset')}</div>
                 </div>
                 <div>
-                  <div className="text-white/50">Status</div>
-                  <div>{statusLabel}</div>
+                  <div className="text-white/50">{t('Status')}</div>
+                  <div>{translate(statusLabel)}</div>
                 </div>
                 <div>
-                  <div className="text-white/50">Antal bilder</div>
-                  <div>{tagStats ? tagStats.total_images : '-'}</div>
+                  <div className="text-white/50">{t('Antal bilder')}</div>
+                  <div>{tagStats ? formatNumber(tagStats.total_images) : '-'}</div>
                 </div>
                 <div>
-                  <div className="text-white/50">Taggade bilder</div>
+                  <div className="text-white/50">{t('Taggade bilder')}</div>
                   <div>
                     {tagStats
-                      ? `${tagStats.tagged_images} (${tagStats.tagged_percent}%)`
+                      ? `${formatNumber(tagStats.tagged_images)} (${formatNumber(tagStats.tagged_percent, 1)}%)`
                       : '-'}
                   </div>
                 </div>
                 <div>
-                  <div className="text-white/50">Metadata-källa</div>
-                  <div>{dataset.metadata_source || 'none'}</div>
+                  <div className="text-white/50">{t('Metadata-källa')}</div>
+                  <div>{translate(dataset.metadata_source || 'none')}</div>
                 </div>
                 <div>
                   <div className="text-white/50">Metadata.xlsx</div>
-                  <div>{dataset.has_metadata_xlsx ? 'Ja' : 'Nej'}</div>
+                  <div>{dataset.has_metadata_xlsx ? t('Ja') : t('Nej')}</div>
                 </div>
                 <div>
-                  <div className="text-white/50">Skapad</div>
-                  <div>{dataset.created_at || '-'}</div>
+                  <div className="text-white/50">{t('Skapad')}</div>
+                  <div>{dataset.created_at ? formatDate(dataset.created_at) : '-'}</div>
                 </div>
                 {dataset.error && (
                   <div className="sm:col-span-2">
-                    <div className="text-white/50">Fel</div>
-                    <div className="text-red-300">{dataset.error}</div>
+                    <div className="text-white/50">{t('Fel')}</div>
+                    <div className="text-red-300"><LocalizedError value={dataset.error} /></div>
                   </div>
                 )}
                 {isPending && (
@@ -466,8 +463,8 @@ export default function DatasetPage() {
                     className="sm:col-span-2 border border-white/10 bg-white/5 text-white/70"
                     description={
                       statusValue === 'uploading'
-                        ? 'Bilderna laddas upp. Canvas och Street View blir tillgängliga när bearbetningen är klar.'
-                        : 'Datasetet bearbetas. Canvas och Street View blir tillgängliga när statusen är klar.'
+                        ? t('Bilderna laddas upp. Canvas och Street View blir tillgängliga när bearbetningen är klar.')
+                        : t('Datasetet bearbetas. Canvas och Street View blir tillgängliga när statusen är klar.')
                     }
                     showProgress={showEmbeddingProgress}
                     progressPercent={embeddingProgress}
@@ -481,29 +478,28 @@ export default function DatasetPage() {
                     useGlassPanel={false}
                     className="sm:col-span-2 border border-white/10 bg-white/5 text-white/70"
                     description={[
-                      'Bildbeskrivningar, CLIP-embeddings och SDXL-textembeddings skapas.',
+                      t('Bildbeskrivningar, CLIP-embeddings och SDXL-textembeddings skapas.'),
                       typeof roundtripTotalWork === 'number'
-                        ? `${roundtripProcessed}/${roundtripTotalWork} klara`
+                        ? t('{0}/{1} klara', [roundtripProcessed, roundtripTotalWork])
                         : null,
                       typeof roundtripRemaining === 'number'
-                        ? `${roundtripRemaining} kvar`
+                        ? t('{0} kvar', [roundtripRemaining])
                         : null,
-                      roundtripEta ? `cirka ${roundtripEta} återstår` : null,
+                      roundtripEta ? t('cirka {0} återstår', [roundtripEta]) : null,
                     ]
                       .filter(Boolean)
                       .join(' ')}
                     stage={dataset?.job?.stage}
                     showProgress
                     progressPercent={roundtripProgress}
-                    progressLabel="Bildmetadata"
+                    progressLabel={t('Bildmetadata')}
                     textClassName="text-xs text-white/70"
                     progressLabelClassName="text-xs text-white/70"
                   />
                 )}
                 {canResume && (
                   <div className="sm:col-span-2 rounded-xl border border-white/10 bg-white/5 p-3 text-xs text-white/70">
-                    Det verkar inte finnas någon aktiv bearbetning just nu.
-                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                    {t('Det verkar inte finnas någon aktiv bearbetning just nu.')} <div className="mt-3 flex flex-wrap items-center gap-2">
                       <Button
                         type="button"
                         size="sm"
@@ -511,10 +507,10 @@ export default function DatasetPage() {
                         onClick={handleResume}
                         disabled={resuming}
                       >
-                        {resuming ? 'Startar…' : 'Starta om bearbetning'}
+                        {resuming ? t('Startar…') : t('Starta om bearbetning')}
                       </Button>
                       {resumeError && (
-                        <span className="text-red-300">{resumeError}</span>
+                        <span className="text-red-300"><LocalizedError value={resumeError} /></span>
                       )}
                     </div>
                   </div>
@@ -526,24 +522,22 @@ export default function DatasetPage() {
 
         <Card className="glass-panel mt-6 text-white">
           <CardHeader>
-            <CardTitle>Bildmetadata</CardTitle>
+            <CardTitle>{t('Bildmetadata')}</CardTitle>
             <CardDescription className="text-white/60">
-              Skapa Florence-2-beskrivning, CLIP-embedding och SDXL-textembedding
-              för varje bild som saknar filer.
-            </CardDescription>
+              {t('Skapa Florence-2-beskrivning, CLIP-embedding och SDXL-textembedding för varje bild som saknar filer.')} </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
             <div className="grid gap-3 text-sm sm:grid-cols-3">
               <div>
-                <div className="text-white/50">Totalt</div>
+                <div className="text-white/50">{t('Totalt')}</div>
                 <div>{roundtripStatus?.total ?? '-'}</div>
               </div>
               <div>
-                <div className="text-white/50">Klart</div>
+                <div className="text-white/50">{t('Klart')}</div>
                 <div>{roundtripStatus?.complete ?? '-'}</div>
               </div>
               <div>
-                <div className="text-white/50">Saknas</div>
+                <div className="text-white/50">{t('Saknas')}</div>
                 <div>{roundtripStatus?.missing ?? '-'}</div>
               </div>
             </div>
@@ -557,9 +551,9 @@ export default function DatasetPage() {
                     className="flex flex-col gap-3 border-b border-white/10 py-3 last:border-b-0 last:pb-0 first:pt-0 sm:flex-row sm:items-center sm:justify-between"
                   >
                     <div>
-                      <div className="text-sm font-medium">{artifact.label}</div>
+                      <div className="text-sm font-medium">{displayLabel(artifact)}</div>
                       <div className="mt-1 text-xs text-white/50">
-                        {artifact.description}
+                        {translate(artifact.description)}
                       </div>
                     </div>
                     <div className="flex items-center gap-3">
@@ -574,22 +568,20 @@ export default function DatasetPage() {
                             variant="destructive"
                             disabled={!isReady || isJobActive || count === 0 || !!clearingArtifact}
                           >
-                            {isClearing ? 'Tar bort…' : 'Ta bort'}
+                            {isClearing ? t('Tar bort…') : t('Ta bort')}
                           </Button>
                         </DialogTrigger>
                         <DialogContent className="border-white/10 bg-zinc-950 text-white">
                           <DialogHeader>
-                            <DialogTitle>Ta bort {artifact.label}?</DialogTitle>
+                            <DialogTitle>{t('Delete artifact', [displayLabel(artifact)])}</DialogTitle>
                             <DialogDescription className="text-white/60">
-                              {artifact.confirm} Åtgärden påverkar {count} bilder och kan
-                              återskapas genom att köra metadatajobbet igen.
+                              {t('Images affected', [translate(artifact.confirm), count])}
                             </DialogDescription>
                           </DialogHeader>
                           <DialogFooter>
                             <DialogClose asChild>
                               <Button type="button" variant="secondary">
-                                Avbryt
-                              </Button>
+                                {t('Avbryt')} </Button>
                             </DialogClose>
                             <DialogClose asChild>
                               <Button
@@ -599,8 +591,7 @@ export default function DatasetPage() {
                                   void handleClearArtifact(artifact.key)
                                 }}
                               >
-                                Ta bort
-                              </Button>
+                                {t('Ta bort')} </Button>
                             </DialogClose>
                           </DialogFooter>
                         </DialogContent>
@@ -615,77 +606,73 @@ export default function DatasetPage() {
               onClick={handleGenerateRoundtrip}
               disabled={!canGenerateRoundtrip || roundtripStarting}
             >
-              {roundtripStarting ? 'Startar…' : 'Skapa saknade filer'}
+              {roundtripStarting ? t('Startar…') : t('Skapa saknade filer')}
             </Button>
             {!isReady && (
               <div className="text-xs text-white/50">
-                Datasetet måste vara klart innan detta kan köras.
-              </div>
+                {t('Datasetet måste vara klart innan detta kan köras.')} </div>
             )}
             {isReady && roundtripStatus && roundtripStatus.missing === 0 && (
               <div className="text-xs text-green-300">
-                Alla bildmetadatafiler finns redan.
-              </div>
+                {t('Alla bildmetadatafiler finns redan.')} </div>
             )}
             {roundtripError && (
-              <div className="text-xs text-red-300">{roundtripError}</div>
+              <div className="text-xs text-red-300"><LocalizedError value={roundtripError} /></div>
             )}
           </CardContent>
         </Card>
 
         <Card className="glass-panel mt-6 text-white">
           <CardHeader>
-            <CardTitle>Klusterförhandsvisningar</CardTitle>
+            <CardTitle>{t('Klusterförhandsvisningar')}</CardTitle>
             <CardDescription className="text-white/60">
-              Baka klusterhierarki och genererade genomsnittsbilder för canvasvyn.
-            </CardDescription>
+              {t('Baka klusterhierarki och genererade genomsnittsbilder för canvasvyn.')} </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
             <div className="grid gap-3 text-sm sm:grid-cols-4">
               <div>
-                <div className="text-white/50">Finns</div>
-                <div>{clusterStatus?.exists ? 'Ja' : 'Nej'}</div>
+                <div className="text-white/50">{t('Finns')}</div>
+                <div>{clusterStatus?.exists ? t('Ja') : t('Nej')}</div>
               </div>
               <div>
-                <div className="text-white/50">Nivåer</div>
+                <div className="text-white/50">{t('Nivåer')}</div>
                 <div>{clusterStatus?.levels ?? '-'}</div>
               </div>
               <div>
-                <div className="text-white/50">Kluster</div>
+                <div className="text-white/50">{t('Kluster')}</div>
                 <div>{clusterStatus?.clusters ?? '-'}</div>
               </div>
               <div>
-                <div className="text-white/50">Bilder</div>
+                <div className="text-white/50">{t('Bilder')}</div>
                 <div>{clusterStatus?.images ?? '-'}</div>
               </div>
             </div>
             {showClusterProgress && (
               <DatasetStatusPanel
                 variant="pending"
-                title="Bakar klusterförhandsvisningar"
+                title={t('Bakar klusterförhandsvisningar')}
                 description={[
                   typeof clusterTotalWork === 'number'
-                    ? `${clusterProcessed}/${clusterTotalWork} klara`
+                    ? t('{0}/{1} klara', [clusterProcessed, clusterTotalWork])
                     : null,
                   typeof clusterRemaining === 'number'
-                    ? `${clusterRemaining} kvar`
+                    ? t('{0} kvar', [clusterRemaining])
                     : null,
-                  clusterEta ? `cirka ${clusterEta} återstår` : null,
+                  clusterEta ? t('cirka {0} återstår', [clusterEta]) : null,
                 ]
                   .filter(Boolean)
                   .join(' · ')}
-                stage="cluster-previews"
+                stage={t('cluster-previews')}
                 showProgress
                 progressPercent={clusterProgress}
-                progressLabel="Kluster"
+                progressLabel={t('Kluster')}
                 progressLabelClassName="text-xs text-white/70"
               />
             )}
             <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
               <div className="flex flex-col gap-1">
                 <label htmlFor="clusterAlgorithm" className="text-xs text-white/60">
-                  Algoritm
-                </label>
+                  {t('Algoritm')} </label>
                 <Select
                   value={clusterAlgorithm}
                   onValueChange={(value) =>
@@ -708,8 +695,7 @@ export default function DatasetPage() {
               </div>
               <div className="flex flex-col gap-1">
                 <label htmlFor="clusterLevels" className="text-xs text-white/60">
-                  Nivåer
-                </label>
+                  {t('Nivåer')} </label>
                 <input
                   id="clusterLevels"
                   type="number"
@@ -731,7 +717,7 @@ export default function DatasetPage() {
                 onClick={handleGenerateClusters}
                 disabled={!isReady || !hasImageMetadata || isJobActive || clusterStarting}
               >
-                {clusterStarting ? 'Startar…' : 'Baka kluster'}
+                {clusterStarting ? t('Startar…') : t('Baka kluster')}
               </Button>
               <Dialog>
                 <DialogTrigger asChild>
@@ -746,22 +732,19 @@ export default function DatasetPage() {
                       clusterClearing
                     }
                   >
-                    {clusterClearing ? 'Tar bort…' : 'Ta bort'}
+                    {clusterClearing ? t('Tar bort…') : t('Ta bort')}
                   </Button>
                 </DialogTrigger>
                 <DialogContent className="border-white/10 bg-zinc-950 text-white">
                   <DialogHeader>
-                    <DialogTitle>Ta bort klusterförhandsvisningar?</DialogTitle>
+                    <DialogTitle>{t('Ta bort klusterförhandsvisningar?')}</DialogTitle>
                     <DialogDescription className="text-white/60">
-                      Detta tar bort bakad klusterhierarki och genererade klusterbilder.
-                      De kan återskapas genom att köra bakningen igen.
-                    </DialogDescription>
+                      {t('Detta tar bort bakad klusterhierarki och genererade klusterbilder. De kan återskapas genom att köra bakningen igen.')} </DialogDescription>
                   </DialogHeader>
                   <DialogFooter>
                     <DialogClose asChild>
                       <Button type="button" variant="secondary">
-                        Avbryt
-                      </Button>
+                        {t('Avbryt')} </Button>
                     </DialogClose>
                     <DialogClose asChild>
                       <Button
@@ -771,8 +754,7 @@ export default function DatasetPage() {
                           void handleClearClusters()
                         }}
                       >
-                        Ta bort
-                      </Button>
+                        {t('Ta bort')} </Button>
                     </DialogClose>
                   </DialogFooter>
                 </DialogContent>
@@ -780,26 +762,23 @@ export default function DatasetPage() {
             </div>
             {!isReady && (
               <div className="text-xs text-white/50">
-                Datasetet måste vara klart innan detta kan köras.
-              </div>
+                {t('Datasetet måste vara klart innan detta kan köras.')} </div>
             )}
             {isReady && !hasImageMetadata && (
               <div className="text-xs text-white/50">
-                Skapa bildmetadata innan du bakar klusterförhandsvisningar.
-              </div>
+                {t('Skapa bildmetadata innan du bakar klusterförhandsvisningar.')} </div>
             )}
             {clusterError && (
-              <div className="text-xs text-red-300">{clusterError}</div>
+              <div className="text-xs text-red-300"><LocalizedError value={clusterError} /></div>
             )}
           </CardContent>
         </Card>
 
         <Card className="glass-panel mt-6 text-white">
           <CardHeader>
-            <CardTitle>Metadata → Taggar</CardTitle>
+            <CardTitle>{t('Metadata → Taggar')}</CardTitle>
             <CardDescription className="text-white/60">
-              Förifyll taggar från metadata.xlsx (matchar SAO-termer).
-            </CardDescription>
+              {t('Förifyll taggar från metadata.xlsx (matchar SAO-termer).')} </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
             <Button
@@ -807,48 +786,43 @@ export default function DatasetPage() {
               onClick={handleSeed}
               disabled={!canSeed || seeding}
             >
-              {seeding ? 'Kör...' : 'Skapa taggar från metadata'}
+              {seeding ? t('Kör...') : t('Skapa taggar från metadata')}
             </Button>
             {!canSeed && (
               <div className="text-xs text-white/50">
-                Metadata måste vara kopplad till datasetet för att köra detta.
-              </div>
+                {t('Metadata måste vara kopplad till datasetet för att köra detta.')} </div>
             )}
-            {seedResult && <div className="text-xs text-green-300">{seedResult}</div>}
-            {seedError && <div className="text-xs text-red-300">{seedError}</div>}
+            {seedResult && <div className="text-xs text-green-300">{renderMessage(seedResult)}</div>}
+            {seedError && <div className="text-xs text-red-300"><LocalizedError value={seedError} /></div>}
           </CardContent>
         </Card>
 
         <div className="mt-10 border-t border-red-400/20 pt-6">
           <div className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
             <div>
-              <h2 className="font-semibold text-red-300">Ta bort dataset</h2>
+              <h2 className="font-semibold text-red-300">{t('Ta bort dataset')}</h2>
               <p className="mt-1 text-sm text-white/60">
-                Datasetet döljs från listan. Inga filer tas bort.
-              </p>
+                {t('Datasetet döljs från listan. Inga filer tas bort.')} </p>
             </div>
             <Dialog>
               <DialogTrigger asChild>
                 <Button type="button" variant="destructive" disabled={deleting}>
-                  {deleting ? 'Tar bort…' : 'Ta bort dataset'}
+                  {deleting ? t('Tar bort…') : t('Ta bort dataset')}
                 </Button>
               </DialogTrigger>
               <DialogContent className="border-white/10 bg-zinc-950 text-white">
                 <DialogHeader>
-                  <DialogTitle>Ta bort dataset?</DialogTitle>
+                  <DialogTitle>{t('Ta bort dataset?')}</DialogTitle>
                   <DialogDescription className="text-white/60">
-                    Datasetet markeras som borttaget och försvinner från listan.
-                    Filerna på servern behålls.
-                  </DialogDescription>
+                    {t('Datasetet markeras som borttaget och försvinner från listan. Filerna på servern behålls.')} </DialogDescription>
                 </DialogHeader>
                 {deleteError && (
-                  <div className="text-sm text-red-300">{deleteError}</div>
+                  <div className="text-sm text-red-300"><LocalizedError value={deleteError} /></div>
                 )}
                 <DialogFooter>
                   <DialogClose asChild>
                     <Button type="button" variant="secondary">
-                      Avbryt
-                    </Button>
+                      {t('Avbryt')} </Button>
                   </DialogClose>
                   <Button
                     type="button"
@@ -858,14 +832,14 @@ export default function DatasetPage() {
                     }}
                     disabled={deleting}
                   >
-                    {deleting ? 'Tar bort…' : 'Ta bort dataset'}
+                    {deleting ? t('Tar bort…') : t('Ta bort dataset')}
                   </Button>
                 </DialogFooter>
               </DialogContent>
             </Dialog>
           </div>
           {deleteError && (
-            <div className="mt-3 text-sm text-red-300">{deleteError}</div>
+            <div className="mt-3 text-sm text-red-300"><LocalizedError value={deleteError} /></div>
           )}
         </div>
       </div>

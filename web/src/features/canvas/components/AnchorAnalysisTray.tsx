@@ -1,3 +1,5 @@
+import { formatNumber, translate, t, useLanguage } from '@/shared/i18n'
+import { LocalizedError } from '@/shared/components/LocalizedError'
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { useAtom, useAtomValue, useSetAtom } from 'jotai'
 import {
@@ -104,6 +106,7 @@ const atlasImage = (
   y: number,
   size: number
 ) => {
+
   if (!entry.atlas) return null
   const scale = size / entry.width
   const clipId = `anchor_scatter_clip_${imageId}`
@@ -162,6 +165,7 @@ const ScatterPlot = ({
   yLabel: string
   onSelect: (imageId: number) => void
 }) => {
+  useLanguage()
   const [hoveredId, setHoveredId] = useState<number | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const [size, setSize] = useState({
@@ -244,7 +248,7 @@ const ScatterPlot = ({
         viewBox={`0 0 ${width} ${height}`}
         className="h-full w-full"
         role="img"
-        aria-label={`${xLabel} by ${yLabel} for ${points.length} images`}
+        aria-label={t('{0} by {1} for {2} images', [xLabel, yLabel, points.length])}
       >
         <line
           x1={margin.left}
@@ -347,7 +351,7 @@ const ScatterPlot = ({
           fill="rgba(255,255,255,0.55)"
           fontSize={10}
         >
-          {geometry.minX.toFixed(2)}
+          {formatNumber(geometry.minX, 2)}
         </text>
         <text
           x={width - margin.right}
@@ -356,7 +360,7 @@ const ScatterPlot = ({
           textAnchor="end"
           fontSize={10}
         >
-          {geometry.maxX.toFixed(2)}
+          {formatNumber(geometry.maxX, 2)}
         </text>
       </svg>
       {hovered && (
@@ -368,10 +372,10 @@ const ScatterPlot = ({
             className="h-10 w-10 rounded"
           />
           <div>
-            <div>Image {hovered.image_id}</div>
+            <div>{t('Image')} {hovered.image_id}</div>
             <div className="text-white/60">
-              {xLabel}: {hovered[xKey].toFixed(3)} · {yLabel}:{' '}
-              {hovered[yKey].toFixed(3)}
+              {xLabel}: {formatNumber(hovered[xKey], 3)} · {yLabel}:{' '}
+              {formatNumber(hovered[yKey], 3)}
             </div>
           </div>
         </div>
@@ -393,11 +397,11 @@ const PathRail = ({
   activeId: number | null
   onFocus: (imageId: number) => void
 }) => {
+  useLanguage()
   if (!pathIds.length) {
     return (
       <div className="flex h-full items-center justify-center text-sm text-white/55">
-        No path is available for this method.
-      </div>
+        {t('No path is available for this method.')} </div>
     )
   }
 
@@ -405,7 +409,7 @@ const PathRail = ({
     <div
       className="flex h-full items-center overflow-x-auto px-6 py-5"
       role="list"
-      aria-label={`Image path with ${pathIds.length} steps`}
+      aria-label={t('Image path with {0} steps', [pathIds.length])}
     >
       {pathIds.map((imageId, index) => (
         <React.Fragment key={`${imageId}_${index}`}>
@@ -420,13 +424,12 @@ const PathRail = ({
           <button
             type="button"
             role="listitem"
-            className={`group relative z-0 min-w-28 transform-gpu rounded-xl p-3 text-center text-xs transition duration-200 ease-out hover:z-10 hover:-translate-y-3 hover:scale-[1.12] hover:bg-white/10 hover:shadow-[0_18px_45px_rgba(0,0,0,0.55)] focus-visible:z-10 focus-visible:-translate-y-3 focus-visible:scale-[1.12] focus-visible:bg-white/10 ${
-              activeId === imageId
+            className={`group relative z-0 min-w-28 transform-gpu rounded-xl p-3 text-center text-xs transition duration-200 ease-out hover:z-10 hover:-translate-y-3 hover:scale-[1.12] hover:bg-white/10 hover:shadow-[0_18px_45px_rgba(0,0,0,0.55)] focus-visible:z-10 focus-visible:-translate-y-3 focus-visible:scale-[1.12] focus-visible:bg-white/10 ${activeId === imageId
                 ? '-translate-y-1 bg-white/10 ring-2 ring-emerald-300'
                 : ''
             }`}
             onClick={() => onFocus(imageId)}
-            aria-label={`Focus path step ${index + 1}, image ${imageId}`}
+            aria-label={t('Focus path step {0}, image {1}', [index + 1, imageId])}
           >
             <AtlasThumbnail
               datasetId={datasetId}
@@ -435,7 +438,7 @@ const PathRail = ({
               className="mx-auto mb-2 h-20 w-20 rounded-lg ring-1 ring-white/20 transition duration-200 group-hover:brightness-110 group-hover:ring-2 group-hover:ring-white/80 group-focus-visible:brightness-110 group-focus-visible:ring-2 group-focus-visible:ring-white/80"
               size={80}
             />
-            <span className="block text-white/55">Step {index + 1}</span>
+            <span className="block text-white/55">{t('Step')} {index + 1}</span>
             <span className="block">#{imageId}</span>
           </button>
         </React.Fragment>
@@ -450,6 +453,7 @@ export const AnchorAnalysisTray: React.FC<Props> = ({
   atlasMeta,
   onNavigateImage,
 }) => {
+  useLanguage()
   const [open, setOpen] = useAtom(anchorAnalysisTrayOpenAtom)
   const [collapsed, setCollapsed] = useAtom(anchorAnalysisTrayCollapsedAtom)
   const [height, setHeight] = useAtom(anchorAnalysisTrayHeightAtom)
@@ -598,12 +602,12 @@ export const AnchorAnalysisTray: React.FC<Props> = ({
       className="glass-panel-strong fixed right-0 bottom-0 left-0 z-[10020] flex flex-col border-t border-white/20 text-white shadow-2xl"
       style={{ height: collapsed ? 52 : height }}
       data-canvas-ui="true"
-      aria-label="Anchor analysis"
+      aria-label={t('Anchor analysis')}
     >
       {!collapsed && (
         <button
           type="button"
-          aria-label="Resize analysis tray"
+          aria-label={t('Resize analysis tray')}
           className="absolute top-0 left-0 h-2 w-full cursor-row-resize bg-transparent"
           onPointerDown={() => setDragging(true)}
         />
@@ -636,22 +640,21 @@ export const AnchorAnalysisTray: React.FC<Props> = ({
           </span>
           {result && (
             <span className="hidden text-white/55 sm:inline">
-              centroid similarity {result.anchors.similarity.toFixed(3)}
+              {t('centroid similarity')} {formatNumber(result.anchors.similarity, 3)}
             </span>
           )}
         </div>
-        <nav className="flex flex-1 justify-center gap-1" aria-label="Analysis view">
+        <nav className="flex flex-1 justify-center gap-1" aria-label={t('Analysis view')}>
           {tabs.map(([value, label]) => (
             <button
               key={value}
               type="button"
-              className={`rounded-full px-3 py-1.5 text-xs ${
-                tab === value ? 'bg-white text-black' : 'hover:bg-white/10'
+              className={`rounded-full px-3 py-1.5 text-xs ${tab === value ? 'bg-white text-black' : 'hover:bg-white/10'
               }`}
               aria-pressed={tab === value}
               onClick={() => changeTab(value)}
             >
-              {label}
+              {translate(label)}
             </button>
           ))}
         </nav>
@@ -662,14 +665,13 @@ export const AnchorAnalysisTray: React.FC<Props> = ({
               checked={compare}
               onChange={(event) => setCompare(event.target.checked)}
             />
-            Compare paths
-          </label>
+            {t('Compare paths')} </label>
         )}
         <button
           type="button"
           className="rounded-full p-1.5 hover:bg-white/10"
           onClick={() => setCollapsed((value) => !value)}
-          aria-label={collapsed ? 'Expand analysis' : 'Collapse analysis'}
+          aria-label={collapsed ? t('Expand analysis') : t('Collapse analysis')}
         >
           {collapsed ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
         </button>
@@ -677,7 +679,7 @@ export const AnchorAnalysisTray: React.FC<Props> = ({
           type="button"
           className="rounded-full p-1.5 hover:bg-white/10"
           onClick={() => setOpen(false)}
-          aria-label="Close analysis tray"
+          aria-label={t('Close analysis tray')}
         >
           <X size={16} />
         </button>
@@ -687,21 +689,19 @@ export const AnchorAnalysisTray: React.FC<Props> = ({
         <div className="flex min-h-0 flex-1 flex-col px-4 pb-3">
           <div className="flex items-center justify-between gap-3 py-2 text-xs">
             <div>
-              {status === 'loading' && 'Calculating anchor paths…'}
+              {status === 'loading' && t('Calculating anchor paths…')}
               {status === 'error' && (
-                <span className="text-red-300">{error ?? 'Analysis failed.'}</span>
+                <span className="text-red-300"><LocalizedError value={error ?? 'Analysis failed.'} /></span>
               )}
               {stale && status !== 'loading' && (
                 <span className="text-amber-200">
-                  Results are out of date for the current selection or settings.
-                </span>
+                  {t('Results are out of date for the current selection or settings.')} </span>
               )}
             </div>
             <div className="flex items-center gap-2">
               <button
                 type="button"
-                className={`flex items-center gap-1 rounded-full px-3 py-1.5 ${
-                  displayPath
+                className={`flex items-center gap-1 rounded-full px-3 py-1.5 ${displayPath
                     ? 'bg-violet-300 text-black'
                     : 'border border-white/20 hover:bg-white/10'
                 } disabled:cursor-not-allowed disabled:opacity-40`}
@@ -711,23 +711,20 @@ export const AnchorAnalysisTray: React.FC<Props> = ({
                 }
                 aria-pressed={displayPath}
               >
-                <Route size={14} /> Display path
-              </button>
+                <Route size={14} />  {t('Display path')} </button>
               {tab !== 'semantic' && (
                 <details className="relative">
                   <summary className="flex cursor-pointer list-none items-center gap-1 rounded-full border border-white/20 px-3 py-1.5 hover:bg-white/10">
-                    <SlidersHorizontal size={14} /> Advanced
-                  </summary>
+                    <SlidersHorizontal size={14} />  {t('Advanced')} </summary>
                   <div
-                    className={`glass-panel-strong absolute right-0 bottom-full z-30 mb-2 grid gap-2 rounded-xl p-3 shadow-xl ${
-                      tab === 'interpolation'
+                    className={`glass-panel-strong absolute right-0 bottom-full z-30 mb-2 grid gap-2 rounded-xl p-3 shadow-xl ${tab === 'interpolation'
                         ? 'w-48 grid-cols-2'
                         : 'w-32 grid-cols-1'
                     }`}
                   >
                     {(tab === 'map' || tab === 'interpolation') && (
                       <label className="space-y-1">
-                        <span className="text-white/60">Steps</span>
+                        <span className="text-white/60">{t('Steps')}</span>
                         <input
                           className="w-full rounded border border-white/20 bg-black/30 px-2 py-1"
                           type="number"
@@ -745,7 +742,7 @@ export const AnchorAnalysisTray: React.FC<Props> = ({
                     )}
                     {tab === 'interpolation' && (
                       <label className="space-y-1">
-                        <span className="text-white/60">Results</span>
+                        <span className="text-white/60">{t('Results')}</span>
                         <input
                           className="w-full rounded border border-white/20 bg-black/30 px-2 py-1"
                           type="number"
@@ -763,7 +760,7 @@ export const AnchorAnalysisTray: React.FC<Props> = ({
                     )}
                     {tab === 'graph' && (
                       <label className="space-y-1">
-                        <span className="text-white/60">Graph k</span>
+                        <span className="text-white/60">{t('Graph k')}</span>
                         <input
                           className="w-full rounded border border-white/20 bg-black/30 px-2 py-1"
                           type="number"
@@ -789,8 +786,7 @@ export const AnchorAnalysisTray: React.FC<Props> = ({
                   onClick={() => void analyze()}
                   disabled={status === 'loading'}
                 >
-                  <RefreshCw size={14} /> Recalculate
-                </button>
+                  <RefreshCw size={14} />  {t('Recalculate')} </button>
               )}
             </div>
           </div>
@@ -798,8 +794,7 @@ export const AnchorAnalysisTray: React.FC<Props> = ({
           {status === 'loading' && (
             <div className="flex flex-1 items-center justify-center text-sm text-white/65">
               <span className="mr-2 inline-block h-4 w-4 animate-spin rounded-full border border-white/50 border-t-transparent" />
-              Computing full-embedding metrics and graph paths
-            </div>
+              {t('Computing full-embedding metrics and graph paths')} </div>
           )}
 
           {result && datasetId && status !== 'loading' && (
@@ -825,21 +820,20 @@ export const AnchorAnalysisTray: React.FC<Props> = ({
                   <div
                     className="mb-1 flex justify-start gap-1"
                     role="group"
-                    aria-label="A–B map view"
+                    aria-label={t('A–B map view')}
                   >
                     {(['axis', 'affinity'] as const).map((view) => (
                       <button
                         key={view}
                         type="button"
-                        className={`rounded-full px-3 py-1.5 text-xs capitalize ${
-                          mapView === view
+                        className={`rounded-full px-3 py-1.5 text-xs capitalize ${mapView === view
                             ? 'bg-white text-black'
                             : 'border border-white/20 hover:bg-white/10'
                         }`}
                         onClick={() => setMapView(view)}
                         aria-pressed={mapView === view}
                       >
-                        {view}
+                        {translate(view)}
                       </button>
                     ))}
                   </div>
@@ -859,13 +853,13 @@ export const AnchorAnalysisTray: React.FC<Props> = ({
                       }
                       xLabel={
                         mapView === 'axis'
-                          ? 'A–B position (t)'
-                          : 'B affinity − A affinity'
+                          ? t('A–B position (t)')
+                          : t('B affinity − A affinity')
                       }
                       yLabel={
                         mapView === 'axis'
-                          ? 'Segment residual'
-                          : 'Common affinity'
+                          ? t('Segment residual')
+                          : t('Common affinity')
                       }
                       onSelect={selectImage}
                     />
@@ -880,7 +874,7 @@ export const AnchorAnalysisTray: React.FC<Props> = ({
                       className="min-w-28 border-l border-white/15 pl-3 text-xs"
                     >
                       <div className="mb-2 text-white/60">
-                        t={step.t.toFixed(2)}
+                        t={formatNumber(step.t, 2)}
                       </div>
                       <div className="space-y-2">
                         {step.retrievals
@@ -889,8 +883,7 @@ export const AnchorAnalysisTray: React.FC<Props> = ({
                             <button
                               key={retrieval.image_id}
                               type="button"
-                              className={`flex w-full items-center gap-2 rounded-lg p-1 text-left hover:bg-white/10 ${
-                                index === 0 ? 'bg-violet-400/10' : ''
+                              className={`flex w-full items-center gap-2 rounded-lg p-1 text-left hover:bg-white/10 ${index === 0 ? 'bg-violet-400/10' : ''
                               }`}
                               onClick={() => selectImage(retrieval.image_id)}
                             >
@@ -905,13 +898,13 @@ export const AnchorAnalysisTray: React.FC<Props> = ({
                                   #{retrieval.image_id}
                                 </span>
                                 <span className="text-white/55">
-                                  {retrieval.similarity.toFixed(3)}
+                                  {formatNumber(retrieval.similarity, 3)}
                                 </span>
                               </span>
                             </button>
                           ))}
                         {!step.retrievals.length && (
-                          <span className="text-white/45">No candidate</span>
+                          <span className="text-white/45">{t('No candidate')}</span>
                         )}
                       </div>
                     </div>
@@ -922,21 +915,20 @@ export const AnchorAnalysisTray: React.FC<Props> = ({
                 <div className="flex h-full min-h-0 flex-col">
                   <div className="mb-3 flex items-center gap-2 text-xs">
                     <span className="rounded-full bg-emerald-300 px-3 py-1.5 text-black">
-                      Supported
-                    </span>
+                      {t('Supported')} </span>
                     {graphPath?.connected && (
                       <span className="text-white/55">
-                        {graphPath.path_ids.length} images · total{' '}
-                        {graphPath.total_length?.toFixed(3)} rad · largest jump{' '}
-                        {graphPath.maximum_jump?.toFixed(3)} rad
+                        {t('Graph summary', [
+                          graphPath.path_ids.length,
+                          graphPath.total_length == null ? '' : formatNumber(graphPath.total_length, 3),
+                          graphPath.maximum_jump == null ? '' : formatNumber(graphPath.maximum_jump, 3),
+                        ])}
                       </span>
                     )}
                   </div>
                   {!graphPath?.connected ? (
                     <div className="flex flex-1 items-center justify-center text-sm text-white/60">
-                      No mutual-kNN path at k={result.graph.k}. Increase graph k
-                      in Advanced settings and recalculate.
-                    </div>
+                      {t('No graph path', [result.graph.k])}</div>
                   ) : (
                     <div className="flex min-h-0 flex-1 items-start gap-3 overflow-x-auto pb-2">
                       {graphPath.path_ids.map((imageId, index) => {
@@ -946,7 +938,7 @@ export const AnchorAnalysisTray: React.FC<Props> = ({
                             {index > 0 && (
                               <div className="mt-8 min-w-16 text-center text-[10px] text-white/45">
                                 →<br />
-                                {incoming?.similarity.toFixed(3)}
+                                {incoming ? formatNumber(incoming.similarity, 3) : ''}
                               </div>
                             )}
                             <button

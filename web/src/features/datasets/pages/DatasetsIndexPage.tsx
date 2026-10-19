@@ -1,3 +1,6 @@
+import { translate, t, useLanguage, message, renderMessage, type Message } from '@/shared/i18n'
+import { LanguageSelector } from '@/shared/components/LanguageSelector'
+import { LocalizedError } from '@/shared/components/LocalizedError'
 import { useAtom, useAtomValue, useSetAtom } from 'jotai'
 import {
   activeDatasetIdAtom,
@@ -27,16 +30,19 @@ import {
 const STATUS_POLL_INTERVAL_MS = 5_000
 
 function DatasetsIndexPage() {
+  useLanguage()
   const [datasetId, setDatasetId] = useAtom(activeDatasetIdAtom)
   const [activeUpload, setActiveUpload] = useAtom(activeDatasetUploadAtom)
   const bumpDatasetsRevision = useSetAtom(datasetsRevisionAtom)
   const datasetsLoadable = useAtomValue(loadableDatasetsAtom)
   const navigate = useNavigate()
   const retryFileInputRef = useRef<HTMLInputElement>(null)
+  const zipFileInputRef = useRef<HTMLInputElement>(null)
 
   const [newDatasetName, setNewDatasetName] = useState('')
   const [zipFile, setZipFile] = useState<File | null>(null)
-  const [uploadStatus, setUploadStatus] = useState<string | null>(null)
+  const [uploadStatus, setUploadStatus] = useState<Message | null>(null)
+  const [uploadError, setUploadError] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
   const [retryDatasetId, setRetryDatasetId] = useState<string | null>(null)
 
@@ -73,6 +79,7 @@ function DatasetsIndexPage() {
       phase: 'preparing',
     })
     setUploadStatus(null)
+    setUploadError(null)
 
     try {
       await startDatasetUpload(targetDatasetId)
@@ -82,10 +89,10 @@ function DatasetsIndexPage() {
         datasetName,
         phase: 'uploading',
       })
-      const uploadData = await uploadDatasetZip(targetDatasetId, file)
+      await uploadDatasetZip(targetDatasetId, file)
       bumpDatasetsRevision((revision) => revision + 1)
       setUploadStatus(
-        `${datasetName} laddades upp och bearbetas nu (status: ${uploadData.status}).`
+        message('Upload processing', [datasetName])
       )
     } catch (error) {
       if (attemptStarted) {
@@ -96,7 +103,8 @@ function DatasetsIndexPage() {
         }
       }
       bumpDatasetsRevision((revision) => revision + 1)
-      setUploadStatus(`Uppladdningen misslyckades: ${String(error)}`)
+      setUploadStatus(message('Upload failed'))
+      setUploadError(String(error))
     } finally {
       setActiveUpload(null)
     }
@@ -108,6 +116,7 @@ function DatasetsIndexPage() {
 
     setCreating(true)
     setUploadStatus(null)
+    setUploadError(null)
     try {
       const created = await createDataset(name)
       const newId = created.dataset_id as string
@@ -117,7 +126,8 @@ function DatasetsIndexPage() {
       setZipFile(null)
       await startUpload(newId, name, zipFile)
     } catch (error) {
-      setUploadStatus(`Kunde inte skapa dataset: ${String(error)}`)
+      setUploadStatus(message('Kunde inte skapa dataset: {0}', ['']))
+      setUploadError(String(error))
     } finally {
       setCreating(false)
     }
@@ -153,19 +163,17 @@ function DatasetsIndexPage() {
       />
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-10 px-6 pb-16 pt-12">
         <header className="glass-panel flex flex-col gap-6 rounded-2xl p-8 shadow-lg shadow-black/20">
+          <LanguageSelector />
           <div className="flex flex-wrap items-center justify-between gap-6">
             <div>
               <p className="text-xs uppercase tracking-[0.3em] text-slate-400">
                 Bildutforskaren
               </p>
               <h1 className="mt-3 text-4xl font-semibold text-white sm:text-5xl">
-                Utforska dina bildsamlingar med AI.
-              </h1>
+                {t('Utforska dina bildsamlingar med AI.')} </h1>
             </div>
             <div className="max-w-sm text-sm text-slate-300">
-              Välj ett dataset för att komma igång, eller skapa ett nytt direkt här
-              på startsidan.
-            </div>
+              {t('Välj ett dataset för att komma igång, eller skapa ett nytt direkt här på startsidan.')} </div>
           </div>
         </header>
 
@@ -174,31 +182,28 @@ function DatasetsIndexPage() {
             <div className="flex items-start justify-between gap-4">
               <div>
                 <h2 className="text-lg font-semibold text-white">
-                  Skapa ett nytt dataset
-                </h2>
+                  {t('Skapa ett nytt dataset')} </h2>
                 <p className="text-sm text-slate-300">
-                  Datasets är immutabla. Välj ett namn, ladda upp en zip och skapa.
-                </p>
+                  {t('Datasets är immutabla. Välj ett namn, ladda upp en zip och skapa.')} </p>
               </div>
             </div>
 
             {activeUpload && (
               <StatusMessage className="mt-4 text-slate-300">
                 {activeUpload.phase === 'preparing'
-                  ? `Förbereder uppladdning av ${activeUpload.datasetName}…`
-                  : `Laddar upp ${activeUpload.datasetName}… Du kan fortsätta använda sidan under tiden.`}
+                  ? t('Förbereder uppladdning av {0}…', [activeUpload.datasetName])
+                  : t('Laddar upp {0}… Du kan fortsätta använda sidan under tiden.', [activeUpload.datasetName])}
               </StatusMessage>
             )}
 
             <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
                 <Label className="p-1 text-slate-200" htmlFor="dataset-name">
-                  Dataset name
-                </Label>
+                  {t('Dataset name')} </Label>
                 <Input
                   id="dataset-name"
                   type="text"
-                  placeholder="My dataset"
+                  placeholder={t('My dataset')}
                   value={newDatasetName}
                   onChange={(event) => setNewDatasetName(event.target.value)}
                   disabled={uploading}
@@ -207,16 +212,30 @@ function DatasetsIndexPage() {
 
               <div>
                 <Label className="p-1 text-slate-200" htmlFor="dataset-zip">
-                  Images (zip)
-                </Label>
+                  {t('Images (zip)')} </Label>
                 <Input
+                  ref={zipFileInputRef}
                   id="dataset-zip"
                   type="file"
                   accept=".zip"
+                  className="hidden"
                   onChange={(event) => setZipFile(event.target.files?.[0] ?? null)}
                   disabled={uploading}
                 />
+                <div className="flex items-center gap-3">
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    disabled={uploading}
+                    onClick={() => zipFileInputRef.current?.click()}
+                  >
+                    {t('Choose ZIP')}
+                  </Button>
+                  <span className="min-w-0 truncate text-sm text-slate-300">
+                    {zipFile?.name ?? t('No file chosen')}
+                  </span>
               </div>
+            </div>
             </div>
 
             <div className="mt-5">
@@ -225,17 +244,19 @@ function DatasetsIndexPage() {
                 onClick={() => void createAndUploadDataset()}
                 disabled={!canCreate}
               >
-                {uploading ? 'Creating & uploading…' : 'Create dataset & upload'}
+                {uploading ? t('Creating & uploading…') : t('Create dataset & upload')}
               </Button>
               {!canCreate && !uploading && (
                 <div className="mt-2 text-xs text-slate-400">
-                  Enter a name and choose a zip to enable.
-                </div>
+                  {t('Enter a name and choose a zip to enable.')} </div>
               )}
             </div>
 
             {uploadStatus && (
-              <div className="mt-3 text-sm text-slate-300">{uploadStatus}</div>
+              <div className="mt-3 text-sm text-slate-300">
+                {renderMessage(uploadStatus)}
+                {uploadError && <LocalizedError value={uploadError} />}
+              </div>
             )}
           </section>
 
@@ -243,35 +264,31 @@ function DatasetsIndexPage() {
             <div className="flex items-center justify-between gap-3">
               <div>
                 <h2 className="text-lg font-semibold text-white">
-                  Tillgängliga datasets
-                </h2>
+                  {t('Tillgängliga datasets')} </h2>
                 <p className="text-sm text-slate-300">
-                  Klicka för att öppna ett dataset och gå vidare.
-                </p>
+                  {t('Klicka för att öppna ett dataset och gå vidare.')} </p>
               </div>
-              <span className="text-xs text-slate-400">{datasets.length} totalt</span>
+              <span className="text-xs text-slate-400">{datasets.length}  {t('totalt')}</span>
             </div>
 
             <div className="mt-5 flex flex-col gap-3">
               {datasetsLoadable.state === 'loading' && datasets.length === 0 && (
-                <StatusMessage>Laddar datasets…</StatusMessage>
+                <StatusMessage>{t('Laddar datasets…')}</StatusMessage>
               )}
 
               {datasetsLoadable.state === 'hasError' && (
                 <StatusMessage variant="error">
-                  Kunde inte läsa datasets just nu.
-                </StatusMessage>
+                  {t('Kunde inte läsa datasets just nu.')} </StatusMessage>
               )}
 
               {datasetsLoadable.state === 'hasData' && datasets.length === 0 && (
                 <StatusMessage>
-                  Inga datasets än. Skapa ett nytt för att börja utforska.
-                </StatusMessage>
+                  {t('Inga datasets än. Skapa ett nytt för att börja utforska.')} </StatusMessage>
               )}
 
               {datasets.map((dataset) => {
                 const isActive = datasetId === dataset.dataset_id
-                const label = dataset.name ?? dataset.dataset_id ?? 'Untitled dataset'
+                const label = dataset.name ?? dataset.dataset_id ?? t('Untitled dataset')
                 const status = dataset.status ?? 'unknown'
                 const isPending = status === 'created' || isDatasetActive(dataset)
                 const isUploadFailed = status === 'upload_failed'
@@ -287,7 +304,7 @@ function DatasetsIndexPage() {
                 const statusLabel = status === 'uploading'
                   ? 'Uploading'
                   : isUploadFailed
-                  ? 'Upload failed'
+                    ? t('Upload failed')
                   : isPending
                   ? 'Pending'
                   : isError
@@ -301,8 +318,7 @@ function DatasetsIndexPage() {
                   >
                     <button
                       type="button"
-                      className={`min-w-0 flex-1 text-left ${
-                        isActive ? 'text-white' : 'text-slate-100'
+                      className={`min-w-0 flex-1 text-left ${isActive ? 'text-white' : 'text-slate-100'
                       }`}
                       onClick={() => {
                         if (!dataset.dataset_id) return
@@ -316,25 +332,24 @@ function DatasetsIndexPage() {
                         <EmbeddingProgressBar
                           className="mt-2"
                           percent={progressPct}
-                          label="Embeddings"
+                          label={t('Embeddings')}
                           labelClassName="text-[11px] text-slate-400"
                         />
                       )}
                       {isUploadFailed && dataset.error && (
-                        <div className="mt-2 text-xs text-rose-300">{dataset.error}</div>
+                        <div className="mt-2 text-xs text-rose-300"><LocalizedError value={dataset.error} /></div>
                       )}
                     </button>
                     <div className="flex shrink-0 flex-col items-end gap-2">
                       <span
-                        className={`text-xs uppercase tracking-[0.2em] ${
-                          isPending
+                        className={`text-xs uppercase tracking-[0.2em] ${isPending
                             ? 'text-amber-300'
                             : isError
                             ? 'text-rose-300'
                             : 'text-slate-400'
                         }`}
                       >
-                        {statusLabel}
+                        {translate(statusLabel)}
                       </span>
                       {isUploadFailed && dataset.dataset_id && (
                         <Button
@@ -344,8 +359,7 @@ function DatasetsIndexPage() {
                           disabled={uploading}
                           onClick={() => handleRetry(dataset.dataset_id as string)}
                         >
-                          Försök igen
-                        </Button>
+                          {t('Försök igen')} </Button>
                       )}
                     </div>
                   </div>

@@ -1,3 +1,5 @@
+import { displayLabel, scopeNote, t, useLanguage } from '@/shared/i18n'
+import { LocalizedError } from '@/shared/components/LocalizedError'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { PhotoView } from 'react-photo-view'
 import { useAtomValue, useSetAtom } from 'jotai'
@@ -61,6 +63,7 @@ export const TaggerPanel = ({
   position = 'right',
   offsetBottom = 24,
 }: TaggerPanelProps) => {
+  useLanguage()
   const datasetId = useAtomValue(activeDatasetIdAtom)
   const selectedEmbedding = useAtomValue<any>(selectedEmbeddingAtom)
   const selectedEmbeddingIds = useAtomValue(selectedEmbeddingIdsAtom)
@@ -389,6 +392,7 @@ export const TaggerPanel = ({
   }: {
     mode: 'single' | 'average'
   }) => {
+    useLanguage()
     const status = mode === 'single' ? sdxlStatus : averageSdxlStatus
     const canGenerateSdxl =
       mode === 'single'
@@ -403,17 +407,17 @@ export const TaggerPanel = ({
         <div className="flex items-center justify-between gap-3">
           <div>
             <div className="text-xs font-semibold text-white/80">
-              {mode === 'single' ? 'Bildgenerering' : 'Generera genomsnitt'}
+              {mode === 'single' ? t('Bildgenerering') : t('Generera genomsnitt')}
             </div>
             <div className="mt-1 text-[10px] text-white/50">
               {mode === 'single'
                 ? [
-                    status?.has_sdxl_embedding ? 'SDXL finns' : 'SDXL saknas',
-                    status?.has_ip_adapter_embedding ? 'IP finns' : 'IP saknas',
+                  status?.has_sdxl_embedding ? t('SDXL finns') : t('SDXL saknas'),
+                  status?.has_ip_adapter_embedding ? t('IP finns') : t('IP saknas'),
                   ].join(' · ')
                 : status
                   ? `SDXL ${status.available}/${status.total} · IP ${status.ip_adapter_available}/${status.total}`
-                  : 'Kontrollerar embeddings...'}
+                  : t('Kontrollerar embeddings...')}
             </div>
           </div>
           <div className="flex gap-2">
@@ -428,7 +432,7 @@ export const TaggerPanel = ({
               }
               disabled={!canGenerateIpAdapter || generating}
             >
-              {generating ? 'Genererar…' : 'IP-Adapter'}
+              {generating ? t('Genererar…') : 'IP-Adapter'}
             </Button>
             <Button
               type="button"
@@ -452,19 +456,17 @@ export const TaggerPanel = ({
         )}
         {mode === 'average' && status?.missing > 0 && (
           <div className="text-[10px] text-white/50">
-            Saknar embeddings för {status.missing} valda bilder.
-          </div>
+            {t('Missing embeddings', [status.missing])}</div>
         )}
         {mode === 'average' && status?.ip_adapter_missing > 0 && (
           <div className="text-[10px] text-white/50">
-            Saknar IP-Adapter-embeddings för {status.ip_adapter_missing} valda bilder.
-          </div>
+            {t('Missing IP embeddings', [status.ip_adapter_missing])}</div>
         )}
         {generatedUrl && (
           <PhotoView src={generatedUrl}>
             <img
               src={generatedUrl}
-              alt="Genererad förhandsvisning"
+              alt={t('Genererad förhandsvisning')}
               className="aspect-square w-full cursor-pointer rounded-md object-cover"
             />
           </PhotoView>
@@ -478,22 +480,19 @@ export const TaggerPanel = ({
     if (selectedEmbeddingIds.length > 1) {
       return (
         <Card
-          className={`glass-panel fixed z-10000 w-96 text-white shadow-xl ${
-            position === 'left' ? 'left-6' : 'right-6'
+          className={`glass-panel fixed z-10000 w-96 text-white shadow-xl ${position === 'left' ? 'left-6' : 'right-6'
           }`}
           style={{ bottom: offsetBottom }}
           data-canvas-ui="true"
         >
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-semibold">
-              Valda bilder
-            </CardTitle>
+              {t('Valda bilder')} </CardTitle>
             <div className="text-xs text-white/70">
-              {selectedEmbeddingIds.length} bilder
-            </div>
+              {selectedEmbeddingIds.length}  {t('bilder')} </div>
           </CardHeader>
           <CardContent className="space-y-3">
-            {error && <div className="text-xs text-red-300">{error}</div>}
+            {error && <div className="text-xs text-red-300"><LocalizedError value={error} /></div>}
             <GenerationPanel mode="average" />
           </CardContent>
         </Card>
@@ -508,36 +507,35 @@ export const TaggerPanel = ({
 
   return (
     <Card
-      className={`glass-panel fixed z-10000 flex h-[32rem] max-h-[calc(100vh-3rem)] w-96 flex-col text-white shadow-xl ${
-        position === 'left' ? 'left-6' : 'right-6'
+      className={`glass-panel fixed z-10000 flex h-[32rem] max-h-[calc(100vh-3rem)] w-96 flex-col text-white shadow-xl ${position === 'left' ? 'left-6' : 'right-6'
       }`}
       style={{ bottom: offsetBottom }}
       data-canvas-ui="true"
     >
       <CardHeader className="pb-2">
-        <CardTitle className="text-sm font-semibold">Tagga bild</CardTitle>
-        <div className="text-xs text-white/70">Bild ID: {imageId}</div>
+        <CardTitle className="text-sm font-semibold">{t('Tagga bild')}</CardTitle>
+        <div className="text-xs text-white/70">{t('Bild ID:')} {imageId}</div>
       </CardHeader>
       <CardContent className="flex flex-1 min-h-0 flex-col gap-3 overflow-hidden">
-        {error && <div className="text-xs text-red-300">{error}</div>}
+        {error && <div className="text-xs text-red-300"><LocalizedError value={error} /></div>}
 
         <GenerationPanel mode="single" />
 
         <div className="flex flex-wrap gap-2">
           {tags.length === 0 && (
-            <span className="text-xs text-white/50">Inga taggar ännu.</span>
+            <span className="text-xs text-white/50">{t('Inga taggar ännu.')}</span>
           )}
           {tags.map((tag) => (
             <span
               key={tag.id}
               className="flex items-center gap-2 rounded-full border border-white/20 px-3 py-1 text-xs"
             >
-              {tag.label}
+              {displayLabel(tag)}
               <button
                 type="button"
                 onClick={() => removeTag(tag.id, tag.label)}
                 className="text-white/60 hover:text-white"
-                aria-label={`Remove ${tag.label}`}
+                aria-label={t('Remove {0}', [displayLabel(tag)])}
                 disabled={saving !== null}
               >
                 ×
@@ -548,13 +546,12 @@ export const TaggerPanel = ({
 
         <div className="space-y-2">
           <div className="text-xs font-semibold text-white/80">
-            Förslag (AI)
-          </div>
+            {t('Förslag (AI)')} </div>
           {loadingAuto && (
-            <div className="text-xs text-white/60">Hämtar förslag…</div>
+            <div className="text-xs text-white/60">{t('Hämtar förslag…')}</div>
           )}
           {!loadingAuto && autoSuggestions.length === 0 && (
-            <div className="text-xs text-white/50">Inga förslag just nu.</div>
+            <div className="text-xs text-white/50">{t('Inga förslag just nu.')}</div>
           )}
           <div className="flex flex-wrap gap-2">
             {autoSuggestions.map((term) => (
@@ -564,9 +561,9 @@ export const TaggerPanel = ({
                 onClick={() => addTag(term.label)}
                 className="rounded-full border border-white/20 px-3 py-1 text-xs hover:bg-white/10"
                 disabled={saving !== null}
-                aria-label={`Add ${term.label}`}
+                aria-label={t('Add {0}', [displayLabel(term)])}
               >
-                {term.label}
+                {displayLabel(term)}
               </button>
             ))}
           </div>
@@ -577,16 +574,15 @@ export const TaggerPanel = ({
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Sök SAO-termer..."
+            placeholder={t('Sök SAO-termer...')}
             className="border-white/20 bg-white/10 text-white placeholder:text-white/40"
           />
           {loading && (
-            <div className="text-xs text-white/60">Söker...</div>
+            <div className="text-xs text-white/60">{t('Söker...')}</div>
           )}
           {!loading && query.trim() && filteredSuggestions.length === 0 && (
             <div className="text-xs text-white/60">
-              Inga träffar på SAO-termer.
-            </div>
+              {t('Inga träffar på SAO-termer.')} </div>
           )}
           <div className="min-h-0 flex-1 space-y-2 overflow-auto pr-1">
             {filteredSuggestions.map((term) => (
@@ -595,10 +591,10 @@ export const TaggerPanel = ({
                 className="flex items-start justify-between gap-3 rounded-md border border-white/10 bg-white/5 px-3 py-2"
               >
                 <div>
-                  <div className="text-xs font-semibold">{term.label}</div>
-                  {term.scope_note && (
+                  <div className="text-xs font-semibold">{displayLabel(term)}</div>
+                  {scopeNote(term.scope_note) && (
                     <div className="text-[10px] text-white/60">
-                      {term.scope_note}
+                      {scopeNote(term.scope_note)}
                     </div>
                   )}
                 </div>
@@ -609,8 +605,7 @@ export const TaggerPanel = ({
                   onClick={() => addTag(term.label)}
                   disabled={saving !== null}
                 >
-                  Lägg till
-                </Button>
+                  {t('Lägg till')} </Button>
               </div>
             ))}
           </div>

@@ -1,3 +1,5 @@
+import { formatNumber, translate, displayLabel, scopeNote, t, useLanguage } from '@/shared/i18n'
+import { LocalizedError } from '@/shared/components/LocalizedError'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useAtom, useAtomValue, useSetAtom } from 'jotai'
 import {
@@ -38,6 +40,7 @@ import type {
   ClusterProfileConcept,
   ExplainedCluster,
   SaoConceptMetadata,
+  SaoTerm,
 } from '@/shared/lib/api'
 import { Card, CardContent, CardHeader, CardTitle } from '@/shared/ui/card'
 import { Button } from '@/shared/ui/button'
@@ -55,11 +58,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/shared/ui/tabs'
 import { CLUSTER_COLORS, colorToCss } from '../xaiVisuals'
 
-type SearchTerm = {
-  id: string
-  label: string
-  scope_note?: string
-}
+type SearchTerm = SaoTerm
 
 type ProjectedItem = {
   id: string | number
@@ -93,6 +92,7 @@ const ConceptPicker = ({
   onSelect: (concept: SaoConceptMetadata) => void
   onClear: () => void
 }) => {
+  useLanguage()
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<SearchTerm[]>([])
   const [loading, setLoading] = useState(false)
@@ -131,12 +131,12 @@ const ConceptPicker = ({
         <div className="flex items-start justify-between gap-2">
           <div>
             <div className="text-[10px] uppercase tracking-wide text-white/45">
-              {label}
+              {translate(label)}
             </div>
-            <div className="text-sm font-medium">{selected.label}</div>
-            {selected.scope_note && (
+            <div className="text-sm font-medium">{displayLabel(selected)}</div>
+            {scopeNote(selected.scope_note) && (
               <div className="mt-1 text-[11px] text-white/55">
-                {selected.scope_note}
+                {scopeNote(selected.scope_note)}
               </div>
             )}
           </div>
@@ -147,7 +147,7 @@ const ConceptPicker = ({
               onClear()
               setQuery('')
             }}
-            aria-label={`Ta bort ${selected.label}`}
+            aria-label={t('Ta bort {0}', [displayLabel(selected)])}
           >
             ×
           </button>
@@ -159,15 +159,15 @@ const ConceptPicker = ({
   return (
     <div className="space-y-1">
       <div className="text-[10px] uppercase tracking-wide text-white/45">
-        {label}
+        {translate(label)}
       </div>
       <Input
         value={query}
         onChange={(event) => setQuery(event.target.value)}
-        placeholder="Sök svenska SAO-termer…"
+        placeholder={t('Sök svenska SAO-termer…')}
         className="border-white/20 bg-black/25"
       />
-      {loading && <div className="text-[11px] text-white/50">Söker…</div>}
+      {loading && <div className="text-[11px] text-white/50">{t('Söker…')}</div>}
       {results.length > 0 && (
         <div className="max-h-44 overflow-y-auto rounded-md border border-white/15 bg-[#111722]">
           {results.map((term) => (
@@ -175,21 +175,22 @@ const ConceptPicker = ({
               key={term.id}
               type="button"
               className="block w-full border-b border-white/10 px-2 py-2 text-left last:border-0 hover:bg-white/10"
-              title={term.scope_note || undefined}
+              title={scopeNote(term.scope_note) || undefined}
               onClick={() => {
                 onSelect({
                   concept_id: term.id,
                   label: term.label,
+                  labels: term.labels,
                   scope_note: term.scope_note ?? '',
                 })
                 setQuery('')
                 setResults([])
               }}
             >
-              <div className="text-xs font-medium">{term.label}</div>
-              {term.scope_note && (
+              <div className="text-xs font-medium">{displayLabel(term)}</div>
+              {scopeNote(term.scope_note) && (
                 <div className="line-clamp-2 text-[10px] text-white/45">
-                  {term.scope_note}
+                  {scopeNote(term.scope_note)}
                 </div>
               )}
             </button>
@@ -201,7 +202,7 @@ const ConceptPicker = ({
 }
 
 const scoreText = (value: number) =>
-  `${value >= 0 ? '+' : ''}${value.toFixed(3)}`
+  `${value >= 0 ? '+' : ''}${formatNumber(value, 3)}`
 
 const stabilityColor = (stability: number) =>
   stability >= 0.8 ? '#22c55e' : stability >= 0.6 ? '#f59e0b' : '#ef4444'
@@ -211,6 +212,7 @@ const ConceptRankings = ({
 }: {
   concept: SaoConceptMetadata
 }) => {
+  useLanguage()
   const datasetId = useAtomValue(activeDatasetIdAtom)
   const result = useAtomValue(conceptLensResultAtom)
   const setSelectedEmbedding = useSetAtom(selectedEmbeddingAtom)
@@ -233,7 +235,7 @@ const ConceptRankings = ({
   if (!datasetId || ranked.length === 0) return null
   return (
     <div className="space-y-1">
-      <div className="text-xs font-semibold">{concept.label}: starkast</div>
+      <div className="text-xs font-semibold">{t('Concept strongest', [displayLabel(concept)])}</div>
       <div className="max-h-52 space-y-1 overflow-y-auto">
         {ranked.map((image, index) => {
           const score = image.scores[concept.concept_id]
@@ -258,12 +260,11 @@ const ConceptRankings = ({
               />
               <div className="min-w-0 flex-1">
                 <div className="text-[11px]">
-                  {index + 1}. Bild {image.image_id}
+                  {index + 1}. {t('Image {0}', [image.image_id])}
                 </div>
                 <div className="text-[10px] text-white/50">
-                  {score.similarity.toFixed(3)} ·{' '}
-                  {Math.round(score.percentile * 100)} percentil
-                </div>
+                  {formatNumber(score.similarity, 3)} ·{' '}
+                  {Math.round(score.percentile * 100)}  {t('percentil')} </div>
               </div>
             </button>
           )
@@ -279,22 +280,23 @@ const ProfileList = ({
 }: {
   title: string
   concepts: ClusterProfileConcept[]
-}) => (
+}) => {
+  useLanguage()
+  return (
   <div className="space-y-1">
-    <div className="text-xs font-semibold">{title}</div>
+      <div className="text-xs font-semibold">{translate(title)}</div>
     {concepts.length === 0 ? (
       <div className="text-[11px] text-white/45">
-        Inga tillräckligt relevanta begrepp.
-      </div>
+          {t('Inga tillräckligt relevanta begrepp.')} </div>
     ) : (
       concepts.slice(0, 3).map((concept) => (
         <div
           key={concept.concept_id}
           className="rounded border border-white/10 bg-black/20 px-2 py-1.5"
-          title={concept.scope_note || undefined}
+            title={scopeNote(concept.scope_note) || undefined}
         >
           <div className="flex justify-between gap-2 text-[11px]">
-            <span>{concept.label}</span>
+              <span>{displayLabel(concept)}</span>
             <span
               className={
                 concept.delta > 0 ? 'text-sky-300' : 'text-orange-300'
@@ -304,16 +306,17 @@ const ProfileList = ({
             </span>
           </div>
           <div className="text-[10px] text-white/45">
-            Kluster {concept.cluster_score.toFixed(3)} · urval{' '}
-            {concept.baseline_score.toFixed(3)}
+              {t('Profile scores', [formatNumber(concept.cluster_score, 3), formatNumber(concept.baseline_score, 3)])}
           </div>
         </div>
       ))
     )}
   </div>
 )
+}
 
 export const ExplanationPanel = () => {
+  useLanguage()
   const datasetId = useAtomValue(activeDatasetIdAtom)
   const projectionSettings = useAtomValue(projectionSettingsAtom)
   const viewMode = useAtomValue(projectionViewModeAtom)
@@ -548,8 +551,7 @@ export const ExplanationPanel = () => {
         onClick={() => setOpen(true)}
         data-canvas-ui="true"
       >
-        Förklaring (XAI)
-      </Button>
+        {t('Förklaring (XAI)')} </Button>
     )
   }
 
@@ -560,12 +562,12 @@ export const ExplanationPanel = () => {
       data-canvas-ui="true"
     >
       <CardHeader className="flex items-start justify-between px-3">
-        <CardTitle className="pt-1">Förklaring</CardTitle>
+        <CardTitle className="pt-1">{t('Förklaring')}</CardTitle>
         <button
           type="button"
           className="flex size-7 items-center justify-center rounded-md bg-red-500/20 text-lg leading-none text-red-300 transition hover:bg-red-500/35 hover:text-red-100"
           onClick={() => setOpen(false)}
-          aria-label="Stäng förklaringspanelen"
+          aria-label={t('Stäng förklaringspanelen')}
         >
           ×
         </button>
@@ -578,14 +580,14 @@ export const ExplanationPanel = () => {
           }
         >
           <TabsList className="grid w-full grid-cols-3 bg-black/25">
-            <TabsTrigger value="concept">Begrepp</TabsTrigger>
-            <TabsTrigger value="cluster">Kluster</TabsTrigger>
-            <TabsTrigger value="stability">Stabilitet</TabsTrigger>
+            <TabsTrigger value="concept">{t('Begrepp')}</TabsTrigger>
+            <TabsTrigger value="cluster">{t('Kluster')}</TabsTrigger>
+            <TabsTrigger value="stability">{t('Stabilitet')}</TabsTrigger>
           </TabsList>
 
           <TabsContent value="concept" className="space-y-3">
             <ConceptPicker
-              label="Begrepp A"
+              label={t('Begrepp A')}
               selected={selection.a}
               excludedId={selection.b?.concept_id}
               onSelect={(concept) =>
@@ -595,7 +597,7 @@ export const ExplanationPanel = () => {
             />
             {selection.a && (
               <ConceptPicker
-                label="Jämför med begrepp B (valfritt)"
+                label={t('Jämför med begrepp B (valfritt)')}
                 selected={selection.b}
                 excludedId={selection.a.concept_id}
                 onSelect={(concept) =>
@@ -610,7 +612,7 @@ export const ExplanationPanel = () => {
             {selection.a && (
               <div className="space-y-2 rounded-md border border-white/10 bg-black/15 p-2">
                 <div className="flex justify-between text-xs">
-                  <span>Visa från percentil</span>
+                  <span>{t('Visa från percentil')}</span>
                   <span>{threshold}</span>
                 </div>
                 <Slider
@@ -630,43 +632,41 @@ export const ExplanationPanel = () => {
                 />
                 <div className="text-[10px] text-white/50">
                   {selection.b
-                    ? `${selection.b.label} ← liknande → ${selection.a.label}`
-                    : 'Låg semantisk likhet ← → hög semantisk likhet'}
+                    ? t('{0} ← liknande → {1}', [displayLabel(selection.b), displayLabel(selection.a)])
+                    : t('Låg semantisk likhet ← → hög semantisk likhet')}
                 </div>
                 <div className="border-t border-white/10 pt-2">
                   <button
                     type="button"
-                    className={`flex w-full items-center justify-between rounded border px-2 py-1.5 text-xs transition ${
-                      axisEnabled
+                    className={`flex w-full items-center justify-between rounded border px-2 py-1.5 text-xs transition ${axisEnabled
                         ? 'border-cyan-300/60 bg-cyan-300/15 text-cyan-100'
                         : 'border-white/15 bg-black/20 text-white/70 hover:bg-white/10'
                     }`}
                     aria-pressed={axisEnabled}
-                    title="En linjär riktning anpassad i den aktuella UMAP-projektionen, inte en huvudkomponent i CLIP-rummet."
+                    title={t('En linjär riktning anpassad i den aktuella UMAP-projektionen, inte en huvudkomponent i CLIP-rummet.')}
                     onClick={() => setAxisEnabled((enabled) => !enabled)}
                   >
-                    <span>Visa konceptaxel</span>
-                    <span>{axisEnabled ? 'På' : 'Av'}</span>
+                    <span>{t('Visa konceptaxel')}</span>
+                    <span>{axisEnabled ? t('På') : t('Av')}</span>
                   </button>
                   {lensResult?.axis.available && (
                     <div className="mt-1.5 flex gap-3 text-[10px] text-white/55">
-                      <span>R² {lensResult.axis.r_squared.toFixed(2)}</span>
+                      <span>R² {formatNumber(lensResult.axis.r_squared, 2)}</span>
                       <span>
-                        Stabilitet{' '}
+                        {t('Stabilitet')}{' '}
                         {Math.round(lensResult.axis.stability * 100)} %
                       </span>
                     </div>
                   )}
                   {lensResult && !lensResult.axis.available && (
                     <div className="mt-1.5 text-[10px] text-white/45">
-                      Ingen stabil rak axel kunde anpassas till bildmolnet.
-                    </div>
+                      {t('Ingen stabil rak axel kunde anpassas till bildmolnet.')} </div>
                   )}
                   {lensResult?.axis.available && (
                     <div className="mt-1 text-[10px] text-white/45">
                       {selection.b
-                        ? `${selection.b.label} → ${selection.a.label}`
-                        : `Lägre → högre ${selection.a.label}`}
+                        ? `${displayLabel(selection.b)} → ${displayLabel(selection.a)}`
+                        : t('Lägre → högre {0}', [displayLabel(selection.a)])}
                     </div>
                   )}
                 </div>
@@ -674,10 +674,10 @@ export const ExplanationPanel = () => {
             )}
 
             {lensStatus === 'loading' && (
-              <div className="text-xs text-white/55">Beräknar begreppslins…</div>
+              <div className="text-xs text-white/55">{t('Beräknar begreppslins…')}</div>
             )}
             {lensStatus === 'error' && (
-              <div className="text-xs text-red-300">{lensError}</div>
+              <div className="text-xs text-red-300"><LocalizedError value={lensError} /></div>
             )}
             {lensResult &&
               lensResult.concepts.map((concept) => (
@@ -688,15 +688,11 @@ export const ExplanationPanel = () => {
           <TabsContent value="cluster" className="space-y-3">
             {viewMode === '3d' ? (
               <div className="rounded-md border border-white/10 bg-black/20 p-3 text-xs text-white/60">
-                Klusterprofiler är tillgängliga i 2D-UMAP. Begreppslinsen kan
-                fortfarande användas i 3D.
-              </div>
+                {t('Klusterprofiler är tillgängliga i 2D-UMAP. Begreppslinsen kan fortfarande användas i 3D.')} </div>
             ) : (
               <>
                 <p className="text-[11px] text-white/55">
-                  Medlemskap bestäms i 2D-UMAP. Profilerna beräknas från
-                  bildernas fullständiga CLIP-inbäddningar.
-                </p>
+                  {t('Medlemskap bestäms i 2D-UMAP. Profilerna beräknas från bildernas fullständiga CLIP-inbäddningar.')} </p>
                 <Select
                   value={algorithm}
                   onValueChange={(value: 'kmeans' | 'dbscan' | 'hdbscan') => {
@@ -716,7 +712,7 @@ export const ExplanationPanel = () => {
                 {algorithm === 'kmeans' && (
                   <div className="grid grid-cols-2 gap-2">
                     <Label className="space-y-1 text-[11px]">
-                      <span>Max kluster</span>
+                      <span>{t('Max kluster')}</span>
                       <Input
                         type="number"
                         min={2}
@@ -734,7 +730,7 @@ export const ExplanationPanel = () => {
                       />
                     </Label>
                     <Label className="space-y-1 text-[11px]">
-                      <span>Underklusternivåer</span>
+                      <span>{t('Underklusternivåer')}</span>
                       <Input
                         type="number"
                         min={1}
@@ -756,7 +752,7 @@ export const ExplanationPanel = () => {
                       />
                     </Label>
                     <Label className="space-y-1 text-[11px]">
-                      <span>Slumpfrö</span>
+                      <span>{t('Slumpfrö')}</span>
                       <Input
                         type="number"
                         min={0}
@@ -796,7 +792,7 @@ export const ExplanationPanel = () => {
                       />
                     </Label>
                     <Label className="space-y-1 text-[11px]">
-                      <span>Minsta antal punkter</span>
+                      <span>{t('Minsta antal punkter')}</span>
                       <Input
                         type="number"
                         min={1}
@@ -818,7 +814,7 @@ export const ExplanationPanel = () => {
                 {algorithm === 'hdbscan' && (
                   <div className="grid grid-cols-2 gap-2">
                     <Label className="space-y-1 text-[11px]">
-                      <span>Minsta klusterstorlek</span>
+                      <span>{t('Minsta klusterstorlek')}</span>
                       <Input
                         type="number"
                         min={2}
@@ -839,7 +835,7 @@ export const ExplanationPanel = () => {
                       />
                     </Label>
                     <Label className="space-y-1 text-[11px]">
-                      <span>Minsta antal punkter</span>
+                      <span>{t('Minsta antal punkter')}</span>
                       <Input
                         type="number"
                         min={1}
@@ -857,7 +853,7 @@ export const ExplanationPanel = () => {
                       />
                     </Label>
                     <Label className="space-y-1 text-[11px]">
-                      <span>Urvals-epsilon</span>
+                      <span>{t('Urvals-epsilon')}</span>
                       <Input
                         type="number"
                         min={0}
@@ -886,8 +882,7 @@ export const ExplanationPanel = () => {
                           }))
                         }
                       />
-                      Tillåt ett kluster
-                    </Label>
+                      {t('Tillåt ett kluster')} </Label>
                   </div>
                 )}
                 <Button
@@ -899,18 +894,15 @@ export const ExplanationPanel = () => {
                   }
                 >
                   {clusterStatus === 'loading'
-                    ? 'Beräknar…'
-                    : 'Beräkna kluster'}
+                    ? t('Beräknar…')
+                    : t('Beräkna kluster')}
                 </Button>
                 {clusterStatus === 'error' && (
-                  <div className="text-xs text-red-300">{clusterError}</div>
+                  <div className="text-xs text-red-300"><LocalizedError value={clusterError} /></div>
                 )}
                 {clusterResult && clusterResult.clusters.length === 0 && (
                   <div className="text-xs text-white/55">
-                    Inga kluster hittades. Alla{' '}
-                    {clusterResult.noise_image_ids.length} bilder klassades som
-                    brus.
-                  </div>
+                    {t('No clusters', [clusterResult.noise_image_ids.length])}</div>
                 )}
                 {clusterResult && clusterResult.clusters.length > 0 && (
                   <>
@@ -938,8 +930,7 @@ export const ExplanationPanel = () => {
                               }
                             }}
                             type="button"
-                            className={`w-full rounded border p-2 text-left ${
-                              selected
+                            className={`w-full rounded border p-2 text-left ${selected
                                 ? 'border-white/60 bg-white/15'
                                 : 'border-white/10 bg-black/20 hover:bg-white/10'
                             }`}
@@ -957,19 +948,20 @@ export const ExplanationPanel = () => {
                             <div className="flex items-center gap-2 text-xs">
                               <span
                                 className="h-3 w-3 rounded-full"
-                                style={{ backgroundColor: colorToCss(color) }}
+                                style={{
+                                  backgroundColor: colorToCss(color)
+                                }}
                               />
                               <span className="font-medium">
-                                Kluster {cluster.cluster_id + 1}
+                                {t('Kluster')} {cluster.cluster_id + 1}
                               </span>
                               <span className="ml-auto text-white/50">
-                                {cluster.image_count} bilder
-                              </span>
+                                {cluster.image_count}  {t('bilder')} </span>
                             </div>
                             <div className="mt-1 truncate text-[10px] text-white/50">
                               {cluster.profile.strongest
                                 .slice(0, 3)
-                                .map((concept) => concept.label)
+                                .map((concept) => displayLabel(concept))
                                 .join(' · ')}
                             </div>
                           </button>
@@ -978,9 +970,7 @@ export const ExplanationPanel = () => {
                     </div>
                     {clusterResult.noise_image_ids.length > 0 && (
                       <div className="text-[10px] text-white/45">
-                        {clusterResult.noise_image_ids.length} bilder ligger
-                        utanför klustren.
-                      </div>
+                        {t('Outside clusters', [clusterResult.noise_image_ids.length])}</div>
                     )}
                   </>
                 )}
@@ -988,15 +978,15 @@ export const ExplanationPanel = () => {
                 {selectedCluster && (
                   <div className="space-y-3 border-t border-white/10 pt-3">
                     <ProfileList
-                      title="Starkaste SAO-begrepp"
+                      title={t('Starkaste SAO-begrepp')}
                       concepts={selectedCluster.profile.strongest}
                     />
                     <ProfileList
-                      title="Mer framträdande än urvalet"
+                      title={t('Mer framträdande än urvalet')}
                       concepts={selectedCluster.profile.more_prominent}
                     />
                     <ProfileList
-                      title="Mindre framträdande än urvalet"
+                      title={t('Mindre framträdande än urvalet')}
                       concepts={selectedCluster.profile.less_prominent}
                     />
                   </div>
@@ -1008,33 +998,27 @@ export const ExplanationPanel = () => {
           <TabsContent value="stability" className="space-y-3">
             {viewMode === '3d' ? (
               <div className="rounded-md border border-white/10 bg-black/20 p-3 text-xs text-white/60">
-                Klusterstabilitet visas för 2D-UMAP. Återgå till 2D för att se
-                det sparade resultatet.
-              </div>
+                {t('Klusterstabilitet visas för 2D-UMAP. Återgå till 2D för att se det sparade resultatet.')} </div>
             ) : stabilityStatus === 'error' ? (
               <div className="text-xs text-red-300">
-                {stabilityError ?? 'Kunde inte analysera klusterstabiliteten.'}
+                <LocalizedError value={stabilityError ?? 'Kunde inte analysera klusterstabiliteten.'} />
               </div>
             ) : !stabilityResult ? (
               <div className="rounded-md border border-white/10 bg-black/20 p-3 text-xs text-white/55">
-                Starta analysen med knappen Cluster stability analysis i
-                projektionsinställningarna.
-              </div>
+                {t('Starta analysen med knappen Cluster stability analysis i projektionsinställningarna.')} </div>
             ) : (
               <>
                 <div className="grid grid-cols-2 gap-2">
                   <div className="rounded-md border border-white/10 bg-black/20 p-3">
                     <div className="text-[10px] uppercase tracking-wide text-white/45">
-                      Övergripande stabilitet
-                    </div>
+                      {t('Övergripande stabilitet')} </div>
                     <div className="mt-1 text-xl font-semibold">
                       {Math.round(stabilityResult.overall_stability * 100)} %
                     </div>
                   </div>
                   <div className="rounded-md border border-white/10 bg-black/20 p-3">
                     <div className="text-[10px] uppercase tracking-wide text-white/45">
-                      Osäkra bilder
-                    </div>
+                      {t('Osäkra bilder')} </div>
                     <div className="mt-1 text-xl font-semibold">
                       {stabilityResult.ambiguous_images.length}
                     </div>
@@ -1043,12 +1027,10 @@ export const ExplanationPanel = () => {
 
                 {stabilityResult.clusters.length === 0 ? (
                   <div className="text-xs text-white/55">
-                    Referensprojektionen innehöll bara brus och inga stabila
-                    regioner kunde visas.
-                  </div>
+                    {t('Referensprojektionen innehöll bara brus och inga stabila regioner kunde visas.')} </div>
                 ) : (
                   <div className="space-y-1">
-                    <div className="text-xs font-semibold">Regioner</div>
+                    <div className="text-xs font-semibold">{t('Regioner')}</div>
                     <div className="max-h-52 space-y-1 overflow-y-auto">
                       {sortedStabilityClusters.map((cluster) => {
                         const selected =
@@ -1069,8 +1051,7 @@ export const ExplanationPanel = () => {
                               }
                             }}
                             type="button"
-                            className={`w-full rounded border p-2 text-left ${
-                              selected
+                            className={`w-full rounded border p-2 text-left ${selected
                                 ? 'border-white/60 bg-white/15'
                                 : 'border-white/10 bg-black/20 hover:bg-white/10'
                             }`}
@@ -1095,16 +1076,15 @@ export const ExplanationPanel = () => {
                                 }}
                               />
                               <span className="font-medium">
-                                Region {cluster.cluster_id + 1}
+                                {t('Region')} {cluster.cluster_id + 1}
                               </span>
                               <span className="ml-auto text-white/55">
                                 {Math.round(cluster.stability * 100)} % ·{' '}
-                                {cluster.image_count} bilder
-                              </span>
+                                {cluster.image_count}  {t('bilder')} </span>
                             </div>
                             <div className="mt-1 truncate text-[10px] text-white/50">
                               {cluster.concepts
-                                .map((concept) => concept.label)
+                                .map((concept) => displayLabel(concept))
                                 .join(' · ')}
                             </div>
                           </button>
@@ -1117,8 +1097,7 @@ export const ExplanationPanel = () => {
                 {stabilityResult.ambiguous_images.length > 0 && datasetId && (
                   <div className="space-y-1">
                     <div className="text-xs font-semibold">
-                      Minst stabila bilder
-                    </div>
+                      {t('Minst stabila bilder')} </div>
                     <div className="max-h-52 space-y-1 overflow-y-auto">
                       {stabilityResult.ambiguous_images
                         .slice(0, 10)
@@ -1148,9 +1127,9 @@ export const ExplanationPanel = () => {
                               alt=""
                             />
                             <div className="min-w-0 flex-1 text-[11px]">
-                              <div>Bild {image.image_id}</div>
+                              <div>{t('Bild')} {image.image_id}</div>
                               <div className="text-[10px] text-white/50">
-                                Stabilitet{' '}
+                                {t('Stabilitet')}{' '}
                                 {Math.round(image.stability * 100)} %
                               </div>
                             </div>

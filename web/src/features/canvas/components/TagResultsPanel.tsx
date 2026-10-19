@@ -1,3 +1,5 @@
+import { formatNumber, displayTag, displayLabel, t, useLanguage } from '@/shared/i18n'
+import { LocalizedError } from '@/shared/components/LocalizedError'
 import { useEffect, useRef, useState } from 'react'
 import type { MouseEvent } from 'react'
 import { PhotoView } from 'react-photo-view'
@@ -51,6 +53,7 @@ type TagCooccurrenceResponse = {
 }
 
 export const TagResultsPanel = () => {
+  useLanguage()
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const refreshUntilRef = useRef(0)
   const datasetId = useAtomValue(activeDatasetIdAtom)
@@ -381,7 +384,7 @@ export const TagResultsPanel = () => {
       data-canvas-ui="true"
     >
       <CardHeader className="pb-2">
-        <CardTitle className="text-sm font-semibold">Valda taggar</CardTitle>
+        <CardTitle className="text-sm font-semibold">{t('Valda taggar')}</CardTitle>
         <div className="flex flex-wrap gap-2 pt-2">
           {selectedTags.map((tag) => (
             <button
@@ -392,24 +395,23 @@ export const TagResultsPanel = () => {
               }
               className="flex items-center gap-2 rounded-full border border-white/20 px-3 py-1 text-xs text-white/80 hover:bg-white/10"
             >
-              {tag}
+              {displayTag(tag)}
               <span className="text-white/50">×</span>
             </button>
           ))}
         </div>
       </CardHeader>
       <CardContent className="flex h-[calc(100vh-4rem)] flex-col space-y-3 overflow-hidden">
-        {loading && <div className="text-xs text-white/60">Laddar...</div>}
-        {error && <div className="text-xs text-red-300">{error}</div>}
+        {loading && <div className="text-xs text-white/60">{t('Laddar...')}</div>}
+        {error && <div className="text-xs text-red-300"><LocalizedError value={error} /></div>}
         <div className="space-y-2 rounded-lg border border-white/10 bg-white/5 p-2">
           <div className="text-[11px] font-semibold text-white/70">
-            Förekomst av andra taggar
-          </div>
+            {t('Förekomst av andra taggar')} </div>
           {cooccurrenceLoading && (
-            <div className="text-[11px] text-white/50">Laddar…</div>
+            <div className="text-[11px] text-white/50">{t('Laddar…')}</div>
           )}
           {!cooccurrenceLoading && cooccurrence.length === 0 && (
-            <div className="text-[11px] text-white/50">Inga träffar.</div>
+            <div className="text-[11px] text-white/50">{t('Inga träffar.')}</div>
           )}
           {!cooccurrenceLoading && cooccurrence.length > 0 && (
             <div className="flex max-h-32 flex-wrap gap-1 overflow-auto pr-1">
@@ -425,61 +427,56 @@ export const TagResultsPanel = () => {
                     )
                   }
                   className="rounded-full border border-white/10 bg-white/10 px-2 py-1 text-[11px] text-white/70 hover:bg-white/20"
-                  title={`${item.label} (${item.count})`}
+                  title={`${displayLabel(item)} (${item.count})`}
                 >
-                  {item.label} ({item.count})
+                  {displayLabel(item)} ({item.count})
                 </button>
               ))}
             </div>
           )}
         </div>
         {!loading && !error && imageIds.length === 0 && (
-          <div className="text-xs text-white/60">Inga bilder för denna tagg.</div>
+          <div className="text-xs text-white/60">{t('Inga bilder för denna tagg.')}</div>
         )}
         <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
           <div className="flex items-center gap-2">
             <button
               type="button"
               onClick={() => setActiveTab('tagged')}
-              className={`rounded-full px-3 py-1 ${
-                activeTab === 'tagged'
+              className={`rounded-full px-3 py-1 ${activeTab === 'tagged'
                   ? 'bg-white text-black'
                   : 'border border-white/20 text-white/70'
               }`}
             >
-            Taggade ({imageIds.length})
+              {t('Tagged count', [imageIds.length])}
           </button>
           <button
             type="button"
             onClick={() => setActiveTab('suggested')}
-            className={`rounded-full px-3 py-1 ${
-              activeTab === 'suggested'
+              className={`rounded-full px-3 py-1 ${activeTab === 'suggested'
                 ? 'bg-white text-black'
                 : 'border border-white/20 text-white/70'
             }`}
           >
-            Förslag ({effectiveSuggestedIds.length})
+              {t('Suggestions count', [effectiveSuggestedIds.length])}
           </button>
         </div>
           <button
             type="button"
             onClick={toggleSteerSuggestions}
-            className={`rounded-full px-3 py-1 ${
-              steerSuggestions
+            className={`rounded-full px-3 py-1 ${steerSuggestions
                 ? 'bg-emerald-300 text-black'
                 : 'border border-white/20 text-white/70'
             }`}
           >
-            Styr förslag
-          </button>
+            {t('Styr förslag')} </button>
         </div>
         {steerSuggestions && (
           <div className="space-y-2 text-[11px] text-white/60">
-            <div>Visar UMAP: taggade i grönt, förslag i gult.</div>
+            <div>{t('Visar UMAP: taggade i grönt, förslag i gult.')}</div>
             <div className="space-y-1">
               <label className="block text-[10px] uppercase tracking-wide text-white/50">
-                Seed count
-              </label>
+                {t('Seed count')} </label>
               <input
                 type="range"
                 min={4}
@@ -493,8 +490,7 @@ export const TagResultsPanel = () => {
             </div>
             <div className="space-y-1">
               <label className="block text-[10px] uppercase tracking-wide text-white/50">
-                Radius (UMAP)
-              </label>
+                {t('Radius (UMAP)')} </label>
               <input
                 type="range"
                 min={0}
@@ -508,13 +504,12 @@ export const TagResultsPanel = () => {
                 className="w-full accent-emerald-300"
               />
               <div className="text-[10px] text-white/50">
-                {steerRadius ? steerRadius.toFixed(1) : 'off'}
+                {steerRadius ? formatNumber(steerRadius, 1) : t('off')}
               </div>
             </div>
             <div className="space-y-1">
               <label className="block text-[10px] uppercase tracking-wide text-white/50">
-                Blend α
-              </label>
+                {t('Blend α')} </label>
               <input
                 type="range"
                 min={0}
@@ -525,19 +520,16 @@ export const TagResultsPanel = () => {
                 className="w-full accent-emerald-300"
               />
               <div className="text-[10px] text-white/50">
-                {steerBlendAlpha.toFixed(2)} (0=tag mean, 1=centroid, 2=push)
-              </div>
+                {formatNumber(steerBlendAlpha, 2)}  {t('(0=tag mean, 1=centroid, 2=push)')} </div>
             </div>
           </div>
         )}
         <div className="text-[11px] text-white/50">
-          Högerklicka på en bild för att visa i helskärm.
-        </div>
+          {t('Högerklicka på en bild för att visa i helskärm.')} </div>
         {showRefresh && (
           <div className="flex items-center gap-2 text-[11px] text-white/60">
             <span className="inline-block h-3 w-3 animate-spin rounded-full border border-white/40 border-t-transparent" />
-            Uppdaterar…
-          </div>
+            {t('Uppdaterar…')} </div>
         )}
         <div className="flex-1 overflow-auto pr-1 pb-24">
           {activeTab === 'tagged' && (
@@ -555,7 +547,7 @@ export const TagResultsPanel = () => {
                 </PhotoView>
               ))}
               {imageIds.length === 0 && (
-                <div className="text-xs text-white/60">Inga taggade bilder.</div>
+                <div className="text-xs text-white/60">{t('Inga taggade bilder.')}</div>
               )}
             </div>
           )}
@@ -571,28 +563,25 @@ export const TagResultsPanel = () => {
                     onContextMenu={(event) =>
                       handleSuggestedContextMenu(event, id)
                     }
-                    className={`relative h-44 w-full overflow-hidden rounded border ${
-                      selected ? 'border-white' : 'border-white/10'
+                    className={`relative h-44 w-full overflow-hidden rounded border ${selected ? 'border-white' : 'border-white/10'
                     }`}
                   >
                     <img
                       src={datasetApiUrl(datasetId, `/image/${id}`)}
-                      className={`h-full w-full object-cover ${
-                        selected ? 'opacity-100' : 'opacity-70'
+                      className={`h-full w-full object-cover ${selected ? 'opacity-100' : 'opacity-70'
                       }`}
                     />
                     {selected && (
                       <div className="absolute inset-0 bg-white/10">
                         <div className="absolute right-2 top-2 rounded-full bg-white/90 px-2 py-1 text-[10px] text-black">
-                          Vald
-                        </div>
+                          {t('Vald')} </div>
                       </div>
                     )}
                   </button>
                 )
               })}
               {effectiveSuggestedIds.length === 0 && (
-                <div className="text-xs text-white/60">Inga förslag.</div>
+                <div className="text-xs text-white/60">{t('Inga förslag.')}</div>
               )}
             </div>
           )}
@@ -600,15 +589,14 @@ export const TagResultsPanel = () => {
         {activeTab === 'suggested' && (
           <div className="glass-panel sticky bottom-0 left-0 right-0 p-3">
             <div className="flex items-center justify-between text-xs text-white/70">
-              <span>{selectedSuggested.size} valda</span>
+              <span>{selectedSuggested.size}  {t('valda')}</span>
               <button
                 type="button"
                 onClick={addSelectedToTag}
                 disabled={selectedSuggested.size === 0 || loading}
                 className="rounded bg-white/90 px-3 py-2 text-xs text-black disabled:opacity-50"
               >
-                Tagga valda
-              </button>
+                {t('Tagga valda')} </button>
             </div>
           </div>
         )}

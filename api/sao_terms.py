@@ -292,7 +292,12 @@ def search_terms(query: str, limit: int = 50, include_scope: bool = False) -> li
 
     matches: list[tuple[tuple[int, int, int, float, int], dict]] = []
     for term in terms:
+        # Vocabulary lookup accepts both languages. Embedding prompts and
+        # analysis ordering remain independent of the UI language.
         label_norm = term["label_norm"]
+        english_norm = term["embedding_label_norm"]
+        if query_norm in english_norm or english_norm.startswith(query_norm):
+            label_norm = english_norm
         scope_norm = term["scope_norm"]
         matched_label = query_norm in label_norm
         matched_scope = include_scope and query_norm in scope_norm
@@ -315,13 +320,16 @@ def search_terms(query: str, limit: int = 50, include_scope: bool = False) -> li
     results = [term for _, term in matches[:limit]]
 
     if len(results) < limit and len(query_norm) >= 3:
-        close = difflib.get_close_matches(query_norm, labels_norm, n=limit, cutoff=0.75)
+        bilingual_norms = labels_norm + [term["embedding_label_norm"] for term in terms]
+        close = difflib.get_close_matches(query_norm, bilingual_norms, n=limit, cutoff=0.75)
         if close:
             existing = {t["label_norm"] for t in results}
             for label_norm in close:
                 if label_norm in existing:
                     continue
-                idx = labels_norm.index(label_norm)
+                idx = bilingual_norms.index(label_norm) % len(terms)
+                if any(item["id"] == terms[idx]["id"] for item in results):
+                    continue
                 results.append(terms[idx])
                 existing.add(label_norm)
                 if len(results) >= limit:

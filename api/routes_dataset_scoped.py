@@ -32,10 +32,19 @@ from api.projection_stability_jobs import (
 )
 from api import context as context_builder
 from api import runtime
+from api.presentation import register_display_labels
 from api.clustering import ClusteringConfig, fit_model
 
 
 bp = Blueprint("dataset_scoped", __name__)
+register_display_labels(bp, endpoints={
+    "create_anchor_analysis", "create_concept_lens", "create_cluster_profiles",
+    "start_projection_stability_job", "get_projection_stability_job",
+    "cancel_projection_stability_job", "tags_collection", "image_tags",
+    "tag_suggestions", "tags_with_images", "images_for_tag",
+    "suggested_images_for_tag", "tag_cooccurrence_for_selected",
+    "cluster_dataset_projection",
+})
 
 UMAP_CACHE_VERSION = 6
 

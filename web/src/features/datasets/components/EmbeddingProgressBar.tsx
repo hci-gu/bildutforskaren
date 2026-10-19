@@ -1,3 +1,4 @@
+import { formatNumber, translate, useLanguage } from '@/shared/i18n'
 import { cn } from '@/shared/lib/utils'
 
 type EmbeddingProgressBarProps = {
@@ -17,11 +18,12 @@ export const EmbeddingProgressBar = ({
   trackClassName,
   barClassName,
 }: EmbeddingProgressBarProps) => {
+  useLanguage()
   const clamped = Math.max(0, Math.min(100, percent))
   return (
     <div className={cn('mt-2', className)}>
       <div className={cn('text-xs', labelClassName)}>
-        {label} {clamped}%
+        {translate(label)} {formatNumber(clamped)}%
       </div>
       <div
         className={cn('mt-1 h-2 w-full rounded-full bg-white/10', trackClassName)}

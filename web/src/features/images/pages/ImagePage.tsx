@@ -1,3 +1,4 @@
+import { formatNumber, t, useLanguage } from '@/shared/i18n'
 import { activeDatasetIdAtom, embeddingAtom } from '@/store'
 import { datasetApiUrl } from '@/shared/lib/api'
 import { useAtomValue } from 'jotai'
@@ -18,16 +19,17 @@ function colorMap(value: number): [number, number, number] {
 }
 
 function ImagePage() {
+  useLanguage()
   const { id } = useParams<{ id: string }>()
   const datasetId = useAtomValue(activeDatasetIdAtom)
   const embedding = useAtomValue(embeddingAtom(id ?? ''))
 
   if (!datasetId) {
-    return <div className="p-4">No dataset selected.</div>
+    return <div className="p-4">{t('No dataset selected.')}</div>
   }
 
   if (!embedding || embedding.length === 0) {
-    return <div className="p-4">No embedding available.</div>
+    return <div className="p-4">{t('No embedding available.')}</div>
   }
 
   const maxValue = Math.max(...embedding)
@@ -48,7 +50,7 @@ function ImagePage() {
                 color: value > 0 ? 'black' : 'white',
               }}
             >
-              {value.toFixed(4)}
+              {formatNumber(value, 4)}
             </span>
           ))}
         </div>
@@ -57,7 +59,7 @@ function ImagePage() {
         <div className="glass-panel rounded-2xl p-6 shadow-lg">
           <img
             src={datasetApiUrl(datasetId, `/image/${id}`)}
-            alt={`Image ${id}`}
+            alt={t('Image {0}', [id])}
             className="w-full max-w-md"
           />
         </div>

@@ -1,3 +1,4 @@
+import { t, useLanguage } from '@/shared/i18n'
 import { activeDatasetIdAtom } from '@/store'
 import { datasetApiUrl } from '@/shared/lib/api'
 import { Dialog, DialogContent, DialogTrigger } from '@/shared/ui/dialog'
@@ -10,6 +11,7 @@ export default function Image({
   image: string
   index: number
 }) {
+  useLanguage()
   const datasetId = useAtomValue(activeDatasetIdAtom)
 
   if (!datasetId) return null
@@ -20,7 +22,7 @@ export default function Image({
         <div className="w-full h-48 bg-gray-200 relative">
           <img
             src={datasetApiUrl(datasetId, `/image/${image}`)}
-            alt={`Image ${index}`}
+            alt={t('Image {0}', [index])}
             className="w-full h-full object-cover"
           />
           <span className="absolute bottom-2 right-2 bg-black text-white text-xs px-2 py-1 rounded">
@@ -33,7 +35,7 @@ export default function Image({
       >
         <img
           src={datasetApiUrl(datasetId, `/original/${image}`)}
-          alt={`Full size image ${index}`}
+          alt={t('Full size image {0}', [index])}
           className="w-full h-full"
         />
       </DialogContent>

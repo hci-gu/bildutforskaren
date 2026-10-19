@@ -1,3 +1,5 @@
+import { rememberLabels, type Labels } from '@/shared/i18n'
+
 type Json = Record<string, any>
 
 export type Cluster = {
@@ -6,6 +8,7 @@ export type Cluster = {
   points: [number, number][]
   point_indices: number[]
   label?: string
+  labels?: Labels | null
   label_score?: number
 }
 
@@ -32,7 +35,15 @@ export type ClusteringResult = {
 export type SaoConceptMetadata = {
   concept_id: string
   label: string
+  labels?: Labels | null
   scope_note: string
+}
+
+export type SaoTerm = {
+  id: string
+  label: string
+  labels?: Labels | null
+  scope_note?: string
 }
 
 export type ConceptLensImageScore = {
@@ -377,7 +388,9 @@ const fetchJson = async <T>(input: RequestInfo, init?: RequestInit) => {
     const message = (data as Json)?.error ?? 'Request failed'
     throw new Error(message)
   }
-  return (await res.json()) as T
+  const data = (await res.json()) as T
+  rememberLabels(data)
+  return data
 }
 
 export const fetchBlob = async (input: RequestInfo, init?: RequestInit) => {
@@ -560,7 +573,7 @@ export const fetchTagsWithImages = async (datasetId: string) => {
 }
 
 export const searchSaoTerms = async (query: string, limit = 20) => {
-  return await fetchJson<Json[]>(
+  return await fetchJson<SaoTerm[]>(
     `${API_URL}/terms/sao?q=${encodeURIComponent(query)}&limit=${limit}`
   )
 }

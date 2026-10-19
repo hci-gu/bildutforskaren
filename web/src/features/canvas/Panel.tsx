@@ -1,3 +1,5 @@
+import { displayLabel, scopeNote, formatNumber, t, useLanguage } from '@/shared/i18n'
+import { LocalizedError } from '@/shared/components/LocalizedError'
 import { Input } from '@/shared/ui/input'
 import { Button } from '@/shared/ui/button'
 import {
@@ -42,6 +44,7 @@ import { ExplanationPanel } from './components/ExplanationPanel'
 import { useProjectionStability } from './hooks/useProjectionStability'
 
 const Search = () => {
+  useLanguage()
   const [settings, setSettings] = useAtom(searchSettingsAtom)
   const [query, setQuery] = useState('')
   const [, setDebouncedQuery] = useAtom(searchQueryAtom)
@@ -66,18 +69,18 @@ const Search = () => {
   return (
     <div className="flex gap-2">
       <div className="flex flex-col gap-2 flex-2">
-        <Label htmlFor="query">Sök</Label>
+        <Label htmlFor="query">{t('Sök')}</Label>
         <Input
           id="query"
           type="text"
-          placeholder="Skriv något..."
+          placeholder={t('Skriv något...')}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           className="border border-white/20 bg-white/10 text-white placeholder:text-white/40 shadow-sm focus-visible:ring-white/30"
         />
       </div>
       <div className="flex flex-col gap-2 flex-1">
-        <Label htmlFor="topK">Antal</Label>
+        <Label htmlFor="topK">{t('Antal')}</Label>
         <Input
           id="topK"
           type="number"
@@ -94,6 +97,7 @@ const Search = () => {
 }
 
 const ProjectionSettings = () => {
+  useLanguage()
   const [settings, setSettings] = useAtom(projectionSettingsAtom)
   const [viewMode, setViewMode] = useAtom(projectionViewModeAtom)
   const datasetId = useAtomValue(activeDatasetIdAtom)
@@ -103,7 +107,7 @@ const ProjectionSettings = () => {
   return (
     <div className="flex flex-col gap-2 mt-2">
       <CardHeader className="p-0 mt-2">
-        <CardTitle>Typ av visning</CardTitle>
+        <CardTitle>{t('Typ av visning')}</CardTitle>
       </CardHeader>
       <Select
         value={settings.type}
@@ -113,16 +117,15 @@ const ProjectionSettings = () => {
         }}
       >
         <SelectTrigger className="w-[180px] border-white/20 bg-white/10 text-white">
-          <SelectValue placeholder="Type" />
+          <SelectValue placeholder={t('Type')} />
         </SelectTrigger>
         <SelectContent>
-          <SelectItem value="umap">Projektion</SelectItem>
-          <SelectItem value="grid">Rutnät</SelectItem>
-          <SelectItem value="tagged">Taggade/otaggade</SelectItem>
+          <SelectItem value="umap">{t('Projektion')}</SelectItem>
+          <SelectItem value="grid">{t('Rutnät')}</SelectItem>
+          <SelectItem value="tagged">{t('Taggade/otaggade')}</SelectItem>
           <SelectItem value="graph" disabled={!hasGraph}>
-            Graph network
-          </SelectItem>
-          <SelectItem value="year">År</SelectItem>
+            {t('Graph network')} </SelectItem>
+          <SelectItem value="year">{t('År')}</SelectItem>
         </SelectContent>
       </Select>
       {settings.type === 'umap' && (
@@ -132,7 +135,7 @@ const ProjectionSettings = () => {
             onValueChange={(value: '2d' | '3d') => setViewMode(value)}
           >
             <SelectTrigger className="w-[180px] border-white/20 bg-white/10 text-white">
-              <SelectValue placeholder="Dimension" />
+              <SelectValue placeholder={t('Dimension')} />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="2d">2D</SelectItem>
@@ -150,6 +153,7 @@ const AdvancedSettings = ({
 }: {
   stability: ReturnType<typeof useProjectionStability>
 }) => {
+  useLanguage()
   const [settings, setSettings] = useAtom(projectionSettingsAtom)
   const [fidelitySettings, setFidelitySettings] = useAtom(
     neighborFidelitySettingsAtom
@@ -176,9 +180,7 @@ const AdvancedSettings = ({
         <>
           {viewMode === '3d' && (
             <div className="text-xs text-white/70">
-              Vänsterklick + dra: rotera. Högerklick + dra: panorera. Hjul:
-              zooma.
-            </div>
+              {t('Vänsterklick + dra: rotera. Högerklick + dra: panorera. Hjul: zooma.')} </div>
           )}
           {viewMode === '2d' && (
             <>
@@ -190,18 +192,18 @@ const AdvancedSettings = ({
                 disabled={!stability.canStart}
                 title={
                   stability.imageCount < 10
-                    ? 'Minst tio bilder krävs'
-                    : 'Analysera hur stabila klustren är mellan upprepade UMAP-projektioner'
+                    ? t('Minst tio bilder krävs')
+                    : t('Analysera hur stabila klustren är mellan upprepade UMAP-projektioner')
                 }
               >
                 {stabilityStatus === 'starting' ||
                 stabilityStatus === 'running'
-                  ? 'Analysis running…'
-                  : 'Cluster stability analysis'}
+                  ? t('Analysis running…')
+                  : t('Cluster stability analysis')}
               </Button>
               {stabilityError && (
                 <div className="text-[11px] text-red-300">
-                  {stabilityError}
+                  <LocalizedError value={stabilityError} />
                 </div>
               )}
             </>
@@ -218,13 +220,12 @@ const AdvancedSettings = ({
                 }))
               }
             />
-            <Label htmlFor="neighborFidelity">Neighbor fidelity</Label>
+            <Label htmlFor="neighborFidelity">{t('Neighbor fidelity')}</Label>
           </div>
           {fidelitySettings.enabled && (
             <div className="flex items-center space-x-2">
               <Label htmlFor="neighborFidelityK" className="w-24">
-                Neighbors
-              </Label>
+                {t('Neighbors')} </Label>
               <Input
                 id="neighborFidelityK"
                 type="number"
@@ -247,12 +248,10 @@ const AdvancedSettings = ({
 
           <div className="space-y-2">
             <div className="text-xs font-semibold text-white/80">
-              Projektionsparametrar
-            </div>
+              {t('Projektionsparametrar')} </div>
             <div className="flex items-center space-x-2">
               <Label htmlFor="minDist" className="w-24">
-                Min distans
-              </Label>
+                {t('Min distans')} </Label>
               <Input
                 id="minDist"
                 type="number"
@@ -265,8 +264,7 @@ const AdvancedSettings = ({
             </div>
             <div className="flex items-center space-x-2">
               <Label htmlFor="nNeighbors" className="w-24">
-                Grannar
-              </Label>
+                {t('Grannar')} </Label>
               <Input
                 id="nNeighbors"
                 type="number"
@@ -279,8 +277,7 @@ const AdvancedSettings = ({
             </div>
             <div className="flex items-center space-x-2">
               <Label htmlFor="spread" className="w-24">
-                Spridning
-              </Label>
+                {t('Spridning')} </Label>
               <Input
                 id="spread"
                 type="number"
@@ -297,7 +294,7 @@ const AdvancedSettings = ({
 
       {viewMode === '2d' && settings.type === 'graph' && (
         <div className="space-y-2">
-          <div className="text-xs font-semibold text-white/80">Graph layout</div>
+          <div className="text-xs font-semibold text-white/80">{t('Graph layout')}</div>
           <div className="grid grid-cols-2 gap-2">
             <Button
               type="button"
@@ -305,16 +302,14 @@ const AdvancedSettings = ({
               onClick={() => setGraphLayout('concentric')}
               className="h-auto px-2 py-2 text-xs"
             >
-              Concentric shells
-            </Button>
+              {t('Concentric shells')} </Button>
             <Button
               type="button"
               variant={graphLayout === 'force' ? 'secondary' : 'outline'}
               onClick={() => setGraphLayout('force')}
               className="h-auto px-2 py-2 text-xs"
             >
-              Free force
-            </Button>
+              {t('Free force')} </Button>
           </div>
         </div>
       )}
@@ -336,8 +331,7 @@ const AdvancedSettings = ({
             htmlFor="groupTaggedByTag"
             className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
           >
-            Gruppera taggade efter tagg
-          </label>
+            {t('Gruppera taggade efter tagg')} </label>
         </div>
       )}
 
@@ -354,7 +348,7 @@ const AdvancedSettings = ({
                 }))
               }
             />
-            <Label htmlFor="colorPhotographer">Färga fotograf</Label>
+            <Label htmlFor="colorPhotographer">{t('Färga fotograf')}</Label>
           </div>
           <div className="flex items-center space-x-2">
             <Checkbox
@@ -367,7 +361,7 @@ const AdvancedSettings = ({
                 }))
               }
             />
-            <Label htmlFor="showClusterImages">Visa klusterbilder</Label>
+            <Label htmlFor="showClusterImages">{t('Visa klusterbilder')}</Label>
           </div>
         </>
       )}
@@ -378,15 +372,16 @@ const AdvancedSettings = ({
 }
 
 const DisplaySettings = () => {
+  useLanguage()
   const [settings, setSettings] = useAtom(displaySettingsAtom)
 
   return (
     <div className="flex flex-col gap-2 mt-2">
       <CardHeader className="p-0 mt-2">
-        <CardTitle>Visningsinställningar</CardTitle>
-        <CardDescription>Ändra hur bilderna syns</CardDescription>
+        <CardTitle>{t('Visningsinställningar')}</CardTitle>
+        <CardDescription>{t('Ändra hur bilderna syns')}</CardDescription>
       </CardHeader>
-      <Label htmlFor="scale">Bildstorlek</Label>
+      <Label htmlFor="scale">{t('Bildstorlek')}</Label>
       <Input
         id="scale"
         type="number"
@@ -398,7 +393,7 @@ const DisplaySettings = () => {
             scale: parseFloat(e.target.value),
           }))
         }
-        placeholder="Scale"
+        placeholder={t('Scale')}
         step={0.25}
         className="border border-white/20 bg-white/10 text-white placeholder:text-white/40 shadow-sm focus-visible:ring-white/30"
       />
@@ -407,6 +402,7 @@ const DisplaySettings = () => {
 }
 
 const FilterSettings = () => {
+  useLanguage()
   const [settings, setSettings] = useAtom(filterSettingsAtom)
 
   // const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -420,7 +416,7 @@ const FilterSettings = () => {
   return (
     <div className="flex flex-col gap-2 mt-2">
       <CardHeader className="p-0 mt-2">
-        <CardTitle>Filter</CardTitle>
+        <CardTitle>{t('Filter')}</CardTitle>
       </CardHeader>
       <Select
         value={settings.photographer ?? 'none'}
@@ -432,10 +428,10 @@ const FilterSettings = () => {
         }
       >
         <SelectTrigger className="w-[180px] border-white/20 bg-white/10 text-white">
-          <SelectValue placeholder="Fotograf" />
+          <SelectValue placeholder={t('Fotograf')} />
         </SelectTrigger>
         <SelectContent>
-          <SelectItem value="none">Ingen</SelectItem>
+          <SelectItem value="none">{t('Ingen')}</SelectItem>
           <SelectItem value="1">1</SelectItem>
           <SelectItem value="2">2</SelectItem>
           <SelectItem value="3">3</SelectItem>
@@ -447,6 +443,7 @@ const FilterSettings = () => {
 }
 
 const TextPanel = () => {
+  useLanguage()
   const [texts, setTexts] = useAtom(textsAtom)
   const [, setHoveredText] = useAtom(hoveredTextAtom)
   const [query, setQuery] = useState('')
@@ -506,8 +503,8 @@ const TextPanel = () => {
     >
       <CardContent className="px-4">
         <CardHeader className="p-0 mt-2">
-          <CardTitle>Ord i rummet</CardTitle>
-          <CardDescription>Välj SAO-termer för att visa dem i rummet.</CardDescription>
+          <CardTitle>{t('Ord i rummet')}</CardTitle>
+          <CardDescription>{t('Välj SAO-termer för att visa dem i rummet.')}</CardDescription>
         </CardHeader>
         <div className="flex flex-wrap gap-2 mt-2">
           {texts.map((term) => (
@@ -517,12 +514,12 @@ const TextPanel = () => {
               onMouseEnter={() => setHoveredText(term.label)}
               onMouseLeave={() => setHoveredText(null)}
             >
-              <span>{term.label}</span>
+              <span>{displayLabel(term)}</span>
               <button
                 type="button"
                 onClick={() => removeText(term.id)}
                 className="text-white/60 hover:text-white"
-                aria-label={`Ta bort ${term.label}`}
+                aria-label={t('Ta bort {0}', [displayLabel(term)])}
               >
                 ×
               </button>
@@ -532,7 +529,7 @@ const TextPanel = () => {
         <div className="flex gap-2 mt-4">
           <Input
             type="text"
-            placeholder="Sök SAO-term..."
+            placeholder={t('Sök SAO-term...')}
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             onKeyDown={(e) => {
@@ -542,9 +539,9 @@ const TextPanel = () => {
         </div>
         {query.trim() && (
           <div className="mt-2 max-h-48 space-y-1 overflow-y-auto rounded-md border border-white/10 bg-black/20 p-1">
-            {loading && <div className="px-2 py-1 text-xs text-white/50">Söker…</div>}
+            {loading && <div className="px-2 py-1 text-xs text-white/50">{t('Söker…')}</div>}
             {!loading && suggestions.length === 0 && (
-              <div className="px-2 py-1 text-xs text-white/50">Inga SAO-termer hittades.</div>
+              <div className="px-2 py-1 text-xs text-white/50">{t('Inga SAO-termer hittades.')}</div>
             )}
             {suggestions.map((term) => (
               <button
@@ -553,9 +550,9 @@ const TextPanel = () => {
                 className="w-full rounded px-2 py-1 text-left text-sm hover:bg-white/10"
                 onClick={() => addTerm(term)}
               >
-                <div>{term.label}</div>
-                {term.scope_note && (
-                  <div className="text-xs text-white/50">{term.scope_note}</div>
+                <div>{displayLabel(term)}</div>
+                {scopeNote(term.scope_note) && (
+                  <div className="text-xs text-white/50">{scopeNote(term.scope_note)}</div>
                 )}
               </button>
             ))}
@@ -567,6 +564,7 @@ const TextPanel = () => {
 }
 
 const TaggedInfoPanel = () => {
+  useLanguage()
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const refreshUntilRef = useRef(0)
   const datasetId = useAtomValue(activeDatasetIdAtom)
@@ -632,24 +630,22 @@ const TaggedInfoPanel = () => {
     >
       <CardContent className="px-4 py-1 text-sm text-white">
         <div className="mb-2 text-xs font-semibold text-white/80">
-          Datasetstatus
-        </div>
+          {t('Datasetstatus')} </div>
         {showRefresh && (
           <div className="mb-2 flex items-center gap-2 text-[11px] text-white/60">
             <span className="inline-block h-3 w-3 animate-spin rounded-full border border-white/40 border-t-transparent" />
-            Uppdaterar…
-          </div>
+            {t('Uppdaterar…')} </div>
         )}
         <div className="space-y-1 text-xs text-white/80">
           <div className="flex justify-between">
-            <span>Antal bilder</span>
+            <span>{t('Antal bilder')}</span>
             <span>{stats ? stats.total_images : '-'}</span>
           </div>
           <div className="flex justify-between">
-            <span>Taggade</span>
+            <span>{t('Taggade')}</span>
             <span>
               {stats
-                ? `${stats.tagged_images} (${stats.tagged_percent}%)`
+                ? `${formatNumber(stats.tagged_images)} (${formatNumber(stats.tagged_percent, 1)}%)`
                 : '-'}
             </span>
           </div>
@@ -660,6 +656,7 @@ const TaggedInfoPanel = () => {
 }
 
 const ProjectionStabilityProgressOverlay = () => {
+  useLanguage()
   const status = useAtomValue(projectionStabilityStatusAtom)
   const progress = useAtomValue(projectionStabilityProgressAtom)
   if (status !== 'starting' && status !== 'running') return null
@@ -673,7 +670,7 @@ const ProjectionStabilityProgressOverlay = () => {
       >
         <div className="flex items-center gap-2 text-sm font-medium">
           <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white/35 border-t-white" />
-          <span>Analyserar klusterstabilitet</span>
+          <span>{t('Analyserar klusterstabilitet')}</span>
         </div>
         <div className="mt-3 h-2 overflow-hidden rounded-full bg-white/15">
           <div
@@ -690,6 +687,7 @@ const ProjectionStabilityProgressOverlay = () => {
 }
 
 export default function Panel() {
+  useLanguage()
   const settings = useAtomValue(projectionSettingsAtom)
   const viewMode = useAtomValue(projectionViewModeAtom)
   const [advancedOpen, setAdvancedOpen] = useState(false)
@@ -716,11 +714,10 @@ export default function Panel() {
             aria-expanded={advancedOpen}
             onClick={() => setAdvancedOpen((open) => !open)}
           >
-            <span>Avancerad</span>
+            <span>{t('Avancerad')}</span>
             <span
               aria-hidden="true"
-              className={`text-white/55 transition-transform ${
-                advancedOpen ? 'rotate-180' : ''
+              className={`text-white/55 transition-transform ${advancedOpen ? 'rotate-180' : ''
               }`}
             >
               ▾

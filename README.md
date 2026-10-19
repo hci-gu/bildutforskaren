@@ -69,6 +69,22 @@ This spins up a web server on: http://localhost:5173/
 
 Starting from scratch, provide a `.zip` file of images to create a dataset. 
 
+### Interface language
+
+Use the **Svenska / English** selector at the top right of the dataset selection
+page. Swedish is the default; the browser remembers your choice across pages
+and refreshes. UI language changes do not rerun analysis or change tag assignments.
+Semantic image search still expects English descriptions. SAO vocabulary lookup
+accepts Swedish and English, using the existing bilingual vocabulary labels.
+Collection metadata, custom tags, captions, prompts and filenames retain their
+original text. Swedish SAO scope notes are identified as original Swedish content.
+
+Interface messages live in `web/src/shared/i18n/messages.ts`; every key has both
+Swedish and English text. Subscribe presenting components with `useLanguage()`
+and translate when rendering. Keep canonical labels and IDs in analytical state
+and requests. Run `pnpm test:i18n` from `web/` to check the catalogue and scan JSX
+for untranslated interface literals.
+
 - - -
 ## Future Improvements & Contributing
 

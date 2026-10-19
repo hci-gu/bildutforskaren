@@ -3,8 +3,10 @@ from __future__ import annotations
 from flask import Blueprint, jsonify, request
 
 from api import sao_terms
+from api.presentation import register_display_labels
 
 bp = Blueprint("terms", __name__)
+register_display_labels(bp)
 
 
 @bp.route("/terms/sao", methods=["GET"])

@@ -1,3 +1,4 @@
+import { t, useLanguage } from '@/shared/i18n'
 import { Button } from '@/shared/ui/button'
 import {
   activeDatasetIdAtom,
@@ -20,6 +21,7 @@ const SelectedDraggableImage = ({
   datasetId: string
   close: () => void
 }) => {
+  useLanguage()
   const draggableRef = useRef<any>(null)
   const imageRef = useRef<HTMLImageElement>(null)
 
@@ -66,14 +68,14 @@ const SelectedDraggableImage = ({
           onClick={close}
           variant="destructive"
         >
-          Close
-        </Button>
+          {t('Close')} </Button>
       </div>
     </Draggable>
   )
 }
 
 function Map() {
+  useLanguage()
   const [instance, setInstance] =
     useState<google.maps.StreetViewPanorama | null>()
   const [selectedImage, setSelectedImage] = useState<string | null>(null)
@@ -83,7 +85,7 @@ function Map() {
   const datasetId = useAtomValue(activeDatasetIdAtom)
 
   if (!datasetId) {
-    return <div className="p-4">No dataset selected.</div>
+    return <div className="p-4">{t('No dataset selected.')}</div>
   }
 
   const containerStyle = {
@@ -134,7 +136,7 @@ function Map() {
       )}
       {!selectedImage && searchResults.length > 0 && (
         <div className="glass-panel absolute top-20 left-4 z-50 h-full w-75 overflow-y-scroll rounded-xl p-3 text-white shadow-lg no-scrollbar">
-          <h2 className="text-lg font-semibold">Search Results</h2>
+          <h2 className="text-lg font-semibold">{t('Search Results')}</h2>
           <div className="grid grid-cols-1 gap-4">
             {searchResults.map(({ id }: { id: number; distance: number }) => (
               <div
@@ -154,10 +156,8 @@ function Map() {
           if (instance) {
             const pov = instance.getPov()
             const pos = instance.getPosition()
-            const url = `https://maps.googleapis.com/maps/api/streetview?size=800x600&location=${pos?.lat()},${pos?.lng()}&heading=${
-              pov.heading
-            }&pitch=${pov.pitch}&key=${
-              import.meta.env.VITE_GOOGLE_API_KEY || ''
+            const url = `https://maps.googleapis.com/maps/api/streetview?size=800x600&location=${pos?.lat()},${pos?.lng()}&heading=${pov.heading
+              }&pitch=${pov.pitch}&key=${import.meta.env.VITE_GOOGLE_API_KEY || ''
             }`
 
             const blob = await fetchBlob(url)
@@ -165,8 +165,7 @@ function Map() {
           }
         }}
       >
-        Search
-      </Button>
+        {t('Search')} </Button>
     </GoogleMap>
   )
 }

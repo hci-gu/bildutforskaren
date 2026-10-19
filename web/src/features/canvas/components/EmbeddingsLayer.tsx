@@ -1,3 +1,4 @@
+import { canvasText, useLanguage } from '@/shared/i18n'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useAtomValue, useSetAtom } from 'jotai'
 import { useTick } from '@pixi/react'
@@ -153,6 +154,7 @@ export const EmbeddingsLayer: React.FC<{
   selectedClusterPreviewId,
   onClusterPreviewHitTargetsChange,
 }) => {
+  useLanguage()
   const searchQuery = useAtomValue(searchQueryAtom)
   const datasetId = useAtomValue(activeDatasetIdAtom)
   const displaySettings = useAtomValue(displaySettingsAtom)
@@ -1037,11 +1039,15 @@ export const EmbeddingsLayer: React.FC<{
           const [nx, ny] = embed.point ? embed.point : [0, 0]
           const textKey = String(embed.id ?? embed.text ?? index)
           const isTaggedHeaders = projectionSettings.type === 'tagged'
+          const localizedText = canvasText(String(embed.text ?? ''), String(embed.id ?? ''))
+          const renderedText = isTaggedHeaders && localizedText.length > 20
+            ? `${localizedText.slice(0, 19)}…`
+            : localizedText
           const taggedFontSize = 8
           return (
             <pixiText
               key={textKey}
-              text={embed.text}
+              text={renderedText}
               x={nx * CANVAS_WIDTH}
               y={ny * CANVAS_HEIGHT - (isTaggedHeaders ? 0 : 12)}
               rotation={projectionSettings.type === 'year' ? -Math.PI / 4 : 0}
@@ -1049,7 +1055,7 @@ export const EmbeddingsLayer: React.FC<{
               eventMode="static"
               cursor="pointer"
               onPointerDown={(e: any) => {
-                if (!isTaggedHeaders) return
+                if (!isTaggedHeaders || embed.id === 'untagged_header') return
                 if (typeof embed.text === 'string' && embed.text.trim()) {
                   const label = embed.text.trim()
                   const isShift = !!e?.data?.originalEvent?.shiftKey

@@ -1,3 +1,5 @@
+import { plural, translate, t, useLanguage } from '@/shared/i18n'
+import { LocalizedError } from '@/shared/components/LocalizedError'
 import React, {
   useCallback,
   useEffect,
@@ -50,6 +52,7 @@ import {
 import { useAnchorAnalysis } from '../hooks/useAnchorAnalysis'
 
 const ImageDisplayer = ({ bottomOffset = 0 }: { bottomOffset?: number }) => {
+  useLanguage()
   const buttonRef = React.useRef<HTMLButtonElement>(null)
   const [viewerRequest, setViewerRequest] = useAtom(imageViewerRequestAtom)
   const [viewerImageId, setViewerImageId] = useState<number | null>(null)
@@ -97,8 +100,7 @@ const ImageDisplayer = ({ bottomOffset = 0 }: { bottomOffset?: number }) => {
         style={{ bottom: 16 + bottomOffset }}
       >
           <div className="mb-2 text-[10px] uppercase tracking-wide text-white/60">
-            From metadata
-          </div>
+            {t('From metadata')} </div>
           <div className="space-y-1">
             {Object.entries(meta).map(([key, value]) => (
               <div key={key} className="flex gap-2">
@@ -130,6 +132,7 @@ export const HUD = ({
   selectedClusterPreview?: ClusterPreview | null
   onDeselectClusterPreview?: () => void
 } = {}) => {
+  useLanguage()
   const [selectionHistory, setSelectionHistory] = useAtom(selectionHistoryAtom)
   const setActiveEmbeddingIds = useSetAtom(activeEmbeddingIdsAtom)
   const activeEmbeddingIds = useAtomValue(activeEmbeddingIdsAtom)
@@ -337,12 +340,12 @@ export const HUD = ({
         }}
         onClick={onFitProjection}
         disabled={!canFitProjection}
-        aria-label="Centrera och visa alla bilder"
-        title="Centrera och visa alla bilder (Home)"
+        aria-label={t('Centrera och visa alla bilder')}
+        title={t('Centrera och visa alla bilder (Home)')}
         data-canvas-ui="true"
       >
         <Focus aria-hidden="true" className="size-4" />
-        <span>Visa alla bilder</span>
+        <span>{t('Visa alla bilder')}</span>
       </button>}
       {(selectedTags.length === 0 || selectedEmbedding) && (
         <TaggerPanel
@@ -376,7 +379,7 @@ export const HUD = ({
               })
             }}
           >
-            Back ({selectionHistory.length})
+            {t('Back (')}{selectionHistory.length})
           </button>
         </div>
       )}
@@ -392,7 +395,7 @@ export const HUD = ({
         >
           {selectedClusterPreview && datasetId && (
             <>
-              <span>Generated image selected</span>
+                <span>{t('Generated image selected')}</span>
               <PhotoView
                 src={clusterPreviewImageUrl(
                   datasetId,
@@ -403,24 +406,22 @@ export const HUD = ({
                   type="button"
                   className="rounded-full border border-white/30 px-3 py-1 text-xs hover:bg-white/10"
                 >
-                  Open image
-                </button>
+                    {t('Open image')} </button>
               </PhotoView>
               <button
                 type="button"
                 className="rounded-full border border-white/30 px-3 py-1 text-xs hover:bg-white/10"
                 onClick={onDeselectClusterPreview}
               >
-                Deselect
-              </button>
+                  {t('Deselect')} </button>
             </>
           )}
           {showGraphForm && selectedEmbeddingIds.length === 1 && (
             <div className="glass-panel-strong absolute bottom-full left-1/2 mb-3 w-80 -translate-x-1/2 rounded-xl p-4 text-xs text-white shadow-xl">
-              <div className="mb-3 text-sm font-medium">Create graph network</div>
+                <div className="mb-3 text-sm font-medium">{t('Create graph network')}</div>
               <div className="grid grid-cols-2 gap-3">
                 <label className="space-y-1">
-                  <span className="text-white/70">Depth (1–5)</span>
+                    <span className="text-white/70">{t('Depth (1–5)')}</span>
                   <input
                     type="number"
                     min={1}
@@ -437,7 +438,7 @@ export const HUD = ({
                   />
                 </label>
                 <label className="space-y-1">
-                  <span className="text-white/70">Neighbors (1–10)</span>
+                    <span className="text-white/70">{t('Neighbors (1–10)')}</span>
                   <input
                     type="number"
                     min={1}
@@ -454,7 +455,7 @@ export const HUD = ({
                   />
                 </label>
                 <label className="space-y-1">
-                  <span className="text-white/70">Maximum nodes</span>
+                    <span className="text-white/70">{t('Maximum nodes')}</span>
                   <input
                     type="number"
                     min={2}
@@ -471,7 +472,7 @@ export const HUD = ({
                   />
                 </label>
                 <label className="space-y-1">
-                  <span className="text-white/70">Minimum similarity</span>
+                    <span className="text-white/70">{t('Minimum similarity')}</span>
                   <input
                     type="number"
                     min={0}
@@ -489,17 +490,16 @@ export const HUD = ({
                 </label>
               </div>
               <div className="mt-3">
-                <div className="mb-1 text-white/70">Initial layout</div>
+                  <div className="mb-1 text-white/70">{t('Initial layout')}</div>
                 <div className="grid grid-cols-2 gap-2">
                   {([
-                    ['concentric', 'Concentric shells'],
-                    ['force', 'Free force'],
+                      ['concentric', t('Concentric shells')],
+                      ['force', t('Free force')],
                   ] as const).map(([value, label]) => (
                     <button
                       key={value}
                       type="button"
-                      className={`rounded-md border px-2 py-1.5 ${
-                        graphForm.layout === value
+                        className={`rounded-md border px-2 py-1.5 ${graphForm.layout === value
                           ? 'border-white/70 bg-white/20'
                           : 'border-white/20 hover:bg-white/10'
                       }`}
@@ -510,16 +510,15 @@ export const HUD = ({
                         }))
                       }
                     >
-                      {label}
+                        {translate(label)}
                     </button>
                   ))}
                 </div>
               </div>
               <p className="mt-3 text-[11px] text-white/55">
-                The similarity cutoff may produce fewer than the requested nodes.
-              </p>
+                  {t('The similarity cutoff may produce fewer than the requested nodes.')} </p>
               {graphError && (
-                <p className="mt-2 text-[11px] text-red-300">{graphError}</p>
+                  <p className="mt-2 text-[11px] text-red-300"><LocalizedError value={graphError} /></p>
               )}
               <div className="mt-3 flex justify-end gap-2">
                 <button
@@ -528,22 +527,21 @@ export const HUD = ({
                   onClick={() => setShowGraphForm(false)}
                   disabled={isCreatingGraph}
                 >
-                  Cancel
-                </button>
+                    {t('Cancel')} </button>
                 <button
                   type="button"
                   className="rounded-full bg-white px-3 py-1.5 text-black hover:bg-white/90 disabled:opacity-50"
                   onClick={createSelectedGraph}
                   disabled={isCreatingGraph}
                 >
-                  {isCreatingGraph ? 'Creating…' : 'Create graph'}
+                    {isCreatingGraph ? t('Creating…') : t('Create graph')}
                 </button>
               </div>
             </div>
           )}
           {selectedEmbeddingIds.length > 0 && (
             <>
-              <span>{selectedEmbeddingIds.length} images selected</span>
+                <span>{plural('selectedImages', selectedEmbeddingIds.length)}</span>
               {validSelectedIds.length === 1 &&
                 selectedEmbeddingIds.length === 1 && (
                   <>
@@ -554,23 +552,20 @@ export const HUD = ({
                         openImageViewer(Number(validSelectedIds[0]))
                       }
                     >
-                      Open image
-                    </button>
+                        {t('Open image')} </button>
                     {fidelitySettings.enabled &&
                       (fidelityStatus === 'loading' ? (
                         <span className="text-[11px] text-white/60">
-                          Checking neighbor fidelity…
-                        </span>
+                            {t('Checking neighbor fidelity…')} </span>
                       ) : fidelityStatus === 'error' ? (
                         <span
                           className="max-w-52 truncate text-[11px] text-red-300"
                           title={fidelityError ?? undefined}
                         >
-                          Neighbor fidelity unavailable
-                        </span>
+                            {t('Neighbor fidelity unavailable')} </span>
                       ) : fidelityResult ? (
                         <span className="text-[11px] text-white/75">
-                          Retained{' '}
+                            {t('Retained')}{' '}
                           <span className="text-green-300">
                             {fidelityResult.neighbors.preserved.length}/
                             {fidelityResult.effective_k}
@@ -578,12 +573,10 @@ export const HUD = ({
                           ({Math.round(fidelityResult.retention * 100)}%) ·{' '}
                           <span className="text-red-300">
                             {fidelityResult.neighbors.projection_only.length}{' '}
-                            UMAP-only
-                          </span>{' '}
+                              {t('UMAP-only')} </span>{' '}
                           ·{' '}
                           <span className="text-sky-300">
-                            {fidelityResult.neighbors.clip_only.length} CLIP-only
-                          </span>
+                              {fidelityResult.neighbors.clip_only.length}  {t('CLIP-only')} </span>
                         </span>
                       ) : null)}
                   </>
@@ -595,8 +588,7 @@ export const HUD = ({
                   setSelectedEmbedding(null)
                 }}
               >
-                Deselect
-              </button>
+                  {t('Deselect')} </button>
               <button
                 className="rounded-full bg-white/90 px-3 py-1 text-xs text-black hover:bg-white"
                 onClick={() => {
@@ -608,8 +600,7 @@ export const HUD = ({
                   setProjectionRevision((v) => v + 1)
                 }}
               >
-                Reproject with selection
-              </button>
+                  {t('Reproject with selection')} </button>
             </>
           )}
           {anchorGroups.a.length === 0 && selectedEmbeddingIds.length > 0 && (
@@ -620,12 +611,11 @@ export const HUD = ({
               disabled={selectionOverlapsB}
               title={
                 selectionOverlapsB
-                  ? 'Selection overlaps anchor B'
-                  : 'Use selection as anchor A'
+                    ? t('Selection overlaps anchor B')
+                    : t('Use selection as anchor A')
               }
             >
-              Set as A
-            </button>
+                {t('Set as A')} </button>
           )}
           {anchorGroups.a.length > 0 &&
             anchorGroups.b.length === 0 &&
@@ -638,12 +628,11 @@ export const HUD = ({
                   disabled={selectionOverlapsB}
                   title={
                     selectionOverlapsB
-                      ? 'Selection overlaps anchor B'
-                      : 'Replace anchor A'
+                        ? t('Selection overlaps anchor B')
+                        : t('Replace anchor A')
                   }
                 >
-                  Replace A
-                </button>
+                    {t('Replace A')} </button>
                 <button
                   type="button"
                   className="rounded-full bg-cyan-300 px-3 py-1 text-xs text-black hover:bg-cyan-200"
@@ -651,12 +640,11 @@ export const HUD = ({
                   disabled={selectionOverlapsA}
                   title={
                     selectionOverlapsA
-                      ? 'Selection overlaps anchor A'
-                      : 'Use selection as anchor B'
+                        ? t('Selection overlaps anchor A')
+                        : t('Use selection as anchor B')
                   }
                 >
-                  Set as B
-                </button>
+                    {t('Set as B')} </button>
               </>
             )}
           {anchorGroups.a.length > 0 &&
@@ -670,12 +658,11 @@ export const HUD = ({
                   disabled={selectionOverlapsB}
                   title={
                     selectionOverlapsB
-                      ? 'Selection overlaps anchor B'
-                      : 'Replace anchor A'
+                        ? t('Selection overlaps anchor B')
+                        : t('Replace anchor A')
                   }
                 >
-                  Replace A
-                </button>
+                    {t('Replace A')} </button>
                 <button
                   type="button"
                   className="rounded-full border border-cyan-300/60 px-3 py-1 text-xs text-cyan-100 hover:bg-cyan-300/10"
@@ -683,12 +670,11 @@ export const HUD = ({
                   disabled={selectionOverlapsA}
                   title={
                     selectionOverlapsA
-                      ? 'Selection overlaps anchor A'
-                      : 'Replace anchor B'
+                        ? t('Selection overlaps anchor A')
+                        : t('Replace anchor B')
                   }
                 >
-                  Replace B
-                </button>
+                    {t('Replace B')} </button>
               </>
             )}
           {anchorGroups.a.length > 0 && (
@@ -707,8 +693,7 @@ export const HUD = ({
               className="rounded-full bg-emerald-300 px-3 py-1 text-xs text-black hover:bg-emerald-200"
               onClick={() => void analyzeAnchors()}
             >
-              Analyze paths
-            </button>
+                {t('Analyze paths')} </button>
           )}
           {(anchorGroups.a.length > 0 || anchorGroups.b.length > 0) && (
             <button
@@ -716,8 +701,7 @@ export const HUD = ({
               className="rounded-full border border-white/25 px-3 py-1 text-xs hover:bg-white/10"
               onClick={resetAnchors}
             >
-              Clear anchors
-            </button>
+                {t('Clear anchors')} </button>
           )}
           {selectedEmbeddingIds.length === 1 && (
             <button
@@ -728,21 +712,18 @@ export const HUD = ({
                 setShowGraphForm((visible) => !visible)
               }}
             >
-              Create graph network
-            </button>
+                {t('Create graph network')} </button>
           )}
           {anchorSelectionError && (
             <span className="w-full text-center text-[11px] text-red-300">
-              {anchorSelectionError}
+                <LocalizedError value={anchorSelectionError} />
             </span>
           )}
           {!anchorSelectionError &&
             selectedEmbeddingIds.length > 0 &&
             (selectionOverlapsA || selectionOverlapsB) && (
               <span className="w-full text-center text-[11px] text-amber-200">
-                This selection overlaps an existing anchor; the conflicting
-                replace action is disabled.
-              </span>
+                  {t('This selection overlaps an existing anchor; the conflicting replace action is disabled.')} </span>
             )}
         </div>
       )}

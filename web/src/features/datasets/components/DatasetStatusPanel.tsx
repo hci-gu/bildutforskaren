@@ -1,3 +1,4 @@
+import { translate, t, useLanguage } from '@/shared/i18n'
 import { cn } from '@/shared/lib/utils'
 import { EmbeddingProgressBar } from '@/features/datasets/components/EmbeddingProgressBar'
 import type { ReactNode } from 'react'
@@ -24,7 +25,7 @@ export const DatasetStatusPanel = ({
   className,
   useGlassPanel = true,
   loadingText = 'Laddar…',
-  errorText = 'Något gick fel.',
+  errorText = t('Något gick fel.'),
   title,
   description,
   stage,
@@ -35,6 +36,7 @@ export const DatasetStatusPanel = ({
   textClassName,
   progressLabelClassName,
 }: DatasetStatusPanelProps) => {
+  useLanguage()
   const baseClassName = useGlassPanel
     ? 'glass-panel rounded-2xl p-6'
     : 'rounded-xl p-3'
@@ -42,7 +44,7 @@ export const DatasetStatusPanel = ({
   if (variant === 'loading') {
     return (
       <div className={cn(baseClassName, className, textClassName ?? 'text-sm')}>
-        {loadingText}
+        {translate(loadingText)}
       </div>
     )
   }
@@ -50,20 +52,20 @@ export const DatasetStatusPanel = ({
   if (variant === 'error') {
     return (
       <div className={cn(baseClassName, className, textClassName ?? 'text-sm')}>
-        {errorText}
+        {translate(errorText)}
       </div>
     )
   }
 
   return (
     <div className={cn(baseClassName, className)}>
-      {title && <h1 className="text-xl font-semibold">{title}</h1>}
+      {title && <h1 className="text-xl font-semibold">{translate(title)}</h1>}
       {description && (
-        <p className={cn('mt-2 text-sm', textClassName)}>{description}</p>
+        <p className={cn('mt-2 text-sm', textClassName)}>{translate(description)}</p>
       )}
       {stage && (
         <div className={cn('mt-3 text-sm', textClassName)}>
-          Steg: {stage}
+          {t('Steg:')} {translate(stage)}
           {typeof progressPercent === 'number' ? ` (${progressPercent}%)` : ''}
         </div>
       )}

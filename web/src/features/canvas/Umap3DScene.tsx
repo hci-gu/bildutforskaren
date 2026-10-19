@@ -1,3 +1,4 @@
+import { t, useLanguage } from '@/shared/i18n'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useAtomValue, useSetAtom } from 'jotai'
 import * as THREE from 'three'
@@ -379,6 +380,7 @@ const addFidelityConnection = (
 }
 
 export const Umap3DScene = () => {
+  useLanguage()
   const containerRef = useRef<HTMLDivElement>(null)
   const resetCameraRef = useRef<() => void>(() => undefined)
   const focusImageRef = useRef<(imageId: number) => void>(() => undefined)
@@ -717,7 +719,9 @@ export const Umap3DScene = () => {
         const material = new THREE.ShaderMaterial({
           uniforms: {
             atlas: { value: texture },
-            pointSize: { value: 62 * Number(displaySettings.scale || 1) },
+            pointSize: {
+              value: 62 * Number(displaySettings.scale || 1)
+          },
           },
           vertexShader,
           fragmentShader,
@@ -978,24 +982,21 @@ export const Umap3DScene = () => {
         style={{ bottom: 20 + trayOffset }}
         data-canvas-ui="true"
       >
-        <span>Drag: rotera · Högerdrag: panorera · Hjul: zooma</span>
+        <span>{t('Drag: rotera · Högerdrag: panorera · Hjul: zooma')}</span>
         <button
           type="button"
           className="rounded-full border border-white/20 px-3 py-1 hover:bg-white/10"
           onClick={() => resetCameraRef.current()}
         >
-          Återställ kamera
-        </button>
+          {t('Återställ kamera')} </button>
       </div>
       {isLoading && (
         <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/30 text-white backdrop-blur-sm">
-          Beräknar 3D-projektion…
-        </div>
+          {t('Beräknar 3D-projektion…')} </div>
       )}
       {hasError && (
         <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/50 text-white">
-          Kunde inte skapa 3D-projektionen.
-        </div>
+          {t('Kunde inte skapa 3D-projektionen.')} </div>
       )}
       <AnchorAnalysisTray
         candidateIds={candidateIds}

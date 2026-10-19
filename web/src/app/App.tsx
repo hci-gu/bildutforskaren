@@ -1,3 +1,5 @@
+import { t, useLanguage } from '@/shared/i18n'
+import { LocalizedError } from '@/shared/components/LocalizedError'
 import {
   Route,
   Routes,
@@ -27,6 +29,7 @@ import {
 } from '@/shared/lib/photoViewer'
 
 const DatasetCanvasRoute = () => {
+  useLanguage()
   const { id } = useParams<{ id: string }>()
   const setActiveDatasetId = useSetAtom(activeDatasetIdAtom)
   const { status, loading, error } = useDatasetStatus(id)
@@ -52,8 +55,7 @@ const DatasetCanvasRoute = () => {
         <div className="min-h-svh text-white">
           <div className="mx-auto w-full max-w-3xl px-6 py-12">
             <StatusMessage textClassName="text-white/70">
-              Laddar status…
-            </StatusMessage>
+              {t('Laddar status…')} </StatusMessage>
           </div>
         </div>
       )
@@ -62,7 +64,7 @@ const DatasetCanvasRoute = () => {
       <div className="min-h-svh text-white">
         <div className="mx-auto w-full max-w-3xl px-6 py-12">
           <StatusMessage variant="error" textClassName="text-red-200">
-            {error}
+            <LocalizedError value={error} />
           </StatusMessage>
         </div>
       </div>
@@ -84,13 +86,13 @@ const DatasetCanvasRoute = () => {
             variant="pending"
             title={
               status?.status === 'uploading'
-                ? 'Bilder laddas upp'
-                : 'Datasetet bearbetas'
+                ? t('Bilder laddas upp')
+                : t('Datasetet bearbetas')
             }
             description={
               status?.status === 'uploading'
-                ? 'Väntar på att ZIP-filen ska laddas upp. Canvas blir tillgänglig när bearbetningen är klar.'
-                : 'Bilderna bearbetas just nu. Canvas blir tillgänglig när arbetet är klart.'
+                ? t('Väntar på att ZIP-filen ska laddas upp. Canvas blir tillgänglig när bearbetningen är klar.')
+                : t('Bilderna bearbetas just nu. Canvas blir tillgänglig när arbetet är klart.')
             }
             stage={job?.stage}
             showProgress={showEmbeddingProgress}
@@ -102,8 +104,7 @@ const DatasetCanvasRoute = () => {
               id ? (
                 <Link to={`/dataset/${id}`}>
                   <Button variant="secondary" size="sm">
-                    Visa status
-                  </Button>
+                    {t('Visa status')} </Button>
                 </Link>
               ) : null
             }
@@ -119,14 +120,13 @@ const DatasetCanvasRoute = () => {
         <div className="mx-auto w-full max-w-3xl px-6 py-12">
           <DatasetStatusPanel
             variant="error"
-            errorText="Datasetet kunde inte färdigställas. Kontrollera statusen för mer info."
+            errorText={t('Datasetet kunde inte färdigställas. Kontrollera statusen för mer info.')}
             textClassName="text-sm text-red-200"
             action={
               id ? (
                 <Link to={`/dataset/${id}`}>
                   <Button variant="secondary" size="sm">
-                    Visa status
-                  </Button>
+                    {t('Visa status')} </Button>
                 </Link>
               ) : null
             }
@@ -217,7 +217,7 @@ function App() {
                   setSelectedEmbedding({ id: imageId, meta })
                 }
               })
-              .catch(() => {})
+              .catch(() => { })
           } catch (err) {
             // Ignore handler errors.
           }

@@ -1,3 +1,4 @@
+import { t, useLanguage } from '@/shared/i18n'
 import { useAtom, useAtomValue, useSetAtom } from 'jotai'
 import {
   activeDatasetIdAtom,
@@ -9,6 +10,7 @@ import { useEffect, useState } from 'react'
 import { updateMetadataSource } from '@/shared/lib/api'
 
 export const DatasetPicker = () => {
+  useLanguage()
   const [datasetId, setDatasetId] = useAtom(activeDatasetIdAtom)
   const datasetsLoadable = useAtomValue(loadableDatasetsAtom)
   const bumpDatasetsRevision = useSetAtom(datasetsRevisionAtom)
@@ -59,7 +61,7 @@ export const DatasetPicker = () => {
 
   return (
     <div className="flex items-center gap-2">
-      <label className="text-sm text-muted-foreground">Dataset</label>
+      <label className="text-sm text-muted-foreground">{t('Dataset')}</label>
       <select
         className="h-9 rounded-md border border-input bg-background px-3 text-sm"
         value={datasetId ?? ''}
@@ -67,7 +69,7 @@ export const DatasetPicker = () => {
         disabled={datasetsLoadable.state !== 'hasData' || datasets.length === 0}
       >
         {datasets.length === 0 ? (
-          <option value="">No datasets</option>
+          <option value="">{t('No datasets')}</option>
         ) : (
           datasets.map((d) => (
             <option key={d.dataset_id} value={d.dataset_id}>
@@ -84,12 +86,11 @@ export const DatasetPicker = () => {
             checked={useLegacyMetadata}
             onChange={(e) => setLegacyMetadataSource(e.target.checked)}
           />
-          Use metadata.xlsx
-        </label>
+          {t('Use metadata.xlsx')} </label>
       )}
 
       {datasetsLoadable.state === 'loading' && (
-        <span className="text-xs text-muted-foreground">Loading…</span>
+        <span className="text-xs text-muted-foreground">{t('Loading…')}</span>
       )}
     </div>
   )

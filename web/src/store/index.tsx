@@ -886,12 +886,6 @@ export const projectedEmbeddingsAtom = atomFamily((type: string) =>
       const colGutter = 0.03
       const cellW = (taggedWidth - colGutter * (groupCols - 1)) / groupCols
 
-      const truncateLabel = (label: string) => {
-        const maxChars = groupCols === 3 ? 16 : 20
-        if (label.length <= maxChars) return label
-        return `${label.slice(0, maxChars - 1)}…`
-      }
-
       const gridCols = 26
       const dx = cellW / gridCols
       const dy = dx
@@ -932,9 +926,9 @@ export const projectedEmbeddingsAtom = atomFamily((type: string) =>
         const originX = taggedX + targetCol * (cellW + colGutter)
         const originY = columns[targetCol].height
 
-        const label = truncateLabel(group.label || 'Tagg')
+        const label = group.label || 'Tagg'
         textHeaders.push({
-          id: `tag_${groupIndex}`,
+          id: group.label ? `tag_${groupIndex}` : `tag_fallback_${groupIndex}`,
           text: label,
           point: [originX + padX, originY + headerH * 0.5],
         })

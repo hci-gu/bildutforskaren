@@ -1,3 +1,4 @@
+import { t, useLanguage } from '@/shared/i18n'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import '@pixi/events'
 import { Application, extend } from '@pixi/react'
@@ -87,6 +88,7 @@ type ProjectedEmbedding = {
 }
 
 export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) => {
+  useLanguage()
   const dragStart = useRef<PIXI.PointData | null>(null)
   const selectionStart = useRef<PIXI.PointData | null>(null)
   const selectionActiveRef = useRef(false)
@@ -336,7 +338,7 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
     state.viewport = viewport
     state.pixiApp?.renderer.resize(windowSize.width, canvasHeight)
     if (typeof (viewport as any).resize === 'function') {
-      ;(viewport as any).resize(
+      ; (viewport as any).resize(
         windowSize.width,
         canvasHeight,
         width,
@@ -530,15 +532,13 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
             zIndex: 1000,
           }}
         >
-          Laddar...
-        </h1>
+          {t('Laddar...')} </h1>
       )}
 
       {isProjecting && (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/30 backdrop-blur-sm">
           <div className="glass-panel-strong rounded-xl px-5 py-3 text-sm text-white shadow-lg">
-            Uppdaterar rummet...
-          </div>
+            {t('Uppdaterar rummet...')} </div>
         </div>
       )}
 
@@ -546,8 +546,7 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
         <div className="fixed top-6 left-1/2 z-[9998] -translate-x-1/2">
           <div className="glass-panel-strong flex items-center gap-2 rounded-full px-4 py-2 text-xs text-white shadow-lg">
             <span className="inline-block h-3 w-3 animate-spin rounded-full border border-white/40 border-t-transparent" />
-            Uppdaterar…
-          </div>
+            {t('Uppdaterar…')} </div>
         </div>
       )}
 

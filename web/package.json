@@ -8,6 +8,7 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "test:canvas": "tsx --test src/features/canvas/*.test.tsx",
+    "test:i18n": "tsx --tsconfig tsconfig.app.json --test src/shared/i18n/*.test.tsx && node ../scripts/check-ui-strings.mjs",
     "preview": "vite preview"
   },
   "dependencies": {
