@@ -1,9 +1,10 @@
 import { t, useLanguage } from '@/shared/i18n'
 import { lazy, Suspense, useEffect, useState } from 'react'
 import { useAtomValue, useSetAtom } from 'jotai'
+import { Link } from 'react-router'
 import { API_URL } from '@/shared/lib/api'
-import { uiConfigAtom } from './uiConfig'
-import { loadableEmbeddingsAtom, projectionViewModeAtom } from '@/store'
+import { availableViewType, uiConfigAtom } from './uiConfig'
+import { activeDatasetIdAtom, graphNetworksAtom, loadableEmbeddingsAtom, projectionSettingsAtom, projectionViewModeAtom } from '@/store'
 import { CanvasScene } from './CanvasScene'
 
 const Umap3DScene = lazy(() =>
@@ -16,6 +17,19 @@ const EmbeddingsFetchWrapper = () => {
   const viewMode = useAtomValue(projectionViewModeAtom)
   const setConfig = useSetAtom(uiConfigAtom)
   const [configStatus, setConfigStatus] = useState('loading')
+  const config = useAtomValue(uiConfigAtom)
+  const settings = useAtomValue(projectionSettingsAtom)
+  const setSettings = useSetAtom(projectionSettingsAtom)
+  const setViewMode = useSetAtom(projectionViewModeAtom)
+  const datasetId = useAtomValue(activeDatasetIdAtom)
+  const graphNetworks = useAtomValue(graphNetworksAtom)
+  const nextView = availableViewType(config, settings.type, !!datasetId && !!graphNetworks[datasetId])
+
+  useEffect(() => {
+    if (configStatus !== 'ready' || !nextView || nextView === settings.type) return
+    setSettings((previous) => ({ ...previous, type: nextView }))
+    setViewMode('2d')
+  }, [configStatus, nextView, settings.type, setSettings, setViewMode])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -33,6 +47,13 @@ const EmbeddingsFetchWrapper = () => {
 
   if (configStatus === 'error') return <p role="alert" className="p-6 text-red-300">{t('Could not load or save configuration. Reload the page or try again.')}</p>
   if (configStatus === 'loading') return <p role="status" className="p-6 text-white">{t('Laddar…')}</p>
+  if (!nextView) return (
+    <div className="space-y-3 p-6 text-white">
+      <p>{t('No view types are available for this dataset. Enable a view type in configuration.')}</p>
+      <Link to="/config" className="text-cyan-200 underline">{t('Canvas configuration')}</Link>
+    </div>
+  )
+  if (nextView !== settings.type) return <p role="status" className="p-6 text-white">{t('Laddar…')}</p>
 
   if (embeddings.state === 'loading') {
     return (

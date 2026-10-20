@@ -42,7 +42,7 @@ import { Checkbox } from '@/shared/ui/checkbox'
 import { Label } from '@/shared/ui/label'
 import { ExplanationPanel } from './components/ExplanationPanel'
 import { useProjectionStability } from './hooks/useProjectionStability'
-import { uiConfigAtom } from './uiConfig'
+import { enabledViewTypes, uiConfigAtom } from './uiConfig'
 import { CanvasWidget, useCanvasWidget } from './components/CanvasWidget'
 
 const Search = () => {
@@ -105,6 +105,9 @@ const ProjectionSettings = () => {
   const datasetId = useAtomValue(activeDatasetIdAtom)
   const graphNetworks = useAtomValue(graphNetworksAtom)
   const hasGraph = !!datasetId && !!graphNetworks[datasetId]
+  const config = useAtomValue(uiConfigAtom)
+  const enabledViews = enabledViewTypes(config)
+  const viewLabels = { umap: 'Projektion', grid: 'Rutnät', tagged: 'Taggade/otaggade', graph: 'Graph network', year: 'År' } as const
 
   return (
     <div className="flex flex-col gap-2 mt-2">
@@ -122,12 +125,11 @@ const ProjectionSettings = () => {
           <SelectValue placeholder={t('Type')} />
         </SelectTrigger>
         <SelectContent>
-          <SelectItem value="umap">{t('Projektion')}</SelectItem>
-          <SelectItem value="grid">{t('Rutnät')}</SelectItem>
-          <SelectItem value="tagged">{t('Taggade/otaggade')}</SelectItem>
-          <SelectItem value="graph" disabled={!hasGraph}>
-            {t('Graph network')} </SelectItem>
-          <SelectItem value="year">{t('År')}</SelectItem>
+          {enabledViews.map((view) => (
+            <SelectItem key={view} value={view} disabled={view === 'graph' && !hasGraph}>
+              {t(viewLabels[view])}
+            </SelectItem>
+          ))}
         </SelectContent>
       </Select>
       {settings.type === 'umap' && (

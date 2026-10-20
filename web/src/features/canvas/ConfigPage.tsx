@@ -109,7 +109,10 @@ export default function ConfigPage() {
               <details key={view} className="glass-panel rounded-xl px-5">
                 <summary className="cursor-pointer py-4 font-medium">{t(viewLabels[view])}</summary>
                 <div className="divide-y divide-white/10 border-t border-white/10 pb-2">
-                  {Object.entries(draft.views[view]).map(([widget, enabled]) => (
+                  <Toggle label={t('Show this view type')} checked={draft.views[view].enabled !== false} onChange={() => update({
+                    ...draft, views: { ...draft.views, [view]: { ...draft.views[view], enabled: draft.views[view].enabled === false } },
+                  })} />
+                  {Object.entries(draft.views[view]).filter(([widget]) => widget !== 'enabled').map(([widget, enabled]) => (
                     <Toggle key={widget} label={t(widgetLabels[widget as keyof typeof widgetLabels])} checked={enabled} onChange={() => update({
                       ...draft, views: { ...draft.views, [view]: { ...draft.views[view], [widget]: !enabled } },
                     })} />

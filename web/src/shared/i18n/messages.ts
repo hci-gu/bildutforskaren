@@ -443,6 +443,8 @@ export const messages = {
   'selectedImages_one': ['{0} bild vald', '{0} image selected'],
   'selectedImages_other': ['{0} bilder valda', '{0} images selected'],
   'Canvas configuration': ['Canvasinställningar', 'Canvas configuration'],
+  'Show this view type': ['Visa denna visningstyp', 'Show this view type'],
+  'No view types are available for this dataset. Enable a view type in configuration.': ['Inga visningstyper är tillgängliga för detta dataset. Aktivera en visningstyp i inställningarna.', 'No view types are available for this dataset. Enable a view type in configuration.'],
   'Could not load configuration.': ['Kunde inte läsa inställningarna.', 'Could not load configuration.'],
   'Could not save configuration.': ['Kunde inte spara inställningarna.', 'Could not save configuration.'],
   'The backend does not have the configuration endpoint (404). Update the backend code and restart the API on its machine.': ['Backend saknar konfigurationsrutten (404). Uppdatera backendkoden och starta om API:t på dess dator.', 'The backend does not have the configuration endpoint (404). Update the backend code and restart the API on its machine.'],

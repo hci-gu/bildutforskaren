@@ -9,8 +9,11 @@ Bildutforskaren is an AI-assisted application for uploading, organizing, searchi
 Open `/config` directly in the frontend to choose which canvas widgets are
 available. This route is intentionally absent from the navigation. Use the
 sliding switches and expand each view type for its widget settings, then click
-Save configuration. The API saves settings to the repository-root `config.json`;
-they apply to every dataset and load when opening the canvas. The API process
+Save configuration. The API saves settings to the repository-root `config.json`.
+Each view type also has a Show this view type switch to control whether it
+appears in the canvas dropdown. Disabling the current view selects the first
+available enabled view. If none are available, the canvas links back to configuration.
+Settings apply to every dataset and load when opening the canvas. The API process
 needs write access to that file and its parent directory. Hiding this route
 does not provide access control; it uses the application's existing access rules.
 If the backend runs on a separate machine, update and restart it as well as the

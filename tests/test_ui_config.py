@@ -52,6 +52,22 @@ class UiConfigTests(unittest.TestCase):
         self.path.write_text("{", encoding="utf-8")
         self.assertEqual(self.client.get("/ui-config").status_code, 500)
 
+    def test_view_visibility_is_persisted_separately_from_widgets(self):
+        response = self.client.put("/ui-config", json={
+            "views": {"umap": {"enabled": False, "search": True}},
+        })
+        self.assertEqual(response.status_code, 200)
+        saved = self.client.get("/ui-config").get_json()
+        self.assertFalse(saved["views"]["umap"]["enabled"])
+        self.assertTrue(saved["views"]["umap"]["search"])
+        self.assertTrue(saved["views"]["grid"]["enabled"])
+
+    def test_legacy_file_defaults_view_visibility_to_enabled(self):
+        self.path.write_text(json.dumps({"views": {"umap": {"search": False}}}), encoding="utf-8")
+        saved = self.client.get("/ui-config").get_json()
+        self.assertTrue(saved["views"]["umap"]["enabled"])
+        self.assertFalse(saved["views"]["umap"]["search"])
+
 
 if __name__ == "__main__":
     unittest.main()
