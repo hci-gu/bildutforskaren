@@ -12,6 +12,7 @@ import IndexPage from '@/features/datasets/pages/DatasetsIndexPage'
 import ImagePage from '@/features/images/pages/ImagePage'
 import DatasetPage from '@/features/datasets/pages/DatasetPage'
 import EmbeddingsCanvas from '@/features/canvas'
+import ConfigPage from '@/features/canvas/ConfigPage'
 import { PhotoProvider } from 'react-photo-view'
 import { useAtomValue, useSetAtom } from 'jotai'
 import { activeDatasetIdAtom, selectedEmbeddingAtom } from '@/store'
@@ -225,6 +226,7 @@ function App() {
       >
         <Routes>
           <Route path="/" element={<IndexPage />} />
+          <Route path="/config" element={<ConfigPage />} />
 
           <Route path="/dataset/:id" element={<DatasetInfoRoute />} />
           <Route path="/datset/:id" element={<DatasetInfoRedirect />} />

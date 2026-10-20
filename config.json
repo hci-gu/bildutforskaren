@@ -1,0 +1,11 @@
+{
+  "words": true,
+  "viewTypeOptions": true,
+  "views": {
+    "umap": { "search": true, "imageSize": true, "advanced": true, "filter": true, "colorPhotographer": true, "clusterImages": true, "dimension": true, "stability": true, "fidelity": true, "projectionParameters": true, "explanation": true, "minimap": true },
+    "grid": { "search": true, "imageSize": true, "advanced": true, "filter": true, "colorPhotographer": true, "clusterImages": true },
+    "tagged": { "search": true, "imageSize": true, "advanced": true, "filter": true, "colorPhotographer": true, "clusterImages": true, "groupTagged": true, "datasetStatus": true },
+    "graph": { "search": true, "imageSize": true, "advanced": true, "filter": true, "colorPhotographer": true, "clusterImages": true, "graphLayout": true },
+    "year": { "search": true, "imageSize": true, "advanced": true, "filter": true, "colorPhotographer": true, "clusterImages": true }
+  }
+}

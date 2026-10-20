@@ -1,0 +1,57 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from tempfile import TemporaryDirectory
+import unittest
+from unittest.mock import patch
+
+from flask import Flask
+
+from api.routes_ui_config import bp, DEFAULT_CONFIG
+
+
+class UiConfigTests(unittest.TestCase):
+    def setUp(self):
+        self.directory = TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        self.path = Path(self.directory.name) / "config.json"
+        patcher = patch("api.routes_ui_config.CONFIG_PATH", self.path)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        app = Flask(__name__)
+        app.register_blueprint(bp)
+        self.client = app.test_client()
+
+    def test_missing_file_returns_enabled_defaults(self):
+        self.assertEqual(self.client.get("/ui-config").get_json(), DEFAULT_CONFIG)
+
+    def test_save_persists_and_reload_preserves_view_settings(self):
+        response = self.client.put("/ui-config", json={
+            "words": False,
+            "viewTypeOptions": False,
+            "views": {"umap": {"search": False}, "grid": {"imageSize": False}},
+        })
+        self.assertEqual(response.status_code, 200)
+        saved = json.loads(self.path.read_text(encoding="utf-8"))
+        self.assertFalse(saved["words"])
+        self.assertFalse(saved["views"]["umap"]["search"])
+        self.assertTrue(saved["views"]["grid"]["search"])
+        self.assertFalse(saved["views"]["grid"]["imageSize"])
+        self.assertEqual(self.client.get("/ui-config").get_json(), saved)
+
+    def test_invalid_settings_do_not_overwrite_file(self):
+        self.client.put("/ui-config", json=DEFAULT_CONFIG)
+        original = self.path.read_bytes()
+        for payload in [[], {"words": 0}, {"views": {"umap": {"search": "false"}}}, {"unknown": True}]:
+            with self.subTest(payload=payload):
+                self.assertEqual(self.client.put("/ui-config", json=payload).status_code, 400)
+                self.assertEqual(self.path.read_bytes(), original)
+
+    def test_corrupt_file_is_reported(self):
+        self.path.write_text("{", encoding="utf-8")
+        self.assertEqual(self.client.get("/ui-config").status_code, 500)
+
+
+if __name__ == "__main__":
+    unittest.main()

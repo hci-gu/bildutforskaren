@@ -42,6 +42,8 @@ import { Checkbox } from '@/shared/ui/checkbox'
 import { Label } from '@/shared/ui/label'
 import { ExplanationPanel } from './components/ExplanationPanel'
 import { useProjectionStability } from './hooks/useProjectionStability'
+import { uiConfigAtom } from './uiConfig'
+import { CanvasWidget, useCanvasWidget } from './components/CanvasWidget'
 
 const Search = () => {
   useLanguage()
@@ -129,6 +131,7 @@ const ProjectionSettings = () => {
         </SelectContent>
       </Select>
       {settings.type === 'umap' && (
+        <CanvasWidget name="dimension">
         <>
           <Select
             value={viewMode}
@@ -143,6 +146,7 @@ const ProjectionSettings = () => {
             </SelectContent>
           </Select>
         </>
+        </CanvasWidget>
       )}
     </div>
   )
@@ -183,6 +187,7 @@ const AdvancedSettings = ({
               {t('Vänsterklick + dra: rotera. Högerklick + dra: panorera. Hjul: zooma.')} </div>
           )}
           {viewMode === '2d' && (
+            <CanvasWidget name="stability">
             <>
               <Button
                 type="button"
@@ -207,8 +212,10 @@ const AdvancedSettings = ({
                 </div>
               )}
             </>
+            </CanvasWidget>
           )}
 
+          <CanvasWidget name="fidelity">
           <div className="flex items-center space-x-2">
             <Checkbox
               id="neighborFidelity"
@@ -245,7 +252,9 @@ const AdvancedSettings = ({
               />
             </div>
           )}
+          </CanvasWidget>
 
+          <CanvasWidget name="projectionParameters">
           <div className="space-y-2">
             <div className="text-xs font-semibold text-white/80">
               {t('Projektionsparametrar')} </div>
@@ -289,10 +298,12 @@ const AdvancedSettings = ({
               />
             </div>
           </div>
+          </CanvasWidget>
         </>
       )}
 
       {viewMode === '2d' && settings.type === 'graph' && (
+        <CanvasWidget name="graphLayout">
         <div className="space-y-2">
           <div className="text-xs font-semibold text-white/80">{t('Graph layout')}</div>
           <div className="grid grid-cols-2 gap-2">
@@ -312,9 +323,11 @@ const AdvancedSettings = ({
               {t('Free force')} </Button>
           </div>
         </div>
+        </CanvasWidget>
       )}
 
       {viewMode === '2d' && settings.type === 'tagged' && (
+        <CanvasWidget name="groupTagged">
         <div className="flex items-center space-x-2">
           <Checkbox
             id="groupTaggedByTag"
@@ -333,10 +346,12 @@ const AdvancedSettings = ({
           >
             {t('Gruppera taggade efter tagg')} </label>
         </div>
+        </CanvasWidget>
       )}
 
       {viewMode === '2d' && (
         <>
+          <CanvasWidget name="colorPhotographer">
           <div className="flex items-center space-x-2">
             <Checkbox
               id="colorPhotographer"
@@ -350,6 +365,8 @@ const AdvancedSettings = ({
             />
             <Label htmlFor="colorPhotographer">{t('Färga fotograf')}</Label>
           </div>
+          </CanvasWidget>
+          <CanvasWidget name="clusterImages">
           <div className="flex items-center space-x-2">
             <Checkbox
               id="showClusterImages"
@@ -363,10 +380,11 @@ const AdvancedSettings = ({
             />
             <Label htmlFor="showClusterImages">{t('Visa klusterbilder')}</Label>
           </div>
+          </CanvasWidget>
         </>
       )}
 
-      <FilterSettings />
+      <CanvasWidget name="filter"><FilterSettings /></CanvasWidget>
     </div>
   )
 }
@@ -688,6 +706,8 @@ const ProjectionStabilityProgressOverlay = () => {
 
 export default function Panel() {
   useLanguage()
+  const config = useAtomValue(uiConfigAtom)
+  const advancedEnabled = useCanvasWidget('advanced')
   const settings = useAtomValue(projectionSettingsAtom)
   const viewMode = useAtomValue(projectionViewModeAtom)
   const [advancedOpen, setAdvancedOpen] = useState(false)
@@ -696,19 +716,19 @@ export default function Panel() {
   return (
     <>
       {viewMode === '2d' && settings.type === 'tagged' ? (
-        <TaggedInfoPanel />
+        <CanvasWidget name="datasetStatus"><TaggedInfoPanel /></CanvasWidget>
       ) : (
-        <TextPanel />
+        config.words && <TextPanel />
       )}
       <Card
         className="glass-panel absolute top-4 right-4 z-10 max-h-[calc(100vh-2rem)] w-1/6 overflow-hidden text-white shadow-lg"
         data-canvas-ui="true"
       >
         <CardContent className="max-h-[calc(100vh-2rem)] overflow-y-auto px-4 pb-4">
-          <Search />
-          <ProjectionSettings />
-          <DisplaySettings />
-          <button
+          <CanvasWidget name="search"><Search /></CanvasWidget>
+          {config.viewTypeOptions && <ProjectionSettings />}
+          <CanvasWidget name="imageSize"><DisplaySettings /></CanvasWidget>
+          {advancedEnabled && <button
             type="button"
             className="mt-4 flex w-full items-center justify-between rounded-md border border-white/15 bg-white/5 px-3 py-2 text-left text-sm font-medium transition hover:bg-white/10"
             aria-expanded={advancedOpen}
@@ -722,11 +742,11 @@ export default function Panel() {
             >
               ▾
             </span>
-          </button>
-          {advancedOpen && <AdvancedSettings stability={stability} />}
+          </button>}
+          {advancedEnabled && advancedOpen && <AdvancedSettings stability={stability} />}
         </CardContent>
       </Card>
-      <ExplanationPanel />
+      <CanvasWidget name="explanation"><ExplanationPanel /></CanvasWidget>
       <ProjectionStabilityProgressOverlay />
     </>
   )

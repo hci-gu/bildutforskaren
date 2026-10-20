@@ -34,6 +34,7 @@ import {
 import { state } from './canvasState'
 import { Viewport } from './ViewPort'
 import Panel from './Panel'
+import { CanvasWidget } from './components/CanvasWidget'
 import {
   CANVAS_HEIGHT,
   CANVAS_OFFSET_X,
@@ -754,6 +755,7 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
         </viewport>
 
         {allLoaded && projectionSettings.type === 'umap' && (
+          <CanvasWidget name="minimap">
           <Minimap
             allLoaded={allLoaded}
             masterAtlas={masterAtlas}
@@ -764,6 +766,7 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
             viewportRef={viewportRef}
             projectionType={projectionSettings.type}
           />
+          </CanvasWidget>
         )}
       </Application>
       <AnchorAnalysisTray

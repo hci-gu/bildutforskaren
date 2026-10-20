@@ -1,6 +1,8 @@
 import { t, useLanguage } from '@/shared/i18n'
-import { lazy, Suspense } from 'react'
-import { useAtomValue } from 'jotai'
+import { lazy, Suspense, useEffect, useState } from 'react'
+import { useAtomValue, useSetAtom } from 'jotai'
+import { API_URL } from '@/shared/lib/api'
+import { uiConfigAtom } from './uiConfig'
 import { loadableEmbeddingsAtom, projectionViewModeAtom } from '@/store'
 import { CanvasScene } from './CanvasScene'
 
@@ -12,6 +14,25 @@ const EmbeddingsFetchWrapper = () => {
   useLanguage()
   const embeddings = useAtomValue(loadableEmbeddingsAtom)
   const viewMode = useAtomValue(projectionViewModeAtom)
+  const setConfig = useSetAtom(uiConfigAtom)
+  const [configStatus, setConfigStatus] = useState('loading')
+
+  useEffect(() => {
+    const controller = new AbortController()
+    fetch(`${API_URL}/ui-config`, { cache: 'no-store', signal: controller.signal })
+      .then(async (response) => {
+        if (!response.ok) throw new Error('Configuration request failed')
+        setConfig(await response.json())
+        setConfigStatus('ready')
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setConfigStatus('error')
+      })
+    return () => controller.abort()
+  }, [setConfig])
+
+  if (configStatus === 'error') return <p role="alert" className="p-6 text-red-300">{t('Could not load or save configuration. Reload the page or try again.')}</p>
+  if (configStatus === 'loading') return <p role="status" className="p-6 text-white">{t('Laddar…')}</p>
 
   if (embeddings.state === 'loading') {
     return (

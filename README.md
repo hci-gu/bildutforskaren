@@ -4,6 +4,16 @@ Bildutforskaren is an AI-assisted application for uploading, organizing, searchi
 
 # Setup & Installation
 
+## Canvas UI configuration
+
+Open `/config` directly in the frontend to choose which canvas widgets are
+available. This route is intentionally absent from the navigation. Use the
+sliding switches and expand each view type for its widget settings, then click
+Save configuration. The API saves settings to the repository-root `config.json`;
+they apply to every dataset and load when opening the canvas. The API process
+needs write access to that file and its parent directory. Hiding this route
+does not provide access control; it uses the application's existing access rules.
+
 ## Backend
 
 Step by step guide to prepare the backend

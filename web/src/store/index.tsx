@@ -1,4 +1,5 @@
 import { atom } from 'jotai'
+import { uiConfigAtom } from '@/features/canvas/uiConfig'
 import { atomFamily, loadable } from 'jotai/utils'
 import {
   fetchDatasetImages,
@@ -176,7 +177,7 @@ export type RoomTerm = {
 
 export const textsAtom = atom<RoomTerm[]>([])
 export const textItemsAtom = atom((get) => {
-  const texts = get(textsAtom)
+  const texts = get(uiConfigAtom).words ? get(textsAtom) : []
   return texts.map((term) => ({
     id: term.id,
     text: term.label,
@@ -659,7 +660,7 @@ export const embeddingProjection = atomFamily((type: string) =>
         (item: any) => item.type !== 'text'
       )
       const imageIds = imageItems.map((item: any) => item.id)
-      const includeTexts = !filterSettings.year && !filterSettings.photographer
+      const includeTexts = get(uiConfigAtom).words && !filterSettings.year && !filterSettings.photographer
       const texts = includeTexts ? get(textsAtom) : []
       const umapParams = {
         n_neighbors: projectionSettings.nNeighbors,

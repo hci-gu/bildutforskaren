@@ -442,6 +442,14 @@ export const messages = {
   'umap_2d': ['2D-UMAP', '2D UMAP'],
   'selectedImages_one': ['{0} bild vald', '{0} image selected'],
   'selectedImages_other': ['{0} bilder valda', '{0} images selected'],
+  'Canvas configuration': ['Canvasinställningar', 'Canvas configuration'],
+  'Tillbaka till canvas': ['Tillbaka till canvas', 'Back to canvas'],
+  'Sparar…': ['Sparar…', 'Saving…'],
+  'Choose which canvas widgets are available. Settings apply to all datasets and are saved in config.json.': ['Välj vilka canvaswidgetar som är tillgängliga. Inställningarna gäller alla dataset och sparas i config.json.', 'Choose which canvas widgets are available. Settings apply to all datasets and are saved in config.json.'],
+  'Could not load or save configuration. Reload the page or try again.': ['Kunde inte läsa eller spara inställningarna. Ladda om sidan eller försök igen.', 'Could not load or save configuration. Reload the page or try again.'],
+  'Save configuration': ['Spara inställningar', 'Save configuration'],
+  'Configuration saved.': ['Inställningarna har sparats.', 'Configuration saved.'],
+  'Minimap': ['Minikarta', 'Minimap'],
 } as const satisfies Record<string, readonly [string, string]>
 
 export type MessageKey = keyof typeof messages
