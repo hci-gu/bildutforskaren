@@ -13,6 +13,9 @@ Save configuration. The API saves settings to the repository-root `config.json`;
 they apply to every dataset and load when opening the canvas. The API process
 needs write access to that file and its parent directory. Hiding this route
 does not provide access control; it uses the application's existing access rules.
+If the backend runs on a separate machine, update and restart it as well as the
+frontend: the `/ui-config` API endpoint and `config.json` live on that machine.
+A 404 from that endpoint means the running API does not include this feature.
 
 ## Backend
 

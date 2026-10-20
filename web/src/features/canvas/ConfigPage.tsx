@@ -5,6 +5,7 @@ import { API_URL } from '@/shared/lib/api'
 import { Button } from '@/shared/ui/button'
 import { t, useLanguage } from '@/shared/i18n'
 import { uiConfigAtom, type UiConfig, type ViewType } from './uiConfig'
+import { requestUiConfig, UiConfigRequestError } from './uiConfigRequest'
 
 const viewLabels = { umap: 'Projektion', grid: 'Rutnät', tagged: 'Taggade/otaggade', graph: 'Graph network', year: 'År' } as const
 const widgetLabels = {
@@ -31,24 +32,29 @@ export default function ConfigPage() {
   const [draft, setDraft] = useState(saved)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
-  const [error, setError] = useState(false)
+  const [error, setError] = useState<UiConfigRequestError | null>(null)
+  const [failedAction, setFailedAction] = useState<'load' | 'save'>('load')
+  const [loadAttempt, setLoadAttempt] = useState(0)
   const [success, setSuccess] = useState(false)
 
   useEffect(() => {
     const controller = new AbortController()
-    fetch(`${API_URL}/ui-config`, { cache: 'no-store', signal: controller.signal })
-      .then(async (response) => {
-        if (!response.ok) throw new Error('Configuration request failed')
-        const config: UiConfig = await response.json()
+    setLoading(true)
+    setError(null)
+    requestUiConfig(`${API_URL}/ui-config`, { cache: 'no-store', signal: controller.signal })
+      .then((config) => {
         setSaved(config)
         setDraft(config)
         setLoading(false)
       })
-      .catch(() => {
-        if (!controller.signal.aborted) setError(true)
+      .catch((error: unknown) => {
+        if (!controller.signal.aborted) {
+          setFailedAction('load')
+          setError(error instanceof UiConfigRequestError ? error : new UiConfigRequestError('invalid'))
+        }
       })
     return () => controller.abort()
-  }, [setSaved])
+  }, [setSaved, loadAttempt])
 
   const update = (config: UiConfig) => {
     setDraft(config)
@@ -56,19 +62,18 @@ export default function ConfigPage() {
   }
   const save = async () => {
     setSaving(true)
-    setError(false)
+    setError(null)
     setSuccess(false)
     try {
-      const response = await fetch(`${API_URL}/ui-config`, {
+      const config = await requestUiConfig(`${API_URL}/ui-config`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(draft),
       })
-      if (!response.ok) throw new Error('Configuration request failed')
-      const config: UiConfig = await response.json()
       setSaved(config)
       setDraft(config)
       setSuccess(true)
-    } catch {
-      setError(true)
+    } catch (error) {
+      setFailedAction('save')
+      setError(error instanceof UiConfigRequestError ? error : new UiConfigRequestError('invalid'))
     } finally {
       setSaving(false)
     }
@@ -80,7 +85,19 @@ export default function ConfigPage() {
         <Link to="/canvas" className="text-sm text-cyan-200 hover:underline">{t('Tillbaka till canvas')}</Link>
         <h1 className="text-3xl font-semibold">{t('Canvas configuration')}</h1>
         <p className="text-white/60">{t('Choose which canvas widgets are available. Settings apply to all datasets and are saved in config.json.')}</p>
-        {error && <p role="alert" className="text-red-300">{t('Could not load or save configuration. Reload the page or try again.')}</p>}
+        {error && (
+          <div role="alert" className="space-y-2 rounded-xl border border-red-300/25 p-4 text-red-300">
+            <p>{failedAction === 'load' ? t('Could not load configuration.') : t('Could not save configuration.')}</p>
+            <p className="text-sm">{
+              error.reason === 'missing' ? t('The backend does not have the configuration endpoint (404). Update the backend code and restart the API on its machine.')
+                : error.reason === 'network' ? t('Cannot reach the backend. Check that the API is running and accessible from this browser.')
+                  : error.reason === 'invalid' ? t('The backend returned an invalid configuration response. Check the API address and backend version.')
+                    : t('The backend rejected the request (HTTP {0}). Check its logs and access to config.json.', [error.status])
+            }</p>
+            <p className="break-all text-xs text-white/60">{API_URL}/ui-config</p>
+            <Button variant="outline" onClick={() => failedAction === 'load' ? setLoadAttempt((attempt) => attempt + 1) : void save()} disabled={saving}>{t('Try again')}</Button>
+          </div>
+        )}
         {loading && !error && <p role="status">{t('Laddar…')}</p>}
         <fieldset disabled={loading || saving} className="space-y-6 disabled:opacity-50">
           <section className="glass-panel rounded-xl px-5 py-2">
