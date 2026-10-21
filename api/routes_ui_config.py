@@ -20,6 +20,7 @@ _common = [
 DEFAULT_CONFIG = {
     "words": True,
     "viewTypeOptions": True,
+    "openImageOnSelection": False,
     "views": {
         view: dict.fromkeys(_common + extra, True)
         for view, extra in {

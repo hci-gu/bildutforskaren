@@ -22,6 +22,7 @@ import {
   projectionSettingsAtom,
   projectionStabilityResultAtom,
   selectedEmbeddingAtom,
+  selectCanvasImageAtom,
   selectedEmbeddingIdsAtom,
   selectedExplainedClusterAtom,
   selectedStabilityClusterAtom,
@@ -101,6 +102,7 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
   const refreshUntilRef = useRef(0)
 
   const setSelectedEmbedding = useSetAtom(selectedEmbeddingAtom)
+  const selectCanvasImage = useSetAtom(selectCanvasImageAtom)
   const setSelectedEmbeddingIds = useSetAtom(selectedEmbeddingIdsAtom)
   const setViewportScale = useSetAtom(viewportScaleAtom)
   const setViewportFitScale = useSetAtom(viewportFitScaleAtom)
@@ -687,8 +689,7 @@ export const CanvasScene: React.FC<Props> = ({ width = 1920, height = 1200 }) =>
               setSelectedEmbeddingIds([])
             } else if (hit) {
               setSelectedClusterPreview(null)
-              setSelectedEmbedding(hit.data.embedding)
-              setSelectedEmbeddingIds([String(hit.data.embedding.id)])
+              selectCanvasImage(hit.data.embedding)
             } else if (activeCluster) {
               setSelectedClusterPreview(null)
               if (explanationTab === 'stability') {

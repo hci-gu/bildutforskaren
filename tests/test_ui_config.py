@@ -77,6 +77,13 @@ class UiConfigTests(unittest.TestCase):
             self.assertFalse(saved["views"]["umap"][control])
             self.assertTrue(saved["views"]["grid"][control])
 
+    def test_open_on_selection_is_opt_in_and_persists(self):
+        self.path.write_text(json.dumps({"words": False}), encoding="utf-8")
+        self.assertFalse(self.client.get("/ui-config").get_json()["openImageOnSelection"])
+        response = self.client.put("/ui-config", json={"openImageOnSelection": True})
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(self.client.get("/ui-config").get_json()["openImageOnSelection"])
+
 
 if __name__ == "__main__":
     unittest.main()

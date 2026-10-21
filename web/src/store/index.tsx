@@ -15,7 +15,14 @@ import {
   searchByImage,
   searchByText,
 } from '@/shared/lib/api'
-import { closePhotoViewer } from '@/shared/lib/photoViewer'
+export {
+  selectedEmbeddingAtom,
+  selectedEmbeddingIdsAtom,
+  imageViewerRequestAtom,
+  openImageViewerAtom,
+  selectCanvasImageAtom,
+} from './imageSelection'
+export type { SelectedEmbedding, ImageViewerRequest } from './imageSelection'
 
 export const activeDatasetIdAtom = atom<string | null>(null)
 
@@ -1141,40 +1148,6 @@ export const loadableProjectedEmbeddings3dAtom = loadable(
   projectedEmbeddings3dAtom
 )
 
-export type SelectedEmbedding = {
-  id: number
-  meta: Record<string, unknown>
-}
-
-const selectedEmbeddingValueAtom = atom<SelectedEmbedding | null>(null)
-export const selectedEmbeddingAtom = atom(
-  (get) => get(selectedEmbeddingValueAtom),
-  (_get, set, value: SelectedEmbedding | null) => {
-    if (value === null) {
-      closePhotoViewer()
-    }
-    set(selectedEmbeddingValueAtom, value)
-  }
-)
-
-export type ImageViewerRequest = {
-  imageId: number
-  requestId: number
-}
-
-export const imageViewerRequestAtom = atom<ImageViewerRequest | null>(null)
-export const openImageViewerAtom = atom(
-  null,
-  (get, set, imageId: number) => {
-    const previousRequest = get(imageViewerRequestAtom)
-    set(imageViewerRequestAtom, {
-      imageId,
-      requestId: (previousRequest?.requestId ?? 0) + 1,
-    })
-  }
-)
-
-export const selectedEmbeddingIdsAtom = atom<string[]>([])
 export const selectedTagsAtom = atom<string[]>([])
 export const steerSuggestionsAtom = atom(false)
 export const steerTaggedIdsAtom = atom<number[]>([])

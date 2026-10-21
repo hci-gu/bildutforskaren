@@ -17,6 +17,9 @@ Each view also has switches for the image-selection tag panel, reprojecting a
 selection, creating graph networks, and setting or replacing anchor A. Hidden
 boolean controls are inactive: disabling Advanced also disables generated cluster
 images, neighbor fidelity, photographer coloring/filtering, and tag grouping.
+The global Open image on selection switch opens the fullscreen viewer directly
+when clicking a canvas image, in both 2D and 3D. It defaults to off. Bulk selection
+continues to select images without opening the viewer.
 Settings apply to every dataset and load when opening the canvas. The API process
 needs write access to that file and its parent directory. Hiding this route
 does not provide access control; it uses the application's existing access rules.

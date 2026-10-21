@@ -105,6 +105,7 @@ export default function ConfigPage() {
           <section className="glass-panel rounded-xl px-5 py-2">
             <Toggle label={t('Ord i rummet')} checked={draft.words} onChange={() => update({ ...draft, words: !draft.words })} />
             <Toggle label={t('Typ av visning')} checked={draft.viewTypeOptions} onChange={() => update({ ...draft, viewTypeOptions: !draft.viewTypeOptions })} />
+            <Toggle label={t('Open image on selection')} checked={draft.openImageOnSelection === true} onChange={() => update({ ...draft, openImageOnSelection: !draft.openImageOnSelection })} />
           </section>
           <div className="space-y-3">
             {(Object.keys(viewLabels) as ViewType[]).map((view) => (

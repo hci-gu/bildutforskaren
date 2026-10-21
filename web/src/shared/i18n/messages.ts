@@ -443,6 +443,7 @@ export const messages = {
   'selectedImages_one': ['{0} bild vald', '{0} image selected'],
   'selectedImages_other': ['{0} bilder valda', '{0} images selected'],
   'Canvas configuration': ['Canvasinställningar', 'Canvas configuration'],
+  'Open image on selection': ['Öppna bild vid val', 'Open image on selection'],
   'Tag panel on image selection': ['Taggpanel vid bildval', 'Tag panel on image selection'],
   'Show this view type': ['Visa denna visningstyp', 'Show this view type'],
   'No view types are available for this dataset. Enable a view type in configuration.': ['Inga visningstyper är tillgängliga för detta dataset. Aktivera en visningstyp i inställningarna.', 'No view types are available for this dataset. Enable a view type in configuration.'],

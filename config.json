@@ -1,6 +1,7 @@
 {
   "words": true,
   "viewTypeOptions": true,
+  "openImageOnSelection": false,
   "views": {
     "umap": { "enabled": true, "search": true, "imageSize": true, "advanced": true, "filter": true, "colorPhotographer": true, "clusterImages": true, "tagPanel": true, "reprojectSelection": true, "createGraph": true, "setAnchorA": true, "dimension": true, "stability": true, "fidelity": true, "projectionParameters": true, "explanation": true, "minimap": true },
     "grid": { "enabled": true, "search": true, "imageSize": true, "advanced": true, "filter": true, "colorPhotographer": true, "clusterImages": true, "tagPanel": true, "reprojectSelection": true, "createGraph": true, "setAnchorA": true },

@@ -21,6 +21,7 @@ import {
   neighborFidelityResultAtom,
   neighborFidelitySettingsAtom,
   selectedEmbeddingAtom,
+  selectCanvasImageAtom,
   selectedEmbeddingIdsAtom,
   xaiImageFocusRequestAtom,
 } from '@/store'
@@ -411,6 +412,7 @@ export const Umap3DScene = () => {
   const trayCollapsed = useAtomValue(anchorAnalysisTrayCollapsedAtom)
   const trayHeight = useAtomValue(anchorAnalysisTrayHeightAtom)
   const setSelectedEmbedding = useSetAtom(selectedEmbeddingAtom)
+  const selectCanvasImage = useSetAtom(selectCanvasImageAtom)
   const setSelectedEmbeddingIds = useSetAtom(selectedEmbeddingIdsAtom)
   const lensStateRef = useRef<{
     result: ConceptLensResponse | null
@@ -777,8 +779,7 @@ export const Umap3DScene = () => {
       }
       const item = itemsByIdRef.current.get(imageId)
       if (item) {
-        setSelectedEmbedding({ id: item.id, meta: item.meta })
-        setSelectedEmbeddingIds([String(item.id)])
+        selectCanvasImage({ id: item.id, meta: item.meta })
       }
     }
     renderer.domElement.addEventListener('pointerdown', handlePointerDown)
@@ -863,8 +864,7 @@ export const Umap3DScene = () => {
     displaySettings.scale,
     projection.state,
     projectedItems,
-    setSelectedEmbedding,
-    setSelectedEmbeddingIds,
+    selectCanvasImage,
   ])
 
   useEffect(() => {
