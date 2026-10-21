@@ -4,10 +4,12 @@ import unittest
 from pathlib import Path
 import os
 import subprocess
+import sys
 import tempfile
 from unittest.mock import patch
 
 from scripts import launch_desktop as launcher
+from scripts import build_desktop_app as builder
 
 
 class DesktopLauncherTests(unittest.TestCase):
@@ -19,6 +21,7 @@ class DesktopLauncherTests(unittest.TestCase):
             launcher.start_service("web")
         spawn.assert_not_called()
 
+    @unittest.skipUnless(sys.platform == "darwin", "Requires macOS zsh")
     def test_shortcut_loads_nvm_default_without_shell_startup_files(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -97,6 +100,60 @@ class DesktopLauncherTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "Timed out"):
             launcher.ensure_services()
         start.assert_not_called()
+
+    def test_windows_builder_quotes_paths_and_preserves_unicode(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "Bild utforskaren å"
+            with patch.object(builder, "PROJECT_ROOT", root):
+                output = builder.build_app("windows")
+            script = output.read_text(encoding="utf-16")
+            self.assertEqual(output.suffix, ".vbs")
+            self.assertIn(f'""{root / ".venv" / "Scripts" / "pythonw.exe"}""', script)
+            self.assertIn(f'""{root / "scripts" / "launch_desktop.py"}""', script)
+            self.assertIn('0, False', script)
+            self.assertIn('files.FileExists', script)
+
+    def test_launch_lock_can_be_reacquired(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with patch.object(launcher, "LAUNCHER_DIR", Path(directory)):
+                with launcher.launch_lock():
+                    pass
+                with launcher.launch_lock():
+                    pass
+
+    @unittest.skipUnless(sys.platform == "win32", "Requires Windows process APIs")
+    def test_windows_process_check_does_not_call_os_kill(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "api.pid").write_text(str(os.getpid()))
+            with patch.object(launcher, "LAUNCHER_DIR", root), patch.object(launcher.os, "kill") as kill:
+                self.assertTrue(launcher.saved_process_running("api"))
+                (root / "api.pid").write_text("0")
+                self.assertFalse(launcher.saved_process_running("api"))
+                kill.assert_not_called()
+
+    @unittest.skipUnless(sys.platform == "win32", "Requires Windows creation flags")
+    @patch.object(launcher.subprocess, "Popen")
+    @patch.object(launcher.Path, "is_dir", return_value=True)
+    @patch.object(launcher.shutil, "which", side_effect=[r"C:\Program Files\pnpm\pnpm.cmd", "node.exe"])
+    def test_windows_pnpm_cmd_starts_hidden(self, which, is_dir, spawn):
+        with tempfile.TemporaryDirectory() as directory:
+            with patch.object(launcher, "LAUNCHER_DIR", Path(directory)):
+                spawn.return_value.pid = 123
+                launcher.start_service("web")
+        options = spawn.call_args.kwargs
+        self.assertTrue(options["shell"])
+        self.assertTrue(options["creationflags"] & subprocess.CREATE_NO_WINDOW)
+        self.assertNotIn("start_new_session", options)
+
+    @patch.object(launcher, "ensure_services")
+    @patch.object(launcher.webbrowser, "open", return_value=True)
+    def test_main_opens_browser_after_services_are_ready(self, browser, services):
+        with tempfile.TemporaryDirectory() as directory:
+            with patch.object(launcher, "LAUNCHER_DIR", Path(directory)):
+                self.assertEqual(launcher.main(), 0)
+        services.assert_called_once_with()
+        browser.assert_called_once_with(launcher.WEB_URL)
 
 
 if __name__ == "__main__":

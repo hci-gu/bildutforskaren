@@ -1,8 +1,8 @@
-"""Start local services once and open Bildutforskaren from a macOS shortcut."""
+"""Start local services once and open Bildutforskaren from a desktop shortcut."""
 
 from __future__ import annotations
 
-import fcntl
+from contextlib import contextmanager
 import json
 import os
 from pathlib import Path
@@ -13,6 +13,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
+import webbrowser
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -20,6 +21,54 @@ LAUNCHER_DIR = PROJECT_ROOT / ".cache" / "desktop-launcher"
 WEB_URL = "http://localhost:5173"
 STARTUP_TIMEOUT = 600
 HTTP = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+IS_WINDOWS = sys.platform == "win32"
+
+
+@contextmanager
+def launch_lock():
+    # Keep a byte in the file: Windows locks byte ranges rather than whole files.
+    with (LAUNCHER_DIR / "launch.lock").open("a+b") as lock:
+        lock.seek(0, os.SEEK_END)
+        if lock.tell() == 0:
+            lock.write(b"\0")
+            lock.flush()
+        if IS_WINDOWS:
+            import msvcrt
+
+            while True:
+                lock.seek(0)
+                try:
+                    msvcrt.locking(lock.fileno(), msvcrt.LK_NBLCK, 1)
+                    break
+                except OSError:
+                    time.sleep(0.2)
+            try:
+                yield
+            finally:
+                lock.seek(0)
+                msvcrt.locking(lock.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            yield
+
+
+def show_error(message: str) -> None:
+    if IS_WINDOWS:
+        import ctypes
+
+        ctypes.windll.user32.MessageBoxW(None, message, "Bildutforskaren could not open", 0x10)
+    else:
+        subprocess.run(
+            [
+                "osascript", "-e",
+                'on run argv\ndisplay alert "Bildutforskaren could not open" '
+                'message (item 1 of argv) as critical\nend run',
+                message,
+            ],
+            check=False,
+        )
 
 
 def service_ready(name: str, port: int) -> bool:
@@ -47,6 +96,23 @@ def saved_process_running(name: str) -> bool:
         pid = int((LAUNCHER_DIR / f"{name}.pid").read_text())
         if pid <= 0:
             return False
+        if IS_WINDOWS:
+            # os.kill(pid, 0) can terminate a process on Windows. Query it instead.
+            import ctypes
+            from ctypes import wintypes
+
+            kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+            kernel.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+            kernel.OpenProcess.restype = wintypes.HANDLE
+            kernel.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+            kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+            handle = kernel.OpenProcess(0x00100000, False, pid)  # SYNCHRONIZE
+            if not handle:
+                return False
+            try:
+                return kernel.WaitForSingleObject(handle, 0) == 0x00000102  # WAIT_TIMEOUT
+            finally:
+                kernel.CloseHandle(handle)
         os.kill(pid, 0)
         return True
     except (OSError, ValueError):
@@ -70,11 +136,20 @@ def start_service(name: str) -> subprocess.Popen:
             raise RuntimeError("Web setup is missing. Run pnpm install in web first.")
         if shutil.which("node") is None:
             raise RuntimeError(
-                "Node.js is missing from the launcher PATH. If you use NVM, "
+                "Node.js is missing from the launcher PATH. Install Node.js and restart the launcher. "
+                "On macOS, if you use NVM, "
                 "install Node and set its default version with nvm alias default <version>."
             )
         command = [executable, "dev", "--host", "127.0.0.1", "--port", "5173", "--strictPort"]
         cwd = PROJECT_ROOT / "web"
+    options = (
+        {
+            "creationflags": subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP,
+            # pnpm is commonly installed as pnpm.cmd on Windows.
+            "shell": executable.lower().endswith((".cmd", ".bat")),
+        }
+        if IS_WINDOWS else {"start_new_session": True}
+    )
     with (LAUNCHER_DIR / f"{name}.log").open("ab") as log:
         process = subprocess.Popen(
             command,
@@ -82,7 +157,7 @@ def start_service(name: str) -> subprocess.Popen:
             stdin=subprocess.DEVNULL,
             stdout=log,
             stderr=subprocess.STDOUT,
-            start_new_session=True,
+            **options,
         )
     (LAUNCHER_DIR / f"{name}.pid").write_text(str(process.pid))
     return process
@@ -124,25 +199,17 @@ def main() -> int:
     LAUNCHER_DIR.mkdir(parents=True, exist_ok=True)
     try:
         # Hold the lock through readiness checks so repeated clicks cannot launch duplicates.
-        with (LAUNCHER_DIR / "launch.lock").open("w") as lock:
+        with launch_lock():
             print("Opening Bildutforskaren. Model startup can take a few minutes…", flush=True)
-            fcntl.flock(lock, fcntl.LOCK_EX)
             ensure_services()
-            subprocess.run(["open", WEB_URL], check=True)
+            if not webbrowser.open(WEB_URL):
+                raise RuntimeError(f"Could not open your browser. Open {WEB_URL} manually.")
         print("Bildutforskaren is ready. You can close this window.", flush=True)
         return 0
     except (OSError, RuntimeError, subprocess.CalledProcessError) as exc:
         message = str(exc)
         print(message, file=sys.stderr, flush=True)
-        subprocess.run(
-            [
-                "osascript", "-e",
-                'on run argv\ndisplay alert "Bildutforskaren could not open" '
-                'message (item 1 of argv) as critical\nend run',
-                message,
-            ],
-            check=False,
-        )
+        show_error(message)
         return 1
 
 

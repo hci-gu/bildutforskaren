@@ -30,14 +30,36 @@ pipelines warm during startup by default; set
 
 *   **Note**: When a new ZIP file is uploaded, the API processes it as an isolated dataset under `datasets/<dataset-id>/`. It generates thumbnails, CLIP embeddings, and atlas data, which are cached per dataset so the collection can be reopened without repeating the initial processing.
 
-## Desktop launcher (macOS)
+## Desktop launcher (Windows and macOS)
+
+Complete backend and frontend installation first. These shortcuts use the repository
+and its installed dependencies; they do not bundle a standalone executable.
+The builder accepts `--os windows` or `--os mac` and defaults to the current OS.
+
+### Windows
+
+From PowerShell in the repository folder, run:
+
+```powershell
+.venv\Scripts\python.exe scripts/build_desktop_app.py --os windows
+```
+
+Copy `.cache\desktop-launcher\Bildutforskaren.vbs` to the Desktop and double-click
+it. It starts the services without a terminal window and opens the application
+in your default browser. Keep the repository in place; rebuild and replace the
+shortcut if you move it. Windows Script Host must be enabled to run the shortcut.
+Install `uv`, Node.js, and `pnpm` so they are available on your user PATH.
+
+### macOS
 
 After completing backend and frontend installation, double-click
 **Bildutforskaren.app** on the Desktop. This opens directly without Terminal
 or shell startup prompts. To rebuild the app after moving the repository, run
-`.venv/bin/python scripts/build_desktop_app.py` and copy the resulting
+`.venv/bin/python scripts/build_desktop_app.py --os mac` and copy the resulting
 `.cache/desktop-launcher/Bildutforskaren.app` to the Desktop.
 `Start Bildutforskaren.command` is also available for launching from Terminal.
+
+### Startup behavior (both platforms)
 
 The launcher starts the API and web server if needed, waits for both to be
 ready, and opens http://localhost:5173 in your default browser. Clicking it
