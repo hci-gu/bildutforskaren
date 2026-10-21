@@ -50,6 +50,7 @@ import {
   FIT_PROJECTION_BUTTON_HEIGHT,
 } from '../constants'
 import { useAnchorAnalysis } from '../hooks/useAnchorAnalysis'
+import { CanvasWidget, useCanvasWidget } from './CanvasWidget'
 
 const ImageDisplayer = ({ bottomOffset = 0 }: { bottomOffset?: number }) => {
   useLanguage()
@@ -133,6 +134,7 @@ export const HUD = ({
   onDeselectClusterPreview?: () => void
 } = {}) => {
   useLanguage()
+  const createGraphEnabled = useCanvasWidget('createGraph')
   const [selectionHistory, setSelectionHistory] = useAtom(selectionHistoryAtom)
   const setActiveEmbeddingIds = useSetAtom(activeEmbeddingIdsAtom)
   const activeEmbeddingIds = useAtomValue(activeEmbeddingIdsAtom)
@@ -348,12 +350,14 @@ export const HUD = ({
         <span>{t('Visa alla bilder')}</span>
       </button>}
       {(selectedTags.length === 0 || selectedEmbedding) && (
+        <CanvasWidget name="tagPanel">
         <TaggerPanel
           position="left"
           offsetBottom={
             (selectedEmbedding && hasMeta ? 220 : 24) + bottomOffset
           }
         />
+        </CanvasWidget>
       )}
       {selectedTags.length > 0 && <TagResultsPanel />}
 
@@ -416,7 +420,7 @@ export const HUD = ({
                   {t('Deselect')} </button>
             </>
           )}
-          {showGraphForm && selectedEmbeddingIds.length === 1 && (
+          {createGraphEnabled && showGraphForm && selectedEmbeddingIds.length === 1 && (
             <div className="glass-panel-strong absolute bottom-full left-1/2 mb-3 w-80 -translate-x-1/2 rounded-xl p-4 text-xs text-white shadow-xl">
                 <div className="mb-3 text-sm font-medium">{t('Create graph network')}</div>
               <div className="grid grid-cols-2 gap-3">
@@ -589,6 +593,7 @@ export const HUD = ({
                 }}
               >
                   {t('Deselect')} </button>
+              <CanvasWidget name="reprojectSelection">
               <button
                 className="rounded-full bg-white/90 px-3 py-1 text-xs text-black hover:bg-white"
                 onClick={() => {
@@ -601,9 +606,11 @@ export const HUD = ({
                 }}
               >
                   {t('Reproject with selection')} </button>
+              </CanvasWidget>
             </>
           )}
           {anchorGroups.a.length === 0 && selectedEmbeddingIds.length > 0 && (
+            <CanvasWidget name="setAnchorA">
             <button
               type="button"
               className="rounded-full bg-amber-300 px-3 py-1 text-xs text-black hover:bg-amber-200"
@@ -616,11 +623,13 @@ export const HUD = ({
               }
             >
                 {t('Set as A')} </button>
+            </CanvasWidget>
           )}
           {anchorGroups.a.length > 0 &&
             anchorGroups.b.length === 0 &&
             selectedEmbeddingIds.length > 0 && (
               <>
+                <CanvasWidget name="setAnchorA">
                 <button
                   type="button"
                   className="rounded-full border border-amber-300/60 px-3 py-1 text-xs text-amber-100 hover:bg-amber-300/10"
@@ -633,6 +642,7 @@ export const HUD = ({
                   }
                 >
                     {t('Replace A')} </button>
+                </CanvasWidget>
                 <button
                   type="button"
                   className="rounded-full bg-cyan-300 px-3 py-1 text-xs text-black hover:bg-cyan-200"
@@ -651,6 +661,7 @@ export const HUD = ({
             anchorGroups.b.length > 0 &&
             selectedEmbeddingIds.length > 0 && (
               <>
+                <CanvasWidget name="setAnchorA">
                 <button
                   type="button"
                   className="rounded-full border border-amber-300/60 px-3 py-1 text-xs text-amber-100 hover:bg-amber-300/10"
@@ -663,6 +674,7 @@ export const HUD = ({
                   }
                 >
                     {t('Replace A')} </button>
+                </CanvasWidget>
                 <button
                   type="button"
                   className="rounded-full border border-cyan-300/60 px-3 py-1 text-xs text-cyan-100 hover:bg-cyan-300/10"
@@ -703,7 +715,7 @@ export const HUD = ({
             >
                 {t('Clear anchors')} </button>
           )}
-          {selectedEmbeddingIds.length === 1 && (
+          {createGraphEnabled && selectedEmbeddingIds.length === 1 && (
             <button
               type="button"
               className="rounded-full bg-cyan-200 px-3 py-1 text-xs text-black hover:bg-cyan-100"

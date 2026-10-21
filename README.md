@@ -13,6 +13,10 @@ Save configuration. The API saves settings to the repository-root `config.json`.
 Each view type also has a Show this view type switch to control whether it
 appears in the canvas dropdown. Disabling the current view selects the first
 available enabled view. If none are available, the canvas links back to configuration.
+Each view also has switches for the image-selection tag panel, reprojecting a
+selection, creating graph networks, and setting or replacing anchor A. Hidden
+boolean controls are inactive: disabling Advanced also disables generated cluster
+images, neighbor fidelity, photographer coloring/filtering, and tag grouping.
 Settings apply to every dataset and load when opening the canvas. The API process
 needs write access to that file and its parent directory. Hiding this route
 does not provide access control; it uses the application's existing access rules.

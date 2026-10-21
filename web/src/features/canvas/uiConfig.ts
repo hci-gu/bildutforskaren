@@ -5,6 +5,19 @@ export type UiConfig = typeof defaults
 export type ViewType = keyof UiConfig['views']
 export const uiConfigAtom = atom<UiConfig>(defaults)
 
+const advancedWidgets = new Set([
+  'stability', 'fidelity', 'projectionParameters', 'graphLayout', 'groupTagged',
+  'colorPhotographer', 'clusterImages', 'filter',
+])
+
+export function canvasWidgetEnabled(config: UiConfig, view: string, name: string): boolean {
+  const viewDefaults = defaults.views[view as ViewType]
+  if (!viewDefaults || !(name in viewDefaults)) return false
+  const widgets = config.views[view as ViewType] as Record<string, boolean> | undefined
+  if (widgets?.enabled === false || widgets?.[name] === false) return false
+  return !advancedWidgets.has(name) || widgets?.advanced !== false
+}
+
 export function enabledViewTypes(config: UiConfig): ViewType[] {
   return (Object.keys(defaults.views) as ViewType[]).filter((view) => config.views[view]?.enabled !== false)
 }

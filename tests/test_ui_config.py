@@ -68,6 +68,15 @@ class UiConfigTests(unittest.TestCase):
         self.assertTrue(saved["views"]["umap"]["enabled"])
         self.assertFalse(saved["views"]["umap"]["search"])
 
+    def test_selection_widget_settings_persist_independently_per_view(self):
+        controls = {"tagPanel": False, "reprojectSelection": False, "createGraph": False, "setAnchorA": False}
+        response = self.client.put("/ui-config", json={"views": {"umap": controls}})
+        self.assertEqual(response.status_code, 200)
+        saved = self.client.get("/ui-config").get_json()
+        for control in controls:
+            self.assertFalse(saved["views"]["umap"][control])
+            self.assertTrue(saved["views"]["grid"][control])
+
 
 if __name__ == "__main__":
     unittest.main()

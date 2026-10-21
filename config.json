@@ -2,10 +2,10 @@
   "words": true,
   "viewTypeOptions": true,
   "views": {
-    "umap": { "enabled": true, "search": true, "imageSize": true, "advanced": true, "filter": true, "colorPhotographer": true, "clusterImages": true, "dimension": true, "stability": true, "fidelity": true, "projectionParameters": true, "explanation": true, "minimap": true },
-    "grid": { "enabled": true, "search": true, "imageSize": true, "advanced": true, "filter": true, "colorPhotographer": true, "clusterImages": true },
-    "tagged": { "enabled": true, "search": true, "imageSize": true, "advanced": true, "filter": true, "colorPhotographer": true, "clusterImages": true, "groupTagged": true, "datasetStatus": true },
-    "graph": { "enabled": true, "search": true, "imageSize": true, "advanced": true, "filter": true, "colorPhotographer": true, "clusterImages": true, "graphLayout": true },
-    "year": { "enabled": true, "search": true, "imageSize": true, "advanced": true, "filter": true, "colorPhotographer": true, "clusterImages": true }
+    "umap": { "enabled": true, "search": true, "imageSize": true, "advanced": true, "filter": true, "colorPhotographer": true, "clusterImages": true, "tagPanel": true, "reprojectSelection": true, "createGraph": true, "setAnchorA": true, "dimension": true, "stability": true, "fidelity": true, "projectionParameters": true, "explanation": true, "minimap": true },
+    "grid": { "enabled": true, "search": true, "imageSize": true, "advanced": true, "filter": true, "colorPhotographer": true, "clusterImages": true, "tagPanel": true, "reprojectSelection": true, "createGraph": true, "setAnchorA": true },
+    "tagged": { "enabled": true, "search": true, "imageSize": true, "advanced": true, "filter": true, "colorPhotographer": true, "clusterImages": true, "tagPanel": true, "reprojectSelection": true, "createGraph": true, "setAnchorA": true, "groupTagged": true, "datasetStatus": true },
+    "graph": { "enabled": true, "search": true, "imageSize": true, "advanced": true, "filter": true, "colorPhotographer": true, "clusterImages": true, "tagPanel": true, "reprojectSelection": true, "createGraph": true, "setAnchorA": true, "graphLayout": true },
+    "year": { "enabled": true, "search": true, "imageSize": true, "advanced": true, "filter": true, "colorPhotographer": true, "clusterImages": true, "tagPanel": true, "reprojectSelection": true, "createGraph": true, "setAnchorA": true }
   }
 }

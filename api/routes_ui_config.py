@@ -13,7 +13,10 @@ from api.config import REPO_ROOT
 bp = Blueprint("ui_config", __name__)
 CONFIG_PATH = REPO_ROOT / "config.json"
 _lock = Lock()
-_common = ["enabled", "search", "imageSize", "advanced", "filter", "colorPhotographer", "clusterImages"]
+_common = [
+    "enabled", "search", "imageSize", "advanced", "filter", "colorPhotographer",
+    "clusterImages", "tagPanel", "reprojectSelection", "createGraph", "setAnchorA",
+]
 DEFAULT_CONFIG = {
     "words": True,
     "viewTypeOptions": True,

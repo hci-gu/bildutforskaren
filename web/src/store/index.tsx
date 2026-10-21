@@ -1,5 +1,6 @@
 import { atom } from 'jotai'
-import { uiConfigAtom } from '@/features/canvas/uiConfig'
+import { canvasWidgetEnabled, uiConfigAtom } from '@/features/canvas/uiConfig'
+import { configuredAtom } from './configuredAtom'
 import { atomFamily, loadable } from 'jotai/utils'
 import {
   fetchDatasetImages,
@@ -417,20 +418,26 @@ export const filteredEmbeddingsAtom = atom(async (get) => {
   return filtered
 })
 
-export const projectionSettingsAtom = atom({
+export const projectionSettingsAtom = configuredAtom({
   type: 'grid',
   nNeighbors: 15,
   minDist: 0.1,
   spread: 1,
   seed: 1,
   groupTaggedByTag: false,
-})
+}, (get, settings) => ({
+  ...settings,
+  groupTaggedByTag: settings.groupTaggedByTag && canvasWidgetEnabled(get(uiConfigAtom), settings.type, 'groupTagged'),
+}))
 
 export const projectionViewModeAtom = atom<'2d' | '3d'>('2d')
-export const neighborFidelitySettingsAtom = atom({
+export const neighborFidelitySettingsAtom = configuredAtom({
   enabled: false,
   k: 10,
-})
+}, (get, settings) => ({
+  ...settings,
+  enabled: settings.enabled && canvasWidgetEnabled(get(uiConfigAtom), get(projectionSettingsAtom).type, 'fidelity'),
+}))
 export const neighborFidelityResultAtom =
   atom<import('@/shared/lib/api').NeighborFidelityResponse | null>(null)
 export const neighborFidelityStatusAtom = atom<
@@ -442,7 +449,9 @@ export type SelectedSaoConcept = {
   label: string
   scope_note: string
 }
-export const explanationPanelOpenAtom = atom(false)
+export const explanationPanelOpenAtom = configuredAtom(false, (get, open) =>
+  open && canvasWidgetEnabled(get(uiConfigAtom), get(projectionSettingsAtom).type, 'explanation')
+)
 export const explanationTabAtom = atom<'concept' | 'cluster' | 'stability'>(
   'concept'
 )
@@ -535,20 +544,30 @@ export const anchorAnalysisTrayHeightAtom = atom(
     : Math.max(240, Math.round(window.innerHeight * 0.34))
 )
 
-export const displaySettingsAtom = atom({
+export const displaySettingsAtom = configuredAtom({
   colorPhotographer: false,
   showClusterImages: false,
   clusterImagesDatasetId: null as string | null,
   scale: 1,
+}, (get, settings) => {
+  const config = get(uiConfigAtom)
+  const view = get(projectionSettingsAtom).type
+  return {
+    ...settings,
+    colorPhotographer: settings.colorPhotographer && canvasWidgetEnabled(config, view, 'colorPhotographer'),
+    showClusterImages: settings.showClusterImages && canvasWidgetEnabled(config, view, 'clusterImages'),
+  }
 })
 
-export const filterSettingsAtom = atom<{
+export const filterSettingsAtom = configuredAtom<{
   year: string | null
   photographer: string | null
 }>({
   year: null,
   photographer: null,
-})
+}, (get, settings) => canvasWidgetEnabled(get(uiConfigAtom), get(projectionSettingsAtom).type, 'filter')
+  ? settings : { ...settings, photographer: null }
+)
 
 export const activeEmbeddingIdsAtom = atom<string[] | null>(null)
 export const selectionHistoryAtom = atom<(string[] | null)[]>([])

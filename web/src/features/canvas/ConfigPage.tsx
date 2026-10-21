@@ -14,6 +14,8 @@ const widgetLabels = {
   stability: 'Cluster stability analysis', fidelity: 'Neighbor fidelity',
   projectionParameters: 'Projektionsparametrar', explanation: 'Förklaring (XAI)',
   minimap: 'Minimap', groupTagged: 'Gruppera taggade efter tagg', datasetStatus: 'Datasetstatus', graphLayout: 'Graph layout',
+  tagPanel: 'Tag panel on image selection', reprojectSelection: 'Reproject with selection',
+  createGraph: 'Create graph network', setAnchorA: 'Set as A',
 } as const
 
 function Toggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: () => void }) {
