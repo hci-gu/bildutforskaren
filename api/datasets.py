@@ -7,7 +7,7 @@ import shutil
 import uuid
 import zipfile
 from datetime import datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Iterable
 
 from api import config
@@ -184,17 +184,59 @@ def safe_zip_members(z: zipfile.ZipFile) -> Iterable[zipfile.ZipInfo]:
         if not name or name.startswith("/") or name.startswith("\\"):
             continue
 
-        parts = Path(name).parts
+        # ZIP paths use '/', but accept Windows separators consistently on all hosts.
+        name = name.replace("\\", "/")
+        if PureWindowsPath(name).drive:
+            continue
+        parts = PurePosixPath(name).parts
         if ".." in parts:
             continue
 
         # Skip macOS metadata files (e.g. __MACOSX/._foo.jpg)
         if "__MACOSX" in parts:
             continue
-        if Path(name).name.startswith("._"):
+        if PurePosixPath(name).name.startswith("._"):
             continue
 
         yield info
+
+
+def _upload_image_path(root: Path, archive_name: str, used_names: set[str]) -> Path:
+    """Flatten ZIP folders, keeping portable basenames where possible."""
+    name = PurePosixPath(archive_name.replace("\\", "/")).name
+    name = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", name).rstrip(" .")
+    suffix = PurePosixPath(name).suffix
+    stem = name[:-len(suffix)] if suffix else name
+    reserved = re.fullmatch(
+        r"CON|PRN|AUX|NUL|COM[1-9¹²³]|LPT[1-9¹²³]",
+        name.split(".", 1)[0].rstrip(" "),
+        re.IGNORECASE,
+    )
+    if reserved:
+        stem = "_" + stem
+    stem = stem or "image"
+
+    def fits(candidate: str) -> bool:
+        # Leave headroom below MAX_PATH even when Windows long paths are disabled.
+        return (
+            len(candidate.encode("utf-8")) <= 200
+            and len(str(root / candidate).encode("utf-16-le")) // 2 < 240
+        )
+
+    number = 1
+    while True:
+        marker = "" if number == 1 else f"_{number}"
+        shortened = stem
+        while shortened and not fits(shortened + marker + suffix):
+            shortened = shortened[:-1]
+        if not shortened:
+            raise ValueError("Dataset storage path is too long; install in a shorter directory")
+        name = shortened + marker + suffix
+        if name.casefold() not in used_names and not (root / name).exists():
+            break
+        number += 1
+    used_names.add(name.casefold())
+    return root / name
 
 
 def extract_zip_to_originals(dataset_id: str, file_stream) -> int:
@@ -211,17 +253,26 @@ def extract_zip_to_originals(dataset_id: str, file_stream) -> int:
         raise ValueError("Could not read zip") from exc
 
     extracted = 0
+    used_names: set[str] = set()
+    original_names: dict[str, str] = {}
     try:
         for info in safe_zip_members(z):
-            suffix = Path(info.filename).suffix.lower()
+            suffix = PurePosixPath(info.filename.replace("\\", "/")).suffix.lower()
             if suffix not in config.IMAGE_TYPES:
                 continue
 
-            out_path = cfg.original_root / info.filename
-            out_path.parent.mkdir(parents=True, exist_ok=True)
-            with z.open(info) as src, out_path.open("wb") as dst:
-                shutil.copyfileobj(src, dst, length=1024 * 1024)
+            out_path = _upload_image_path(cfg.original_root, info.filename, used_names)
+            try:
+                with z.open(info) as src, out_path.open("xb") as dst:
+                    shutil.copyfileobj(src, dst, length=1024 * 1024)
+            except (OSError, zipfile.BadZipFile, RuntimeError) as exc:
+                raise ValueError(f"Could not extract ZIP entry {info.filename!r}: {exc}") from exc
+            original_names[out_path.name] = info.orig_filename
             extracted += 1
+        (cfg.cache_dir / "upload_filenames.json").write_text(
+            json.dumps(original_names, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
     finally:
         try:
             z.close()

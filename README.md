@@ -114,6 +114,8 @@ This spins up a web server on: http://localhost:5173/
 
 Starting from scratch, provide a `.zip` file of images to create a dataset. 
 
+Uploaded image folders are flattened. Windows-invalid filename characters are replaced with underscores, reserved device names receive an underscore prefix, and long filenames are shortened. Duplicate names (including case-only differences) receive a numeric suffix so images are not overwritten. Ordinary filenames and Unicode characters are preserved. The original ZIP paths are recorded in each dataset's `cache/upload_filenames.json`. Absolute paths and parent-directory traversal entries are skipped.
+
 ### Interface language
 
 Use the **Svenska / English** selector at the top right of the dataset selection
